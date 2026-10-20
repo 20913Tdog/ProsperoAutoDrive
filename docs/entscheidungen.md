@@ -120,13 +120,17 @@ Bestanden im zweiten Lauf (E3, Build `46a55e4`):
 
 Bestanden (E3, Build `299cb3d`, WLAN, 7 abwechselnde Läufe je Richtung mit 256 MiB, Median):
 
-- Lesen: SMB 3,90 MB/s gegen FTP 4,06 MB/s, also **96 %**.
-- Schreiben: SMB 7,10 MB/s gegen FTP 7,20 MB/s, also **98 %**.
-- Das WLAN begrenzt, nicht SMB. Beide schwanken gemeinsam, und die Abstände liegen im Rauschen.
-- **SMB 3.1.1 bleibt.** SMB 2.1 mit HMAC-SHA256 ist im WLAN nicht schneller. Die AES-CMAC-Signatur kostet etwa 20 ms CPU je MiB, das begrenzt SMB 3.1.1 auf rund 26 MiB/s. Im WLAN ist das egal, im Kabelnetz nicht. Die schnelle AES-CMAC bleibt für Phase 4 vorgemerkt.
-- **Dateigröße:** 256 MiB statt 2 GiB je Lauf. Mit 2 GiB hätte der Test im WLAN über 2 Stunden gedauert.
-- **Offen: Wartezeit unter Last.** Eine kleine Datei braucht während einer großen Kopie 2,9 s statt 44 ms. Es ist keine G1-Bedingung, würde aber im Explorer auffallen. Vermutlich vergibt libsmb2 jeden verlangten Kredit und beantwortet in der Reihenfolge der Anfragen. Das wird in Phase 2 geprüft (Kredite begrenzen, kleine Antworten vorziehen).
-- **G2:** Dieselbe Messung ergäbe schon jetzt über 95 %. Gewertet wird erst am Build, der 1.0.0 wird.
+- Lesen: SMB 3,90 MB/s gegen FTP 4,06 MB/s, also **96 %**. Je Runde verglichen streut das Verhältnis von 70 bis 119 %, Median 100 %.
+- Schreiben: SMB 7,10 MB/s gegen FTP 7,20 MB/s, also **98 %**. Je Runde 96 bis 101 %.
+- Beim Schreiben ist SMB gleichauf mit FTP. Beim Lesen im Median ebenfalls, aber mit 7 Runden nur auf etwa ±8 % genau.
+- **SMB 3.1.1 bleibt.** Es erreicht ohnehin fast die FTP-Werte. Der Vergleich mit SMB 2.1 (HMAC) lief nur 3-mal und ohne FTP-Lauf daneben.
+- **CPU:** AES-CMAC kostet etwa 20 ms je MiB mehr als HMAC-SHA256. Der ganze Server braucht 36 bis 39 ms je MiB in einem Thread. Er kommt damit höchstens auf etwa 26 bis 27 MiB/s. Im WLAN spielt das keine Rolle, im Kabelnetz schon. Die schnelle AES-CMAC bleibt für Phase 4 vorgemerkt.
+- **Dateigröße:** 256 MiB statt 2 GiB je Lauf. Mit 2 GiB hätte der Test im WLAN über 2 Stunden gedauert. Der Vorschlag kam von mir, der Projektverantwortliche hat mit „weiter mit S4“ zugestimmt.
+- **Offen: Wartezeit unter Last.** Eine kleine Datei braucht während einer großen Kopie 2,9 s statt 44 ms. Für G1 zählt das nicht, im Explorer würde es aber auffallen.
+  - **Belegt im Code:** libsmb2 gewährt jeden verlangten Kredit, liest ungebremst weiter und stellt Antworten hinten an.
+  - **Nicht belegt:** welcher Puffer wie viel der Wartezeit ausmacht. Infrage kommen die Sendeschlange, der Sendepuffer von 1 MiB und WLAN und Router.
+  - Erst wird gemessen, dann behoben (siehe S4 im Spike-README).
+- **G2 (≥ 95 %):** Aus dieser Messung lässt sich G2 nicht sicher ablesen. Beim Schreiben liegt SMB klar über 95 %. Beim Lesen streuen die Runden zu stark, dafür braucht es mehr Runden oder den Median der Verhältnisse je Runde. Gewertet wird ohnehin erst am Build, der 1.0.0 wird.
 
 Das Gate G1 ist damit noch nicht entschieden, denn S5, S6 und S7 fehlen noch.
 

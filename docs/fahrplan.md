@@ -35,7 +35,7 @@ Vor G1 entsteht kein Produktcode.
 - **Bestanden:** Der Median von SMB erreicht in jeder Richtung mindestens 70 % von ftpsrv (G1).
 - **Dateigröße:** 256 MiB je Lauf, entschieden am 20.10.2026. Der alte Plan sah 2 GiB vor. Im WLAN mit 5–8 MB/s hätte ein Lauf damit etwa 5 Minuten gedauert, alle 28 Läufe über 2 Stunden.
 - Ablauf und Auswertung: [`tests/spikes/README.md`](../tests/spikes/README.md#s4--reicht-der-durchsatz)
-- **Ergebnis:** bestanden. Lesen 96 %, Schreiben 98 % von ftpsrv. Die Wartezeit für eine kleine Datei steigt unter Last von 44 ms auf 2,9 s, das wird in Phase 2 angegangen.
+- **Ergebnis:** bestanden. Lesen 96 %, Schreiben 98 % von ftpsrv. Beim Lesen streuen die Runden stark (70–119 %). Die Wartezeit für eine kleine Datei steigt unter Last von 44 ms auf 2,9 s. Das wird in Phase 2 erst gemessen, dann behoben.
 
 ### S5 – Ruhemodus und Neustart
 
@@ -70,7 +70,9 @@ Go für natives SMB, wenn S1, S2, S3, S6 und S7 bestanden sind und S4 mindestens
 - Zugangsdaten mit Anzeige als PS5-Benachrichtigung
 - Konfiguration, Ringlog, Weiterlaufen nach dem Ruhemodus, Plattformschicht
 - UDP-Liveness mit Server-ID und Uhrausgleich (Variante 1)
-- **Antwortzeit unter Last:** Kredite begrenzen und kleine Antworten vorziehen. S4 maß 2,9 s für eine kleine Datei während einer großen Kopie. Das Skript `S4-Check.cmd` misst es erneut.
+- **Antwortzeit unter Last:** S4 maß 2,9 s für eine kleine Datei während einer großen Kopie.
+  - Zuerst messen, welcher Puffer wie viel davon ausmacht: die Sendeschlange von libsmb2 (jeder Kredit wird gewährt, Antworten stehen hinten an), der Sendepuffer von 1 MiB oder WLAN und Router.
+  - Dann gezielt beheben: Kredite begrenzen, kleine Antworten vorziehen, Sendepuffer verkleinern. `S4-Check.cmd` misst die Wirkung.
 - offene Punkte aus S3:
   - **Sicherheitsbeschreibung** (QUERY_INFO Typ 3): Der Explorer fragt sie oft ab, in S3 über 3000-mal. Sie gehört zur Registerkarte „Sicherheit“.
   - **Verzeichnisklasse 0x51:** Windows weicht aus, das kostet je Ordner eine zusätzliche Anfrage.
@@ -121,9 +123,9 @@ Go für natives SMB, wenn S1, S2, S3, S6 und S7 bestanden sind und S4 mindestens
 
 - **CHANGE_NOTIFY:** Der Explorer aktualisiert sich selbst.
 - **Ereignisse:** PC-Standby, WLAN-Wechsel, IP-Wechsel
-- **Worker-Threads** für READ/WRITE, nur falls die Begrenzung der Kredite aus Phase 2 die Antwortzeit unter Last nicht genug senkt
+- **Worker-Threads** für READ/WRITE, nur falls die Maßnahmen aus Phase 2 die Antwortzeit unter Last nicht genug senken
 - **Serverseitiges Kopieren**, in S3 als nicht unterstützter IOCTL gesehen: Kopieren innerhalb von `P:` läuft sonst zweimal durchs WLAN.
-- **Schnellere AES-CMAC-Signatur**, falls für G2 nötig. S2b hat 30 ms CPU je MiB gemessen.
+- **Schnellere AES-CMAC-Signatur** für Kabelnetze. S4 hat etwa 20 ms CPU je MiB mehr als mit HMAC gemessen. Im WLAN bremst sie nicht.
 - **Leases**, optional, für schnelleres Lesen. Dann muss erneut nachgewiesen werden, dass ein Kopierabbruch sichtbar bleibt und nichts nachgesendet wird.
 - **72-Stunden-Dauertest** in der CI mit zufälligen Server-Neustarts
 - **Signierung prüfen:** SignPath Foundation oder Microsoft Store, beide kostenlos

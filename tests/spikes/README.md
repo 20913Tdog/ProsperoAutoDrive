@@ -352,19 +352,29 @@ Geschrieben wird nur `schreiben-smb.bin` und `schreiben-ftp.bin` im neuen Testor
 
 ### Ergebnis: G1 bestanden (E3, 20.10.2026, Build `299cb3d`, WLAN)
 
-`S4-CHECK: G1 BESTANDEN`. 7 abwechselnde Runden je Richtung mit 256 MiB, alle Dateien Byte für Byte gleich.
+`S4-CHECK: G1 BESTANDEN`. 7 abwechselnde Runden je Richtung mit 256 MiB. Byte für Byte verglichen wurden die erste Kopie (SHA-256) und die beiden Lesedateien aus Runde 1. Bei allen anderen Läufen, auch bei allen Schreibläufen, prüft das Skript nur die Größe.
 
-| Richtung | SMB 3.1.1 (Median) | ftpsrv (Median) | SMB in % von FTP | Spanne SMB | Spanne FTP |
+| Richtung | SMB 3.1.1 (Median) | ftpsrv (Median) | Verhältnis der Mediane | Median der Verhältnisse je Runde | Spanne der Verhältnisse |
 |---|---|---|---|---|---|
-| Lesen | 3,90 MB/s | 4,06 MB/s | **96 %** | 2,78–4,56 | 3,38–4,34 |
-| Schreiben | 7,10 MB/s | 7,20 MB/s | **98 %** | 6,56–7,25 | 6,58–7,32 |
+| Lesen | 3,90 MB/s | 4,06 MB/s | **96 %** | 100 % | 70–119 % |
+| Schreiben | 7,10 MB/s | 7,20 MB/s | **98 %** | 99 % | 96–101 % |
+
+Das Verhältnis je Runde vergleicht SMB mit dem FTP-Lauf direkt daneben. So fällt die Drift des WLANs heraus. Das Skript wertet nur das Verhältnis der Mediane aus. Die beiden rechten Spalten sind von Hand aus der Ausgabe nachgerechnet.
 
 **Bewertung:**
-- **WLAN begrenzt, nicht SMB.** SMB und FTP liegen in jeder Runde nah beieinander und schwanken gemeinsam, etwa in Runde 6 und 7. Lesen ist bei beiden fast halb so schnell wie Schreiben, das liegt am Funkweg der PS5. 96 und 98 % liegen im Rauschen des WLANs.
-- **Signatur:** SMB 2.1 mit HMAC-SHA256 bringt im WLAN nichts (Lesen 4,00, Schreiben 6,56 MB/s, je 3 Läufe). **SMB 3.1.1 bleibt.**
-- **CPU der PS5:** 36 bis 39 ms je MiB mit AES-CMAC, 16 bis 18 ms mit HMAC. Die Signatur kostet also etwa 20 ms je MiB, und zwar auf einem Kern. Im WLAN sind das 14 % (Lesen) bis 26 % (Schreiben) eines Kerns. Bei einer Grenze von rund 26 MiB/s für SMB 3.1.1 spielt das erst im Kabelnetz eine Rolle.
-- **Wartezeit unter Last: 2925 ms** je kleine Datei während einer großen Kopie, gegenüber 44 ms ohne Last. Das ist das Risiko R4. Es betrifft nicht G1, wohl aber das Gefühl im Explorer: Wer währenddessen einen Ordner öffnet, wartet mehrere Sekunden.
-  - **Vermutung, nicht belegt:** libsmb2 gibt dem Client jeden Kredit, den er verlangt (`lib/pdu.c`), und schickt die Antworten in der Reihenfolge der Anfragen. Windows legt mehrere 1-MiB-Lesevorgänge nebeneinander an. Bei 4 MB/s dauert es dann Sekunden, bis die Antworten davor draußen sind.
-  - **Prüfen in Phase 2:** Kredite begrenzen und kleine Antworten vorziehen. Worker-Threads allein würden daran nichts ändern, wenn die Vermutung stimmt.
+- **G1 (≥ 70 %) ist in beiden Richtungen klar erreicht.**
+- **Schreiben:** SMB ist gleichauf mit FTP, in jeder Runde zwischen 96 und 101 %. Beide fallen in Runde 6 und 7 gemeinsam ab, dort begrenzt das WLAN.
+- **Lesen:** Im Median auch gleichauf, aber die Einzelrunden streuen stark, von 70 bis 119 %. Mit 7 Runden liegt das Leseverhältnis nur auf etwa ±8 % genau fest. Zweimal fiel SMB-Lesen auf etwa 2,7 MB/s (Runde 7, Profil c Runde 2), FTP-Lesen nie unter 3,38 MB/s. Bei so wenigen Läufen ist das nicht belastbar, aber im Blick zu behalten.
+- **Lesen ist bei beiden Protokollen nur gut halb so schnell wie Schreiben.** Am Protokoll liegt das also nicht. Woran sonst, ist offen, zum Beispiel an der Funkstrecke, am Router oder am PC.
+- **Signatur:** SMB 2.1 mit HMAC-SHA256 war nicht schneller (Lesen 4,00, Schreiben 6,56 MB/s, je 3 Läufe). Belastbar ist dieser Vergleich nicht: Die 3 Läufe kamen am Ende, ohne FTP-Lauf daneben, und das WLAN war da schon schwächer. Das stärkere Argument: SMB 3.1.1 erreicht ohnehin fast die FTP-Werte, die Signatur kann im WLAN also kaum bremsen. **SMB 3.1.1 bleibt.**
+- **CPU der PS5 (ganzer Prozess, getrusage):** 36 bis 39 ms je MiB mit SMB 3.1.1, 16 bis 18 ms mit SMB 2.1. **AES-CMAC kostet also etwa 20 ms je MiB mehr als HMAC-SHA256.**
+  - Der Server läuft in einem einzigen Thread. Bei 36 bis 39 ms je MiB kommt er höchstens auf etwa 26 bis 27 MiB/s, mit HMAC auf etwa 56 MiB/s.
+  - Im WLAN war der Prozess zu 14 % (Lesen) und 26 % (Schreiben) ausgelastet. Der Aufpreis von AES-CMAC macht davon etwa 7 und 14 Prozentpunkte aus.
+  - Eine Rolle spielt das erst im Kabelnetz.
+- **Wartezeit unter Last: 2925 ms** je kleine Datei während einer großen Kopie, gegenüber 44 ms ohne Last. Es ist eine Messung mit 20 Lesevorgängen. Für G1 zählt sie nicht, wohl aber für das Gefühl im Explorer: Ein Ordner öffnet sich während einer Kopie vermutlich erst nach Sekunden.
+  - Je kleine Datei schickt Windows mehrere Anfragen (öffnen, lesen, schließen). Jede Anfrage wartet also grob 0,7 bis 1 s.
+  - **Belegt (Code von libsmb2):** Der Server gewährt jeden Kredit, den der Client verlangt (`lib/pdu.c`). Er liest immer weitere Anfragen, ohne zu bremsen (`smb2_which_events` in `lib/socket.c`), und hängt jede Antwort hinten an die Sendeschlange an (`SMB2_LIST_ADD_END`). Eine kleine Antwort wartet also hinter allen großen Leseantworten, die schon in der Schlange stehen.
+  - **Nicht belegt:** wie viel der Wartezeit von dieser Schlange kommt. Weitere Puffer stehen in derselben Reihe: der Sendepuffer von 1 MiB aus Profil b, bei 4 MB/s etwa 0,25 s, dazu die Puffer in WLAN und Router. Wie viele Lesevorgänge Windows gleichzeitig offen hält, ist ebenfalls nicht gemessen.
+  - **Nächster Schritt:** Erst messen, dann beheben. Der Server soll ausgeben, wie lange eine Anfrage bei ihm liegt und wie voll die Sendeschlange ist. Verglichen werden dabei Sendepuffer mit 1 MiB gegen den Standard und Kredite unbegrenzt gegen begrenzt. Erst danach wird entschieden, ob Kredite begrenzt, kleine Antworten vorgezogen oder Worker-Threads gebaut werden. Worker-Threads allein lösen einen Stau in der Sendeschlange nicht.
 - **Uhr:** unverändert 1 Stunde vor (Kernel-UTC 22:35:56, github.com 21:35:59). Die Prüfung ab dem 26.10. steht noch aus.
 - Im Status stehen wie in S3 nur bekannte `unsupported:`-Zeilen (Verzeichnisklasse 0x51, Sicherheitsabfrage, Offload-Lesen). Das `connection_end` kommt vom Umschalten auf Profil c.
