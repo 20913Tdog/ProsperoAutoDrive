@@ -13,9 +13,9 @@ Evidenzebenen: **E1** Unit unter Linux, **E2** Protokoll-CI mit echtem Windows-C
 | S3 | Funktioniert Schreiben? | bestanden (E3) |
 | S4 | Reicht der Durchsatz? | bestanden (E3): Lesen 96 %, Schreiben 98 % von ftpsrv |
 | S5 | Übersteht der Server Ruhemodus und Neustart? | entfällt als Live-Test, wird in der CI simuliert |
-| **S6** | Ist er in der CI mit echtem Windows-Client testbar? | **in Arbeit** |
-| S7 | Klappt die Discovery ohne Firewall-Dialog? | offen |
-| **G1** | Go für natives SMB? | nach S6 und S7 |
+| S6 | Ist er in der CI mit echtem Windows-Client testbar? | bestanden (E2) |
+| **S7** | Klappt die Discovery ohne Firewall-Dialog? | **als Nächstes** |
+| **G1** | Go für natives SMB? | nach S7 |
 | Phase 2 | PS5-Server `prospero-smbd.elf` | |
 | Phase 3 | Windows-Programm `ProsperoAutoDrive.exe` | erstes Release 0.1.0 |
 | Phase 4 | Härtung | weitere 0.x |
@@ -46,9 +46,7 @@ Vor G1 entsteht kein Produktcode.
 - **Windows-Runner:** der echte SMB-Client von Windows gegen den echten Servercode, als Smoke-Test.
 - **Linux-Runner:** `mount -t cifs` und eine Teilmenge von smbtorture.
 - **Bestanden:** Beide Jobs sind grün auf dem veröffentlichten Commit.
-- **Zu klären:**
-  - Wie der Server auf dem Windows-Runner läuft, ohne MSVC: als Windows-Build mit llvm-mingw, was eine Windows-Schicht für das POSIX-Backend braucht, oder als Linux-Build in WSL 1.
-  - Welcher Port: Auf dem Runner belegt Windows selbst Port 445. Möglich sind der Alternativport 4445 (Client ab Windows 11 24H2 bzw. Server 2025) oder das Abschalten des Windows-Serverdienstes auf dem Runner.
+- **Ergebnis (E2, 21.10.2026):** bestanden. Der Server läuft als statischer Linux-Build in WSL 1 und hört auf Port 4450, der Client verbindet sich per `/TCPPORT`. `S3-Check.cmd` besteht dort komplett. smbtorture besteht 13 von 43 Teiltests, diese Liste darf nicht schlechter werden. `dev-build` hängt jetzt an beiden Jobs. Details: [`tests/spikes/README.md`](../tests/spikes/README.md#s6--lässt-sich-der-server-in-der-ci-mit-echten-clients-testen)
 
 ### S7 – Discovery ohne Firewall-Dialog
 

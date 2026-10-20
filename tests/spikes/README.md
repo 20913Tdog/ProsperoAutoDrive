@@ -378,3 +378,33 @@ Das Verhältnis je Runde vergleicht SMB mit dem FTP-Lauf direkt daneben. So fäl
   - **Nächster Schritt:** Erst messen, dann beheben. Der Server soll ausgeben, wie lange eine Anfrage bei ihm liegt und wie voll die Sendeschlange ist. Verglichen werden dabei Sendepuffer mit 1 MiB gegen den Standard und Kredite unbegrenzt gegen begrenzt. Erst danach wird entschieden, ob Kredite begrenzt, kleine Antworten vorgezogen oder Worker-Threads gebaut werden. Worker-Threads allein lösen einen Stau in der Sendeschlange nicht.
 - **Uhr:** unverändert 1 Stunde vor (Kernel-UTC 22:35:56, github.com 21:35:59). Die Prüfung ab dem 26.10. steht noch aus.
 - Im Status stehen wie in S3 nur bekannte `unsupported:`-Zeilen (Verzeichnisklasse 0x51, Sicherheitsabfrage, Offload-Lesen). Das `connection_end` kommt vom Umschalten auf Profil c.
+
+## S6 – Lässt sich der Server in der CI mit echten Clients testen?
+
+**Frage:** Können der echte SMB-Client von Windows und der Linux-Kernel-Client in der CI gegen unseren echten Servercode laufen, ohne MSVC und ohne PS5?
+
+**Aufbau (Jobs in `.github/workflows/ci.yml`):**
+
+- Die CI baut den Server zusätzlich statisch für Linux (`host-servers`). Es ist derselbe Code wie auf der PS5, nur mit der Plattform Linux statt PS5.
+- **`windows-client` (windows-2025):**
+  - Der Server läuft in WSL 1, in einem minimalen Alpine-Rootfs, das per Prüfsumme gepinnt ist. WSL 1 teilt sich das Netz mit Windows.
+  - Port 445 belegt Windows selbst, deshalb hört der Server auf 4450. Der Client verbindet sich mit `net use ... /TCPPORT:4450`.
+  - Dann läuft **dasselbe `S3-Check.cmd` wie auf der PS5** (Umgebungsvariable `PROSPERO_SMB_PORT`).
+- **`linux-cifs` (ubuntu-24.04):**
+  - Kernel-Mount per `mount -t cifs`, SMB 3.1.1 mit Signing. Alle Prüfsummen werden gelesen, eine Datei wird geschrieben.
+  - Dazu eine Auswahl aus `smbtorture`, verglichen mit [`smbtorture-pass.txt`](smbtorture-pass.txt): Fällt ein Teiltest aus dieser Liste durch, schlägt die CI fehl. Neu bestandene meldet der Job, sie werden von Hand ergänzt.
+- `dev-build` wird nur veröffentlicht, wenn beide Jobs grün sind.
+
+### Ergebnis: bestanden (E2, 21.10.2026, Builds `b26d89c` und `e3e1b99`)
+
+- **Windows-Client:** `S3-CHECK: ALLES OK` mit Windows Server 2025, Signing Pflicht, Gastzugang aus. Bytes, Größen, Zeiten und alle 13 Dateivorgänge stimmen. Die `unsupported:`-Zeilen sind dieselben wie live auf der PS5, bis auf die Anzahl (Verzeichnisklasse 0x51, Sicherheitsabfrage 3015-mal, die beiden IOCTLs).
+- **Linux-cifs:** Einhängen, Lesen mit Prüfsummen und Schreiben funktionieren.
+- **smbtorture:** 13 von 43 Teiltests bestehen und stehen jetzt in der Liste. Die 30 übrigen zeigen, was in Phase 2 fehlt, vor allem Freigabemodi und Delete-on-Close (`smb2.delete-on-close-perms`, `smb2.rename`), Dateiinformationen (`smb2.getinfo`, `smb2.setinfo`) und `smb2.connect`.
+
+**Was die CI nicht abdeckt (dafür bleibt E3):**
+
+- Port 445: In der CI läuft alles über den Alternativport.
+- das Dateisystem der PS5: In der CI ist es das von WSL 1 bzw. Linux. Zum Beispiel haben neue Dateien dort die Rechte `0644`, auf der PS5 `0666`.
+- der PS5-Build selbst, Ruhemodus, WLAN, Durchsatz
+
+**Kleiner Unterschied:** Auf der PS5 stimmten alle Zeiten exakt, in der CI weichen ohne Toleranz etwa 1350 von 1507 ab. Die Testdateien entstehen dort mit Nanosekunden, `utimes()` setzt nur Mikrosekunden. Mit 2 s Toleranz stimmen alle.

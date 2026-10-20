@@ -146,6 +146,20 @@ Ruhemodus und Neustart der PS5 werden nicht als eigener Spike live getestet. Sta
   Das zeigt sich erst im normalen Betrieb in Phase 5. Das Log des Programms belegt es dort.
 - G1 hing ohnehin nicht an S5.
 
+### S6: Der echte Windows-Client läuft in der CI (21.10.2026)
+
+Bestanden (E2). Auf `windows-2025` besteht der echte SMB-Client von Windows das komplette `S3-Check.cmd`, dasselbe Skript wie live auf der PS5. Der Linux-Kernel-Client (cifs) liest und schreibt, eine Auswahl aus smbtorture läuft mit.
+
+- **Server auf dem Windows-Runner:** der statische Linux-Build in WSL 1 mit einem minimalen Alpine-Rootfs, gepinnt per Prüfsumme.
+  - **Warum:** Es ist derselbe Code und dieselbe POSIX-Semantik wie bei den Linux-Tests, ohne eigene Windows-Schicht für das Backend.
+  - **Verworfen:**
+    - **Windows-Build mit llvm-mingw:** Das bräuchte eine Windows-Schicht nur für Tests, und NTFS verhält sich anders als das Dateisystem der PS5.
+    - **MSYS2:** NTFS ohne Unterscheidung von Groß- und Kleinschreibung, dazu eine zweite Toolchain.
+    - **Eine fertige Action für WSL:** Das wäre Fremdcode in der CI. `wsl --import` reicht.
+- **Port:** In der CI 4450 mit `/TCPPORT`, denn Port 445 belegt Windows selbst. Port 445 bleibt Sache von E3.
+- **smbtorture:** 13 von 43 Teiltests bestehen. Sie stehen in `tests/spikes/smbtorture-pass.txt`. Fällt einer davon durch, schlägt die CI fehl. Die 30 übrigen sind Arbeit für Phase 2.
+- **Ab jetzt** wird `dev-build` nur veröffentlicht, wenn beide Client-Jobs grün sind.
+
 ### Regel: nur libkernel-Funktionen auf der PS5
 
 Das SDK enthält in `libc.a` für jede FreeBSD-Systemaufrufnummer einen nackten Aufruf. Diese Aufrufe setzen `errno` nicht, und auf der PS5 kann eine Nummer etwas anderes bedeuten. In S3 hat `utimensat()` deshalb nichts getan.

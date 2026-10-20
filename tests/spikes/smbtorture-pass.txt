@@ -2,3 +2,16 @@
 # The CI fails when one of them stops passing. Newly passing subtests are
 # reported in the linux-cifs job and added here by hand.
 # Format: <suite> <subtest>
+smb2.delete-on-close-perms BUG14427
+smb2.dir 1kfiles_rename
+smb2.dir find
+smb2.dir large-files
+smb2.dir many
+smb2.dir sorted
+smb2.read dir
+smb2.rename close-full-information
+smb2.rename msword
+smb2.rename no_sharing
+smb2.rename rename_dir_bench
+smb2.rename share_delete_no_delete_access
+smb2.rename simple
