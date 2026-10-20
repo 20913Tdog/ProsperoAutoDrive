@@ -23,11 +23,19 @@ done
 folder="$(status | sed -n 's/^folder=//p')"
 [ -d "$folder" ] || { echo "no test folder reported" >&2; exit 1; }
 
-# Signing required, SMB 3.1.1 unless a test asks for another dialect.
-smb() {
-  smbclient "//127.0.0.1/s2" -p "$PORT" -U "prospero%$PASS" \
-    --client-protection=sign "$@"
+# smbc <share> <user%password> <args...>: signing required, SMB 3.1.1 unless
+# a test asks for another dialect.
+# libsmb2 sends no SPNEGO mechListMIC. Samba's client insists on one as soon
+# as NTLM carries a MIC; force_old_spnego makes it leave the MIC out. Whether
+# Windows needs the mechListMIC is part of the live test (E3).
+smbc() {
+  local share="$1" cred="$2"
+  shift 2
+  smbclient "//127.0.0.1/$share" -p "$PORT" -U "$cred" --client-protection=sign \
+    --option='ntlmssp_client:force_old_spnego=yes' "$@"
 }
+
+smb() { smbc s2 "prospero%$PASS" "$@"; }
 
 # expect_fail <NT_STATUS text> <command...>: smbclient must report the error.
 expect_fail() {
@@ -55,7 +63,7 @@ echo "== case 2: full recursive download over SMB 3.1.1 with signing"
 diff -r "$folder" "$WORK/dl"
 echo "case 2 passed"
 
-echo "== case 3: SMB 2.0.2 and 2.1 dialects"
+echo "== case 3: dialects 2.0.2 to 3.0.2"
 for proto in SMB2_02 SMB2_10 SMB3_00 SMB3_02; do
   smb --option="client min protocol=$proto" -m "$proto" \
     -c "get hello.txt $WORK/hello-$proto.txt" >/dev/null
@@ -91,10 +99,8 @@ expect_fail NT_STATUS_ smb -c "get ..\\..\\..\\..\\etc\\hostname $WORK/escape.tx
 echo "case 7 passed"
 
 echo "== case 8: wrong password and unknown share are rejected"
-expect_fail NT_STATUS_LOGON_FAILURE smbclient //127.0.0.1/s2 -p "$PORT" \
-  -U 'prospero%falsch' --client-protection=sign -c ls
-expect_fail NT_STATUS_BAD_NETWORK_NAME smbclient //127.0.0.1/gibtsnicht -p "$PORT" \
-  -U "prospero%$PASS" --client-protection=sign -c ls
+expect_fail NT_STATUS_LOGON_FAILURE smbc s2 'prospero%falsch' -c ls
+expect_fail NT_STATUS_BAD_NETWORK_NAME smbc gibtsnicht "prospero%$PASS" -c ls
 echo "case 8 passed"
 
 echo "== case 9: file and volume information"
