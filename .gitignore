@@ -1,0 +1,31 @@
+# Build output - binaries are published via the "dev" pre-release, never committed
+build/
+out/
+dist/
+cmake-build-*/
+*.obj
+*.o
+*.a
+*.lib
+*.exp
+*.pdb
+*.ilk
+*.exe
+*.dll
+*.elf
+*.map
+
+# IDE / editor state
+.vs/
+.vscode/
+*.user
+*.suo
+
+# Local test and diagnostic output
+*.log
+diag-*/
+_ProsperoAutoDrive_Test_*/
+
+# Local configuration and secrets
+*.local.ini
+*.local.json

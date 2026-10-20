@@ -1,2 +1,19 @@
-# Auto detect text files and perform LF normalization
+# Store text with LF in the repository, check out with native line endings.
 * text=auto
+
+# Windows-only files need CRLF on checkout.
+*.cmd               text eol=crlf
+*.bat               text eol=crlf
+*.sln               text eol=crlf
+*.vcxproj           text eol=crlf
+*.vcxproj.filters   text eol=crlf
+
+# Unix tooling needs LF on checkout.
+*.sh                text eol=lf
+*.yml               text eol=lf
+*.yaml              text eol=lf
+Makefile            text eol=lf
+
+# Binary assets (sources only; build outputs never go into git).
+*.png               binary
+*.ico               binary

@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  guards:
+    name: guards
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: No binaries or large files in git
+        run: |
+          set -euo pipefail
+          fail=0
+          while IFS= read -r -d '' f; do
+            size=$(stat -c %s "$f")
+            if [ "$size" -gt 1048576 ]; then
+              echo "::error file=$f::larger than 1 MiB ($size bytes) - publish via the dev pre-release instead"
+              fail=1
+            fi
+            [ "$size" -eq 0 ] && continue
+            case "$f" in
+              *.png|*.ico) continue ;;
+            esac
+            if [ "$(file -b --mime-encoding "$f")" = "binary" ]; then
+              echo "::error file=$f::binary file - build outputs belong in the dev pre-release, not in git"
+              fail=1
+            fi
+          done < <(git ls-files -z)
+          exit $fail
