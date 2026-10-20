@@ -1,4 +1,4 @@
-/* Prospero AutoDrive - Spikes S2 and S3: SMB server prototype
+/* Prospero AutoDrive - Spikes S2 to S4: SMB server prototype
  *
  * Copyright (C) 2026 Prospero AutoDrive contributors
  *
@@ -10,12 +10,13 @@
  * Questions answered by these spikes: does the libsmb2 server engine with
  * our own file system backend serve a folder to the Windows 11 SMB client
  * (NTLMv2, signing required) correctly and completely - read-only (S2), and
- * read-write (S3)?
+ * read-write (S3)? Is it fast enough compared with ftpsrv (S4)?
  *
  * The payload creates a new test folder with deterministic files
- * (testdata.c) and shares exactly that folder as \\<ps5>\s2 (read-only) or
- * \\<ps5>\s3 (read-write), depending on SPIKE at build time. Nothing
- * outside that folder is read or written.
+ * (testdata.c) and shares exactly that folder as \\<ps5>\s2 (read-only),
+ * \\<ps5>\s3 or \\<ps5>\s4 (read-write, S4 with an extra 256 MiB file),
+ * depending on SPIKE at build time. Nothing outside that folder is read or
+ * written.
  * User "prospero", random password shown as a PS5 notification. GET / on
  * TCP 4445 reports status and the requests the backend does not support,
  * GET /quit stops the server. It also stops by itself after RUN_SECONDS.
@@ -56,15 +57,25 @@
 #define CONTROL_PORT 4445
 #define USER_NAME    "prospero"
 
-/* S2 keeps profile 'a' as default, the setup it was measured with. S3
- * starts with 'b', the result of S2b. */
-#if SPIKE == 3
+/* S2 keeps profile 'a' as default, the setup it was measured with. S3 and
+ * S4 start with 'b', the result of S2b. The S4 run takes about 30 minutes,
+ * on a slow WLAN more than an hour. */
+#if SPIKE == 4
+#define NAME         "Prospero S4"
+#define TAG          "PROSPERO-S4"
+#define SHARE_NAME   "s4"
+#define WRITABLE     1
+#define PROFILE      'b'
+#define RUN_SECONDS  5400
+#define BIG_MIB      256
+#elif SPIKE == 3
 #define NAME         "Prospero S3"
 #define TAG          "PROSPERO-S3"
 #define SHARE_NAME   "s3"
 #define WRITABLE     1
 #define PROFILE      'b'
 #define RUN_SECONDS  1800
+#define BIG_MIB      0
 #else
 #define NAME         "Prospero S2"
 #define TAG          "PROSPERO-S2"
@@ -72,6 +83,7 @@
 #define WRITABLE     0
 #define PROFILE      'a'
 #define RUN_SECONDS  900
+#define BIG_MIB      0
 #endif
 
 
@@ -364,7 +376,7 @@ main(int argc, char **argv) {
   }
 
   notify(NAME ": lege Testordner an ...");
-  if((rc=testdata_create(base, g_folder, sizeof g_folder))) {
+  if((rc=testdata_create(base, g_folder, sizeof g_folder, BIG_MIB))) {
     notify(NAME ": FEHLER Testordner: %s (%s)", strerror(-rc), g_folder);
     return 1;
   }

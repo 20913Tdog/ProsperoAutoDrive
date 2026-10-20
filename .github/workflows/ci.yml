@@ -149,6 +149,10 @@ jobs:
         shell: bash
         run: bash tests/spikes/s3-host-test.sh build/host/bin/s3-smbserver 2>&1 | tee -a ci.log
 
+      - name: S4 throughput server against smbclient (E1)
+        shell: bash
+        run: bash tests/spikes/s4-host-test.sh build/host/bin/s4-smbserver 2>&1 | tee -a ci.log
+
       - name: Failure details as annotation (readable without login)
         if: failure()
         run: bash .github/scripts/annotate-tail.sh ci.log

@@ -13,8 +13,9 @@
 #include <stddef.h>
 
 /* Creates <base>/_ProsperoAutoDrive_Test_<UTC timestamp>-<random> and fills
- * it with the S2 test files. The folder path is written to out. Never
+ * it with the S2 test files, plus pattern-<big_mib>MiB.bin unless big_mib is
+ * 0. The folder path is written to out. Never
  * touches anything outside the new folder, never deletes, never retries.
  * Returns 0, or -errno of the first step that failed; out then still names
  * the folder for a read-only look. */
-int testdata_create(const char *base, char *out, size_t size);
+int testdata_create(const char *base, char *out, size_t size, size_t big_mib);

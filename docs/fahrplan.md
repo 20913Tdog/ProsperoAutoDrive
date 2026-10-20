@@ -11,7 +11,7 @@ Evidenzebenen: **E1** Unit unter Linux, **E2** Protokoll-CI mit echtem Windows-C
 | S1 | Ist Port 445 auf der PS5 frei? | bestanden (E3) |
 | S2, S2b | Bedient libsmb2 Windows korrekt, und wie schnell? | bestanden (E3) |
 | S3 | Funktioniert Schreiben? | bestanden (E3) |
-| **S4** | Reicht der Durchsatz? | **als Nächstes** |
+| **S4** | Reicht der Durchsatz? | **bereit zum Live-Test** |
 | S5 | Übersteht der Server Ruhemodus und Neustart? | offen |
 | S6 | Ist er in der CI mit echtem Windows-Client testbar? | offen |
 | S7 | Klappt die Discovery ohne Firewall-Dialog? | offen |
@@ -31,9 +31,10 @@ Vor G1 entsteht kein Produktcode.
 - Dazu:
   - die Signatur mit HMAC-SHA256 (SMB 2.1) gegen AES-CMAC (SMB 3.1.1)
   - die CPU-Zeit auf der PS5
-  - die Antwortzeit einer Verzeichnisliste während einer großen Kopie, weil libsmb2 Anfragen nacheinander bearbeitet (Risiko R4)
+  - die Antwortzeit beim Lesen einer kleinen Datei während einer großen Kopie, weil libsmb2 Anfragen nacheinander bearbeitet (Risiko R4)
 - **Bestanden:** Der Median von SMB erreicht in jeder Richtung mindestens 70 % von ftpsrv (G1).
-- **Dateigröße:** Der alte Plan sah 2 GiB vor. Im WLAN mit 5–8 MB/s dauert ein Lauf damit etwa 5 Minuten, alle 28 Läufe über 2 Stunden. Vorschlag: 256 MiB je Lauf, zusammen etwa 30 Minuten.
+- **Dateigröße:** 256 MiB je Lauf, entschieden am 20.10.2026. Der alte Plan sah 2 GiB vor. Im WLAN mit 5–8 MB/s hätte ein Lauf damit etwa 5 Minuten gedauert, alle 28 Läufe über 2 Stunden.
+- Ablauf und Auswertung: [`tests/spikes/README.md`](../tests/spikes/README.md#s4--reicht-der-durchsatz)
 
 ### S5 – Ruhemodus und Neustart
 
@@ -126,6 +127,8 @@ Go für natives SMB, wenn S1, S2, S3, S6 und S7 bestanden sind und S4 mindestens
 - **Signierung prüfen:** SignPath Foundation oder Microsoft Store, beide kostenlos
 
 ## Phase 5 – Live-Abnahme (E3) und Release 1.0.0
+
+**Wird gekürzt (20.10.2026):** Der Projektverantwortliche hält den Umfang unten für zu groß. Eine schlankere Fassung wird noch abgestimmt.
 
 Alle Schreibtests laufen nur im neu angelegten Testordner:
 

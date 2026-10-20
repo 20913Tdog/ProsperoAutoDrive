@@ -13,6 +13,7 @@
  *   MixedCase.txt                    for case-insensitive lookups
  *   pattern-1MiB.bin                 xorshift32 stream, first 1 MiB
  *   pattern-64MiB.bin                same stream, 64 MiB (many READs)
+ *   pattern-<N>MiB.bin               same stream, N MiB, only if asked (S4)
  *   Ordner mit Leerzeichen/Grüße äöü €.txt
  *   tief/1/2/3/4/5/6/7/8/ende.txt    deep path
  *   viele/datei-NNNN-....txt         1500 files (directory paging)
@@ -185,9 +186,10 @@ put_deep(const char *dir) {
 
 
 int
-testdata_create(const char *base, char *out, size_t size) {
+testdata_create(const char *base, char *out, size_t size, size_t big_mib) {
   time_t now = time(NULL);
   char sub[1024];
+  char big[32];
   uint32_t rnd;
   struct tm tm;
   int rc;
@@ -217,6 +219,10 @@ testdata_create(const char *base, char *out, size_t size) {
      (rc=put_deep(out)) ||
      (rc=put_many(out))) {
     return rc;
+  }
+  if(big_mib) {
+    snprintf(big, sizeof big, "pattern-%uMiB.bin", (unsigned)big_mib);
+    return put_pattern(out, big, big_mib);
   }
   return 0;
 }

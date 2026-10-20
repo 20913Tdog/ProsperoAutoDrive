@@ -317,3 +317,35 @@ Build `20de186` blieb nach dem Start stumm: Die PS5 zeigte „bereit“, doch au
   - **Vermutung:** Die Sommerzeit steckt in der Kernel-Uhr selbst. Dann verschwindet die Abweichung nach dem Ende der Sommerzeit am 25.10.2026. Prüfbar ist das mit einem Lauf ab dem 26.10.
   - **Sicher ist:** Die Abweichung ist konstant und lässt sich messen.
 - **Für das Produkt** muss der Server die Abweichung in beide Richtungen ausgleichen: abziehen, wenn er Zeiten meldet, und addieren, wenn ein Client Zeiten setzt. So bleiben die Zeiten auf der Platte im Zeitbezug der PS5, passend zu ftpsrv und anderen Programmen, und Windows sieht echte Zeiten. Woher der Server die Abweichung kennt, ist noch zu entscheiden.
+
+## S4 – Reicht der Durchsatz?
+
+**Frage:** Erreicht SMB im WLAN mindestens 70 % des Durchsatzes von ftpsrv, in beiden Richtungen (Gate G1)? Was kostet die Signatur, und wie lange wartet eine kleine Anfrage, während eine große Kopie läuft?
+
+**Was das Payload tut:** `prospero-s4-smbserver.elf` legt wie in S3 einen **neuen** Testordner an und gibt ihn als `\<PS5-IP>\s4` zum Lesen und Schreiben frei. Dazu kommt die Datei `pattern-256MiB.bin`. Profil b wie in S3. Das Payload läuft höchstens 90 Minuten.
+
+**Bereits geprüft (E1, CI unter Linux, Samba-`smbclient`):** 256-MiB-Datei mit richtiger Prüfsumme, Lesen und zweimaliges Überschreiben per SMB, Umschalten auf Profil c mit SMB 2.1, Zähler für CPU und Bytes. Gemessen wird dort nichts.
+
+### Ablauf auf deinem PC
+
+`tools\Run-Test.cmd` starten, denn S4 ist der aktuelle Test. Explorer-Fenster zur PS5 vorher schließen. ftpsrv muss auf Port 2121 laufen. Der Lauf dauert etwa 30 Minuten, bei schwachem WLAN bis zu einer Stunde. Das Skript schätzt die Dauer nach der ersten Kopie. In der Zeit am PC und auf der PS5 möglichst nichts im Netz laden.
+
+Was `tests\spikes\S4-Check.cmd` dabei misst:
+
+1. **Vorbereitung:** prüft, ob ftpsrv antwortet, holt die Datei einmal per SMB und prüft ihre SHA-256.
+2. **Kleine Datei lesen:** 20-mal `hello.txt`, einmal ohne Last und einmal während einer großen Kopie.
+3. **7 Runden mit Profil b** (SMB 3.1.1, AES-CMAC): je Runde SMB lesen, FTP lesen, SMB schreiben und FTP schreiben. Die Reihenfolge wechselt jede Runde, damit Schwankungen im WLAN beide gleich treffen. In Runde 1 werden die gelesenen Dateien zusätzlich Byte für Byte verglichen.
+4. **3 Runden mit Profil c** (SMB 2.1, HMAC-SHA256), nur SMB.
+5. **Auswertung:** Median je Richtung, SMB in Prozent von FTP, CPU-Zeit der PS5 je MiB.
+
+Geschrieben wird nur `schreiben-smb.bin` und `schreiben-ftp.bin` im neuen Testordner, jede Runde neu überschrieben. Schlägt eine Übertragung fehl, endet die Messung ohne Wiederholung.
+
+### Auswertung
+
+| Ergebnis | Bedeutung | Konsequenz |
+|---|---|---|
+| `S4-CHECK: G1 BESTANDEN` | Median SMB ≥ 70 % von FTP in beiden Richtungen | S4 bestanden, weiter mit S5 |
+| `G1 NICHT ERREICHT`, Profil c deutlich schneller | Die Signatur bremst | schnelle AES-CMAC, dann neu messen |
+| `G1 NICHT ERREICHT`, Profil c ähnlich, CPU niedrig | Wartezeiten im Protokoll oder im Server | Ablauf untersuchen, z. B. mehr parallele Anfragen |
+| kleine Datei während der Kopie sehr langsam (Sekunden) | Der Server bearbeitet Anfragen nacheinander (Risiko R4) | Worker-Threads in Phase 4 einplanen |
+| `S4-CHECK: FEHLER` | Eine Übertragung ist fehlgeschlagen | Ausgabe analysieren, nichts automatisch wiederholen |

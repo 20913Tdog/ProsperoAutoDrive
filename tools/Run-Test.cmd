@@ -11,7 +11,7 @@ setlocal EnableExtensions EnableDelayedExpansion
 chcp 65001 >nul
 
 rem The test the owner is asked to run right now.
-set "DEFAULT_TEST=S3"
+set "DEFAULT_TEST=S4"
 
 rem git pull may rewrite this very file, and cmd reads a running batch file
 rem from disk as it goes. So the pull runs from a copy in %TEMP%, which then
@@ -66,6 +66,7 @@ if not defined PS5 (
 )
 
 set "ELF="
+set "DURATION=einige Minuten"
 if /i "%TEST%"=="S2" (
   set "ELF=prospero-s2-smbserver.elf"
   set "SCRIPT=S2-Check.cmd"
@@ -81,8 +82,14 @@ if /i "%TEST%"=="S3" (
   set "SCRIPT=S3-Check.cmd"
   set "TAG=PROSPERO-S3"
 )
+if /i "%TEST%"=="S4" (
+  set "ELF=prospero-s4-smbserver.elf"
+  set "SCRIPT=S4-Check.cmd"
+  set "TAG=PROSPERO-S4"
+  set "DURATION=etwa 30 bis 60 Minuten"
+)
 if not defined ELF (
-  echo FEHLER: Unbekannter Test "%TEST%". Bekannt sind S2, S2b und S3.
+  echo FEHLER: Unbekannter Test "%TEST%". Bekannt sind S2, S2b, S3 und S4.
   exit /b 2
 )
 
@@ -216,7 +223,7 @@ if not defined PROSPERO_PW (
 echo Passwort erhalten.
 
 echo.
-call :say 6/6 Test %TEST% laeuft, das dauert einige Minuten
+call :say 6/6 Test %TEST% laeuft, das dauert %DURATION%
 set "PROSPERO_AUTO=1"
 call "%ROOT%\tests\spikes\%SCRIPT%" %PS5%
 set "TEST_RC=%errorlevel%"
