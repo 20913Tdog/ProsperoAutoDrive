@@ -251,8 +251,9 @@ jobs:
           true
 
   # Spike S6 (E2): the Linux kernel client (cifs) and a smbtorture subset
-  # against the same static server build. smbtorture results are reported,
-  # not yet enforced: S6 asks whether this can run in CI at all.
+  # against the same static server build. The prototype fails many
+  # smbtorture subtests; the job fails only if one of the baseline
+  # (tests/spikes/smbtorture-pass.txt) stops passing.
   linux-cifs:
     name: linux-cifs
     needs: [ps5-host-test]
@@ -294,19 +295,9 @@ jobs:
             sudo umount "$RUNNER_TEMP/mnt"
           } 2>&1 | tee -a ci.log
 
-      - name: smbtorture subset (reported, not enforced)
+      - name: smbtorture subset against the baseline
         shell: bash
-        run: |
-          for t in smb2.connect smb2.read smb2.dir smb2.rename smb2.setinfo smb2.getinfo smb2.delete-on-close-perms; do
-            if timeout 300 smbtorture //127.0.0.1/s3 -p 4450 -U "prospero%$PW" \
-                 --option=ntlmssp_client:force_old_spnego=yes --option=clientsigning=required \
-                 "$t" > "torture-$t.log" 2>&1; then r=PASS; else r="FAIL($?)"; fi
-            ok=$(grep -c '^success:' "torture-$t.log" || true)
-            bad=$(grep -c -E '^(failure|error):' "torture-$t.log" || true)
-            echo "$t: $r, $ok success, $bad failure/error" | tee -a torture.log
-            grep -E '^(failure|error):' "torture-$t.log" | head -n 8 | sed 's/^/    /' >> torture.log || true
-          done
-          true
+        run: bash .github/scripts/smbtorture-subset.sh 4450 "$PW" tests/spikes/smbtorture-pass.txt
 
       - name: Results as annotation (readable without login)
         if: always()
@@ -321,7 +312,7 @@ jobs:
   publish-dev:
     name: publish-dev
     if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
-    needs: [guards, ps5-build, ps5-host-test]
+    needs: [guards, ps5-build, ps5-host-test, windows-client, linux-cifs]
     runs-on: ubuntu-24.04
     permissions:
       contents: write

@@ -1,0 +1,4 @@
+# smbtorture subtests that pass against the S3 server (spike S6, E2).
+# The CI fails when one of them stops passing. Newly passing subtests are
+# reported in the linux-cifs job and added here by hand.
+# Format: <suite> <subtest>
