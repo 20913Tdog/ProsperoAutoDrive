@@ -169,6 +169,17 @@ Bestanden (E3, Build `ff9d50a`, Windows 11 25H2, normaler Benutzer, Firewall-Pro
 - **Für das Programm heißt das:** Die PS5 wird über die gespeicherte IP gefunden. Ändert sich die IP, hilft der Broadcast, und die Server-ID sagt, ob es dieselbe PS5 ist.
 - **Noch offen für Phase 2:** der endgültige UDP-Port (im Spike 4446) und eine dauerhafte Server-ID statt einer zufälligen je Start.
 
+## Gate G1: Go für natives SMB (21.10.2026)
+
+Der Projektverantwortliche hat G1 freigegeben. Erfüllt waren S1 bis S4, S6 und S7, S5 entfiel. Der Rückfallweg (eigenes Protokoll mit WinFsp) wird nicht gebraucht. Ab jetzt entsteht Produktcode, beginnend mit Phase 2 (PS5-Server `prospero-smbd.elf`).
+
+- **Bekannt und offen:**
+  - die Wartezeit unter Last (2,9 s)
+  - 30 von 43 smbtorture-Teiltests
+  - die Sommerzeit-Prüfung ab 26.10.
+  - Ruhemodus und Neustart im normalen Betrieb
+- **Hinweis des Projektverantwortlichen zum Passwort:** Eine PS5-Benachrichtigung verschwindet und taucht danach **nicht** in der Liste der Benachrichtigungen auf. Ein Passwort, das nur einmal so angezeigt wird, reicht für das Produkt also nicht. Der Weg zum Passwort wird im Entwurf für Phase 2 entschieden.
+
 ### Regel: nur libkernel-Funktionen auf der PS5
 
 Das SDK enthält in `libc.a` für jede FreeBSD-Systemaufrufnummer einen nackten Aufruf. Diese Aufrufe setzen `errno` nicht, und auf der PS5 kann eine Nummer etwas anderes bedeuten. In S3 hat `utimensat()` deshalb nichts getan.

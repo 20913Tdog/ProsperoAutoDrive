@@ -15,8 +15,8 @@ Evidenzebenen: **E1** Unit unter Linux, **E2** Protokoll-CI mit echtem Windows-C
 | S5 | Übersteht der Server Ruhemodus und Neustart? | entfällt als Live-Test, wird in der CI simuliert |
 | S6 | Ist er in der CI mit echtem Windows-Client testbar? | bestanden (E2) |
 | S7 | Klappt die Discovery ohne Firewall-Dialog? | bestanden (E3) |
-| **G1** | Go für natives SMB? | **alle Bedingungen erfüllt, Entscheidung offen** |
-| Phase 2 | PS5-Server `prospero-smbd.elf` | |
+| G1 | Go für natives SMB? | **Go** (21.10.2026) |
+| **Phase 2** | PS5-Server `prospero-smbd.elf` | **beginnt** |
 | Phase 3 | Windows-Programm `ProsperoAutoDrive.exe` | erstes Release 0.1.0 |
 | Phase 4 | Härtung | weitere 0.x |
 | Phase 5 | Live-Abnahme, **G2** | Release 1.0.0 |
