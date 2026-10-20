@@ -1,4 +1,4 @@
-/* Prospero AutoDrive - Spike S2: read-only SMB server prototype
+/* Prospero AutoDrive - Spikes S2 and S3: SMB server prototype
  *
  * Copyright (C) 2026 Prospero AutoDrive contributors
  *
@@ -7,12 +7,15 @@
  * Free Software Foundation, either version 3 of the License, or (at your
  * option) any later version. See ps5/LICENSE.
  *
- * Question answered by this spike: does the libsmb2 server engine with our
- * own file system backend serve a folder to the Windows 11 SMB client
- * (NTLMv2, signing required) correctly and completely?
+ * Questions answered by these spikes: does the libsmb2 server engine with
+ * our own file system backend serve a folder to the Windows 11 SMB client
+ * (NTLMv2, signing required) correctly and completely - read-only (S2), and
+ * read-write (S3)?
  *
  * The payload creates a new test folder with deterministic files
- * (testdata.c) and shares exactly that folder, read-only, as \\<ps5>\s2.
+ * (testdata.c) and shares exactly that folder as \\<ps5>\s2 (read-only) or
+ * \\<ps5>\s3 (read-write), depending on SPIKE at build time. Nothing
+ * outside that folder is read or written.
  * User "prospero", random password shown as a PS5 notification. GET / on
  * TCP 4445 reports status and the requests the backend does not support,
  * GET /quit stops the server. It also stops by itself after RUN_SECONDS.
@@ -20,9 +23,9 @@
  * dialect settings and GET /reset restarts the timing counters.
  * GET /password hands the password out once, for the one-click test run
  * (tools\Run-Test.cmd); every later request is refused. The control port is
- * unauthenticated anyway, and the share is read-only test data.
+ * unauthenticated anyway, and the share holds test data only.
  *
- * Host build for the CI tests: s2-smbserver <base dir> <smb port> <password>
+ * Host build for the CI tests: sN-smbserver <base dir> <smb port> <password>
  */
 
 #include <errno.h>
@@ -43,13 +46,29 @@
 #include <smb2/smb2.h>
 #include <smb2/libsmb2.h>
 
-#include "fsro.h"
+#include "backend.h"
 #include "testdata.h"
 
-#define RUN_SECONDS  900
 #define CONTROL_PORT 4445
-#define SHARE_NAME   "s2"
 #define USER_NAME    "prospero"
+
+/* S2 keeps profile 'a' as default, the setup it was measured with. S3
+ * starts with 'b', the result of S2b. */
+#if SPIKE == 3
+#define NAME         "Prospero S3"
+#define TAG          "PROSPERO-S3"
+#define SHARE_NAME   "s3"
+#define WRITABLE     1
+#define PROFILE      'b'
+#define RUN_SECONDS  1800
+#else
+#define NAME         "Prospero S2"
+#define TAG          "PROSPERO-S2"
+#define SHARE_NAME   "s2"
+#define WRITABLE     0
+#define PROFILE      'a'
+#define RUN_SECONDS  900
+#endif
 
 
 #ifdef __SCE__
@@ -174,39 +193,44 @@ serve_control(int fd) {
 
   if(strncmp(req, "GET /quit", 9) == 0) {
     g_server.stop_requested = 1;
-    n = snprintf(body, sizeof body, "PROSPERO-S2 QUIT\n");
+    n = snprintf(body, sizeof body, TAG " QUIT\n");
   } else if(strncmp(req, "GET /reset", 10) == 0) {
-    fsro_reset_stats();
-    n = snprintf(body, sizeof body, "PROSPERO-S2 RESET\n");
+    backend_reset_stats();
+    n = snprintf(body, sizeof body, TAG " RESET\n");
   } else if(strncmp(req, "GET /profile/", 13) == 0) {
-    n = snprintf(body, sizeof body, "PROSPERO-S2 %s\n",
-                 fsro_set_profile(req[13]) == 0 ? "PROFILE" : "UNKNOWN PROFILE");
+    n = snprintf(body, sizeof body, TAG " %s\n",
+                 backend_set_profile(req[13]) == 0 ? "PROFILE" : "UNKNOWN PROFILE");
   } else if(strncmp(req, "GET /password", 13) == 0) {
     if(g_password_given) {
-      n = snprintf(body, sizeof body, "PROSPERO-S2 PASSWORD ALREADY GIVEN\n");
+      n = snprintf(body, sizeof body, TAG " PASSWORD ALREADY GIVEN\n");
     } else {
       g_password_given = 1;
-      n = snprintf(body, sizeof body, "PROSPERO-S2 PASSWORD\npassword=%s\n",
+      n = snprintf(body, sizeof body, TAG " PASSWORD\npassword=%s\n",
                    g_password);
     }
   } else {
-    /* The console's own clock, for comparison with a reference (S3). */
+    /* The console's own clock and time zone, for comparison with a
+     * reference: in S2b its UTC ran one hour ahead. */
     time_t now = time(NULL);
     long up = (long)(now - g_start);
     char now_utc[32];
     struct tm tm;
+    struct tm local;
 
     gmtime_r(&now, &tm);
     strftime(now_utc, sizeof now_utc, "%Y-%m-%dT%H:%M:%SZ", &tm);
+    localtime_r(&now, &local);
     n = snprintf(body, sizeof body,
-                 "PROSPERO-S2 OK\nfolder=%s\nshare=%s\nuser=%s\n"
+                 TAG " OK\nfolder=%s\nshare=%s\nuser=%s\nwritable=%d\n"
                  "uptime_s=%ld\nremaining_s=%ld\nconnections=%u\n"
-                 "password_given=%d\nnow_utc=%s\n",
-                 g_folder, SHARE_NAME, USER_NAME, up,
+                 "password_given=%d\nnow_utc=%s\n"
+                 "local_offset_s=%ld\nlocal_isdst=%d\nlocal_zone=%s\n",
+                 g_folder, SHARE_NAME, USER_NAME, WRITABLE, up,
                  (long)RUN_SECONDS - up, g_connections, g_password_given,
-                 now_utc);
+                 now_utc, (long)local.tm_gmtoff, local.tm_isdst,
+                 local.tm_zone ? local.tm_zone : "");
     if(n > 0 && (size_t)n < sizeof body) {
-      n += fsro_status(body + n, sizeof body - n);
+      n += backend_status(body + n, sizeof body - n);
     }
   }
   if(n < 0) {
@@ -228,7 +252,7 @@ serve_control(int fd) {
 static void
 extra_fdset(struct smb2_server *srv, fd_set *rfds, fd_set *wfds, int *maxfd) {
   (void)wfds;
-  fsro_listener(srv->fd);
+  backend_listener(srv->fd);
   FD_SET(g_ctl_fd, rfds);
   if(g_ctl_fd > *maxfd) {
     *maxfd = g_ctl_fd;
@@ -239,7 +263,7 @@ extra_fdset(struct smb2_server *srv, fd_set *rfds, fd_set *wfds, int *maxfd) {
 static void
 extra_service(struct smb2_server *srv, fd_set *rfds, fd_set *wfds) {
   (void)wfds;
-  fsro_flush();
+  backend_flush();
   if(FD_ISSET(g_ctl_fd, rfds)) {
     int fd = accept(g_ctl_fd, NULL, NULL);
     if(fd >= 0) {
@@ -256,7 +280,7 @@ static void
 on_new_client(struct smb2_context *smb2, void *cb_data) {
   (void)cb_data;
   g_connections++;
-  fsro_attach(smb2);
+  backend_attach(smb2);
 }
 
 
@@ -285,35 +309,37 @@ main(int argc, char **argv) {
   stop_previous_instance();
 
   if((g_ctl_fd=open_control_port()) < 0) {
-    notify("Prospero S2: Port %d nicht frei: %s", CONTROL_PORT, strerror(errno));
+    notify(NAME ": Port %d nicht frei: %s", CONTROL_PORT, strerror(errno));
     return 1;
   }
 
-  notify("Prospero S2: lege Testordner an ...");
+  notify(NAME ": lege Testordner an ...");
   if((rc=testdata_create(base, g_folder, sizeof g_folder))) {
-    notify("Prospero S2: FEHLER Testordner: %s (%s)", strerror(-rc), g_folder);
+    notify(NAME ": FEHLER Testordner: %s (%s)", strerror(-rc), g_folder);
     return 1;
   }
-  if((rc=fsro_init(g_folder, SHARE_NAME, USER_NAME, g_password))) {
-    notify("Prospero S2: FEHLER Freigabe: %s", strerror(-rc));
+  if((rc=backend_init(g_folder, SHARE_NAME, USER_NAME, g_password,
+                      WRITABLE, PROFILE))) {
+    notify(NAME ": FEHLER Freigabe: %s", strerror(-rc));
     return 1;
   }
 
-  snprintf(g_server.hostname, sizeof g_server.hostname, "PROSPERO-S2");
+  snprintf(g_server.hostname, sizeof g_server.hostname, "%s", TAG);
   g_server.port = port;
   g_server.signing_enabled = 1;
   g_server.allow_anonymous = 0;
-  g_server.handlers = &fsro_handlers;
+  g_server.handlers = &backend_handlers;
   g_server.extra_fdset = extra_fdset;
   g_server.extra_service = extra_service;
 
-  notify("Prospero S2 bereit: Freigabe %s, Benutzer %s, Passwort %s (%d min)",
-         SHARE_NAME, USER_NAME, g_password, RUN_SECONDS / 60);
+  notify(NAME " bereit: Freigabe %s (%s), Benutzer %s, Passwort %s (%d min)",
+         SHARE_NAME, WRITABLE ? "lesen und schreiben" : "nur lesen",
+         USER_NAME, g_password, RUN_SECONDS / 60);
   rc = smb2_serve_port(&g_server, 8, on_new_client, NULL);
   if(rc < 0) {
-    notify("Prospero S2: SMB-Port %u nicht verfuegbar (%d)", port, rc);
+    notify(NAME ": SMB-Port %u nicht verfuegbar (%d)", port, rc);
   } else {
-    notify("Prospero S2: beendet (%u Verbindungen)", g_connections);
+    notify(NAME ": beendet (%u Verbindungen)", g_connections);
   }
 
   close(g_ctl_fd);

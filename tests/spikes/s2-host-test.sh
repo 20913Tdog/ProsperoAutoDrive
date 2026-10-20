@@ -89,7 +89,10 @@ expect_fail NT_STATUS_ACCESS_DENIED smb -c "put $WORK/neu.txt neu.txt"
 expect_fail NT_STATUS_ACCESS_DENIED smb -c 'mkdir neu'
 expect_fail NT_STATUS_ACCESS_DENIED smb -c 'del hello.txt'
 expect_fail NT_STATUS_ACCESS_DENIED smb -c 'rename hello.txt x.txt'
-[ ! -e "$folder/neu.txt" ] && [ ! -e "$folder/neu" ] && [ -e "$folder/hello.txt" ]
+# One test per line: set -e ignores failures inside an && list.
+[ ! -e "$folder/neu.txt" ]
+[ ! -e "$folder/neu" ]
+[ -e "$folder/hello.txt" ]
 echo "case 6 passed"
 
 # smbclient may clean ".." on its own side; the backend check is the real one.

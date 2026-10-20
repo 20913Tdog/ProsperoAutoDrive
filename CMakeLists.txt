@@ -24,5 +24,5 @@ add_compile_options(-Wall -Wextra -Werror)
 
 if(NOT WIN32)
   add_subdirectory(ps5/spikes/s1-portprobe)
-  add_subdirectory(ps5/spikes/s2-smbserver)
+  add_subdirectory(ps5/spikes/smbserver)
 endif()

@@ -1,4 +1,4 @@
-/* Prospero AutoDrive - Spike S2: read-only file system backend
+/* Prospero AutoDrive - Spikes S2 and S3: file system backend
  *
  * Copyright (C) 2026 Prospero AutoDrive contributors
  *
@@ -7,9 +7,15 @@
  * Free Software Foundation, either version 3 of the License, or (at your
  * option) any later version. See ps5/LICENSE.
  *
- * Serves one directory read-only through the libsmb2 server engine. The
- * engine handles negotiate, NTLMv2 session setup and signing; everything
- * that touches files is here, encoded as described in MS-SMB2 and MS-FSCC.
+ * Serves one directory through the libsmb2 server engine, read-only (S2) or
+ * read-write (S3). The engine handles negotiate, NTLMv2 session setup and
+ * signing; everything that touches files is here, encoded as described in
+ * MS-SMB2 and MS-FSCC. Writes go straight to the file (no write-behind);
+ * FLUSH and write-through requests are made durable with fsync().
+ *
+ * Not in this prototype: share modes and byte-range locks are not
+ * enforced, attributes other than directory/archive are not stored, and
+ * named streams are not offered.
  *
  * Workarounds for the pinned libsmb2 (7e4ff97):
  *  - Passthrough mode on every connection. Directory listings and all
@@ -19,7 +25,7 @@
  *  - A handler error (< 0) always becomes STATUS_NOT_IMPLEMENTED, so every
  *    other status is sent as a self-queued error reply.
  *  - The library still reads a QUERY_DIRECTORY request after the handler
- *    returned, so its error replies wait for fsro_flush().
+ *    returned, so its error replies wait for backend_flush().
  *  - Compound requests arrive one at a time. Related operations carry the
  *    all-0xFF file id and use the last CREATE result of the connection.
  */
@@ -49,7 +55,7 @@
 #include <smb2/libsmb2-raw.h>
 #include <smb2/smb2-errors.h>
 
-#include "fsro.h"
+#include "backend.h"
 
 /* Access mask bits (MS-DTYP 2.4.3, MS-SMB2 2.2.13.1). */
 #define FILE_READ_DATA         0x00000001
@@ -70,14 +76,36 @@
                       GENERIC_ALL | GENERIC_WRITE)
 /* FILE_READ_DATA, READ_EA, EXECUTE, READ_ATTRIBUTES, READ_CONTROL, SYNCHRONIZE */
 #define READ_ACCESS            0x001200A9
-#define IPC_ACCESS             0x001F01FF
+#define FULL_ACCESS            0x001F01FF
+#define IPC_ACCESS             FULL_ACCESS
+#define MAXIMUM_ALLOWED        0x02000000
+/* Access that needs the file opened for writing. */
+#define DATA_WRITE_ACCESS (FILE_WRITE_DATA | FILE_APPEND_DATA | GENERIC_WRITE | \
+                           GENERIC_ALL | MAXIMUM_ALLOWED)
 
 /* CREATE dispositions and actions (MS-SMB2 2.2.13, 2.2.14). */
+#define FILE_SUPERSEDE    0
 #define FILE_OPEN         1
 #define FILE_CREATE       2
 #define FILE_OPEN_IF      3
 #define FILE_OVERWRITE    4
+#define FILE_OVERWRITE_IF 5
+#define FILE_SUPERSEDED   0
 #define FILE_OPENED       1
+#define FILE_CREATED      2
+#define FILE_OVERWRITTEN  3
+
+/* SET_INFO classes without a libsmb2 name (MS-FSCC 2.4). */
+#define FILE_DISPOSITION_INFORMATION_EX 0x40
+#define FILE_RENAME_INFORMATION_EX      0x41
+#define FILE_DISPOSITION_DELETE         0x00000001
+
+/* WRITE at this offset appends (MS-SMB2 3.3.5.13). */
+#define WRITE_TO_END_OF_FILE UINT64_MAX
+/* Where the data of a WRITE starts: header plus fixed part. libsmb2 hands
+ * over the bytes right after the fixed part, so other offsets are refused. */
+#define WRITE_DATA_OFFSET    (64 + 48)
+#define SET_INFO_DATA_OFFSET (64 + 32)
 
 /* MS-FSCC 2.5.1 */
 #define FILE_CASE_PRESERVED_NAMES 0x00000002
@@ -127,6 +155,9 @@ typedef struct handle {
   char rel[PATH_SIZE];    /* share-relative, '\'-separated, "" = root */
   int fd;                 /* files only, -1 for directories */
   int is_dir;
+  int can_write;          /* fd is open for writing */
+  int write_through;      /* FILE_WRITE_THROUGH: fsync() every write */
+  int delete_pending;     /* delete when this handle closes */
   dir_entry_t *entries;   /* directory listing snapshot */
   size_t nentries;
   size_t pos;
@@ -160,6 +191,7 @@ static struct {
   char share[64];
   char user[64];
   char password[128];
+  int writable;
   struct stat root_st;
 
   deferred_t deferred[MAX_DEFERRED];
@@ -179,6 +211,21 @@ static struct {
   unsigned denied_writes;
   unsigned lost_replies;
 
+  /* Write side (S3). */
+  unsigned files_created;
+  unsigned dirs_created;
+  unsigned renames;
+  unsigned deletes;
+  unsigned delete_failures;
+  unsigned truncates;
+  unsigned times_set;
+  unsigned creation_times_ignored;
+  unsigned attributes_ignored;
+  unsigned long long fsyncs;
+  /* Owner and mode the console gives new entries. */
+  char last_created[96];
+  struct stat last_created_st;
+
   struct {
     char what[48];
     unsigned count;
@@ -194,12 +241,16 @@ static struct {
   const profile_t *listener_profile;
   uint16_t last_dialect;
 
-  /* Since the last fsro_reset_stats(), for the speed diagnosis. */
+  /* Since the last backend_reset_stats(), for the speed diagnosis. */
   uint64_t stats_start_ns;
   struct rusage ru_start;
   uint64_t read_ns;                     /* time spent in pread() */
   uint64_t first_read_ns;
   uint64_t last_read_ns;
+  unsigned long long writes;
+  unsigned long long bytes_written;
+  uint64_t write_ns;                    /* time spent in pwrite() */
+  uint64_t fsync_ns;                    /* time spent in fsync() */
 } g;
 
 
@@ -235,6 +286,12 @@ get32(const uint8_t *p) {
 static uint16_t
 get16(const uint8_t *p) {
   return (uint16_t)(p[0] | p[1] << 8);
+}
+
+
+static uint64_t
+get64(const uint8_t *p) {
+  return get32(p) | (uint64_t)get32(p + 4) << 32;
 }
 
 
@@ -281,7 +338,7 @@ reply_status(struct smb2_context *smb2, uint8_t command, uint32_t status) {
 }
 
 
-/* Same, but sent from fsro_flush(), after the library is done with the
+/* Same, but sent from backend_flush(), after the library is done with the
  * request. */
 static int
 defer_status(struct smb2_context *smb2, uint8_t command, uint32_t status) {
@@ -301,7 +358,7 @@ defer_status(struct smb2_context *smb2, uint8_t command, uint32_t status) {
 
 
 void
-fsro_flush(void) {
+backend_flush(void) {
   for(int i=0; i<g.ndeferred; i++) {
     deferred_t *d = &g.deferred[i];
     struct smb2_error_reply err;
@@ -334,6 +391,15 @@ errno_status(int err) {
   case EMFILE:
   case ENFILE:       return SMB2_STATUS_INSUFFICIENT_RESOURCES;
   case EIO:          return SMB2_STATUS_IO_DEVICE_ERROR;
+  case EEXIST:       return SMB2_STATUS_OBJECT_NAME_COLLISION;
+  case ENOTEMPTY:    return SMB2_STATUS_DIRECTORY_NOT_EMPTY;
+  case ENOSPC:
+  case EFBIG:
+  case EDQUOT:       return SMB2_STATUS_DISK_FULL;
+  case EROFS:        return SMB2_STATUS_MEDIA_WRITE_PROTECTED;
+  case EXDEV:        return SMB2_STATUS_NOT_SAME_DEVICE;
+  case EBUSY:        return SMB2_STATUS_SHARING_VIOLATION;
+  case EINVAL:       return SMB2_STATUS_INVALID_PARAMETER;
   default:
     note("errno %d", err);
     return SMB2_STATUS_INTERNAL_ERROR;
@@ -341,10 +407,40 @@ errno_status(int err) {
 }
 
 
+#define FILETIME_EPOCH_DIFF 11644473600ULL   /* 1601 to 1970, in seconds */
+
 static uint64_t
 filetime(const struct timespec *ts) {
-  return ((uint64_t)ts->tv_sec + 11644473600ULL) * 10000000ULL +
+  return ((uint64_t)ts->tv_sec + FILETIME_EPOCH_DIFF) * 10000000ULL +
          (uint64_t)ts->tv_nsec / 100;
+}
+
+
+/* FILETIME from a client. 0 and -1/-2 (MS-FSCC 2.4.7) leave the time as it
+ * is, so do values before 1970. */
+static void
+from_filetime(uint64_t ft, struct timespec *ts) {
+  if(ft == 0 || ft == UINT64_MAX || ft == UINT64_MAX - 1 ||
+     ft < FILETIME_EPOCH_DIFF * 10000000ULL) {
+    ts->tv_sec = 0;
+    ts->tv_nsec = UTIME_OMIT;
+    return;
+  }
+  ts->tv_sec = (time_t)(ft / 10000000ULL - FILETIME_EPOCH_DIFF);
+  ts->tv_nsec = (long)(ft % 10000000ULL) * 100;
+}
+
+
+/* Creation time: the birth time where the file system keeps one (the PS5
+ * is FreeBSD-based), the modification time elsewhere. */
+static const struct timespec *
+birth(const struct stat *st) {
+#if defined(__SCE__) || defined(__FreeBSD__)
+  if(st->st_birthtim.tv_sec > 0) {
+    return &st->st_birthtim;
+  }
+#endif
+  return &st->st_mtim;
 }
 
 
@@ -367,10 +463,9 @@ end_of_file(const struct stat *st) {
 }
 
 
-/* Creation time is not portable in POSIX; the modification time stands in. */
 static void
 put_times(uint8_t *p, const struct stat *st) {
-  put64(p, filetime(&st->st_mtim));
+  put64(p, filetime(birth(st)));
   put64(p + 8, filetime(&st->st_atim));
   put64(p + 16, filetime(&st->st_mtim));
   put64(p + 24, filetime(&st->st_ctim));
@@ -628,6 +723,123 @@ resolve(const char *name, char *path, char *rel, struct stat *st) {
 }
 
 
+/* A name whose last component need not exist yet: for creating and as a
+ * rename target. */
+typedef struct target {
+  char leaf[256];         /* last component as the client spelled it */
+  char path[PATH_SIZE];   /* the existing entry (in its spelling), else new */
+  char rel[PATH_SIZE];
+  char asked[PATH_SIZE];  /* parent plus leaf in the client's spelling */
+  char asked_rel[PATH_SIZE];
+  int exists;
+  struct stat st;         /* of the existing entry */
+} target_t;
+
+
+/* Resolves the parent directory of name, which must exist, and finds the
+ * last component in it, ignoring case. The share root itself exists and
+ * has an empty leaf. Returns 0 or an NTSTATUS. */
+static uint32_t
+resolve_target(const char *name, target_t *t) {
+  char parent[PATH_SIZE];
+  char buf[PATH_SIZE];
+  char actual[256];
+  char *leaf;
+  uint32_t status;
+  size_t len;
+
+  memset(t, 0, sizeof *t);
+  while(name && *name == '\\') {
+    name++;
+  }
+  if(snprintf(buf, sizeof buf, "%s", name ? name : "") >= (int)sizeof buf) {
+    return SMB2_STATUS_OBJECT_NAME_INVALID;
+  }
+  len = strlen(buf);
+  if(len >= 7 && !strcasecmp(buf + len - 7, "::$DATA")) {
+    buf[len -= 7] = '\0';
+  }
+  while(len && buf[len - 1] == '\\') {
+    buf[--len] = '\0';
+  }
+  if(!len) {
+    t->exists = 1;
+    return resolve(NULL, t->path, t->rel, &t->st);
+  }
+
+  if((leaf=strrchr(buf, '\\'))) {
+    *leaf++ = '\0';
+  } else {
+    leaf = buf;
+  }
+  if(!valid_component(leaf) || strlen(leaf) >= sizeof t->leaf) {
+    return SMB2_STATUS_OBJECT_NAME_INVALID;
+  }
+  snprintf(t->leaf, sizeof t->leaf, "%s", leaf);
+
+  status = resolve(leaf == buf ? NULL : buf, parent, t->rel, &t->st);
+  if(status == SMB2_STATUS_OBJECT_NAME_NOT_FOUND) {
+    return SMB2_STATUS_OBJECT_PATH_NOT_FOUND;
+  }
+  if(status) {
+    return status;
+  }
+  if(!S_ISDIR(t->st.st_mode)) {
+    return SMB2_STATUS_OBJECT_PATH_NOT_FOUND;
+  }
+  len = strlen(t->rel);
+  if(snprintf(t->asked, sizeof t->asked, "%s/%s", parent, t->leaf) >= (int)sizeof t->asked ||
+     snprintf(t->asked_rel, sizeof t->asked_rel, "%s%s%s", t->rel, len ? "\\" : "",
+              t->leaf) >= (int)sizeof t->asked_rel) {
+    return SMB2_STATUS_OBJECT_NAME_INVALID;
+  }
+
+  if(stat(t->asked, &t->st) == 0) {
+    t->exists = 1;
+    snprintf(actual, sizeof actual, "%s", t->leaf);
+  } else if(errno != ENOENT) {
+    return errno_status(errno);
+  } else if(find_ci(parent, t->leaf, actual, sizeof actual)) {
+    char path[PATH_SIZE];
+
+    if(snprintf(path, sizeof path, "%s/%s", parent, actual) >= (int)sizeof path) {
+      return SMB2_STATUS_OBJECT_NAME_INVALID;
+    }
+    if(stat(path, &t->st) != 0) {
+      return errno_status(errno);
+    }
+    t->exists = 1;
+  } else {
+    snprintf(actual, sizeof actual, "%s", t->leaf);
+  }
+  if(snprintf(t->path, sizeof t->path, "%s/%s", parent, actual) >= (int)sizeof t->path ||
+     snprintf(t->rel + len, sizeof t->rel - len, "%s%s", len ? "\\" : "", actual)
+     >= (int)(sizeof t->rel - len)) {
+    return SMB2_STATUS_OBJECT_NAME_INVALID;
+  }
+  return 0;
+}
+
+
+static int
+dir_is_empty(const char *path) {
+  struct dirent *e;
+  DIR *d;
+  int empty = 1;
+
+  if(!(d=opendir(path))) {
+    return 0;
+  }
+  while(empty && (e=readdir(d))) {
+    if(strcmp(e->d_name, ".") && strcmp(e->d_name, "..")) {
+      empty = 0;
+    }
+  }
+  closedir(d);
+  return empty;
+}
+
+
 /* --------------------------------------------------- connections, handles */
 
 static int
@@ -673,6 +885,28 @@ free_handle(handle_t *h) {
 }
 
 
+/* A pending delete happens when the handle goes, also when the client
+ * disconnects without closing it. Nothing can fail at that point, so a
+ * failed delete only shows in the status. */
+static void
+finish_delete(handle_t *h) {
+  if(!h->delete_pending) {
+    return;
+  }
+  h->delete_pending = 0;
+  if(h->fd >= 0) {
+    close(h->fd);
+    h->fd = -1;
+  }
+  if((h->is_dir ? rmdir(h->path) : unlink(h->path)) == 0) {
+    g.deletes++;
+  } else {
+    g.delete_failures++;
+    note("delete errno %d", errno);
+  }
+}
+
+
 /* Related compound operations carry the all-0xFF id and refer to the last
  * CREATE; if that failed, they fail with its status. */
 static handle_t *
@@ -706,7 +940,7 @@ unlink_handle(conn_t *c, handle_t *h) {
 
 
 void
-fsro_attach(struct smb2_context *smb2) {
+backend_attach(struct smb2_context *smb2) {
   const profile_t *p = g.profile;
   conn_t *c = calloc(1, sizeof *c);
   int fd = smb2_get_fd(smb2);
@@ -735,7 +969,7 @@ fsro_attach(struct smb2_context *smb2) {
 /* Window scaling is agreed in the handshake, so the receive buffer has to be
  * set on the listening socket to count. Profile 'a' never touches it. */
 void
-fsro_listener(int fd) {
+backend_listener(int fd) {
   const profile_t *p = g.profile;
 
   if(fd < 0 || (fd == g.listener_fd && p == g.listener_profile)) {
@@ -751,7 +985,7 @@ fsro_listener(int fd) {
 
 
 int
-fsro_set_profile(char name) {
+backend_set_profile(char name) {
   for(size_t i=0; i<sizeof PROFILES / sizeof PROFILES[0]; i++) {
     if(PROFILES[i].name == name) {
       g.profile = &PROFILES[i];
@@ -783,12 +1017,17 @@ tv_ms(const struct timeval *tv) {
 
 
 void
-fsro_reset_stats(void) {
+backend_reset_stats(void) {
   g.reads = 0;
   g.bytes_read = 0;
   g.read_ns = 0;
   g.first_read_ns = 0;
   g.last_read_ns = 0;
+  g.writes = 0;
+  g.bytes_written = 0;
+  g.write_ns = 0;
+  g.fsyncs = 0;
+  g.fsync_ns = 0;
   getrusage(RUSAGE_SELF, &g.ru_start);
   g.stats_start_ns = now_ns();
 }
@@ -822,6 +1061,7 @@ destruction_event(struct smb2_server *srv, struct smb2_context *smb2) {
     while(c->handles) {
       handle_t *h = c->handles;
       c->handles = h->next;
+      finish_delete(h);
       free_handle(h);
     }
     free(c);
@@ -912,7 +1152,7 @@ tree_connect_cmd(struct smb2_server *srv, struct smb2_context *smb2,
     rep->maximal_access = IPC_ACCESS;
   } else {
     rep->share_type = SMB2_SHARE_TYPE_DISK;
-    rep->maximal_access = READ_ACCESS;
+    rep->maximal_access = g.writable ? FULL_ACCESS : READ_ACCESS;
   }
 
   /* Our own tree id, so that later requests can be told apart. */
@@ -947,6 +1187,7 @@ tree_disconnect_cmd(struct smb2_server *srv, struct smb2_context *smb2,
     handle_t *h = *pp;
     if(h->tree_id == tree_id) {
       *pp = h->next;
+      finish_delete(h);
       free_handle(h);
     } else {
       pp = &h->next;
@@ -1003,7 +1244,7 @@ create_contexts(const struct smb2_create_request *req, const struct stat *st) {
 
       memset(data, 0, sizeof data);
       if(!memcmp(name, "MxAc", 4)) {
-        put32(data + 4, READ_ACCESS);             /* QueryStatus 0 */
+        put32(data + 4, g.writable ? FULL_ACCESS : READ_ACCESS); /* QueryStatus 0 */
         out = add_context(out, "MxAc", data, 8);
       } else if(!memcmp(name, "QFid", 4)) {
         put64(data, (uint64_t)st->st_ino);        /* DiskFileId */
@@ -1030,15 +1271,153 @@ create_contexts(const struct smb2_create_request *req, const struct stat *st) {
 }
 
 
+/* Read-only share: opens existing entries for reading, anything else is
+ * denied. */
+static uint32_t
+open_ro(handle_t *h, const struct smb2_create_request *req, struct stat *st) {
+  uint32_t status;
+
+  if((req->desired_access & WRITE_ACCESS) ||
+     (req->create_options & SMB2_FILE_DELETE_ON_CLOSE)) {
+    g.denied_writes++;
+    return SMB2_STATUS_ACCESS_DENIED;
+  }
+  status = resolve(req->name, h->path, h->rel, st);
+  if(status == SMB2_STATUS_OBJECT_NAME_NOT_FOUND &&
+     req->create_disposition != FILE_OPEN &&
+     req->create_disposition != FILE_OVERWRITE) {
+    g.denied_writes++;
+    return SMB2_STATUS_ACCESS_DENIED;     /* would create a file */
+  }
+  if(status) {
+    return status;
+  }
+  if(req->create_disposition == FILE_CREATE) {
+    return STATUS_OBJECT_NAME_COLLISION;
+  }
+  if(req->create_disposition != FILE_OPEN &&
+     req->create_disposition != FILE_OPEN_IF) {
+    g.denied_writes++;
+    return SMB2_STATUS_ACCESS_DENIED;     /* supersede or overwrite */
+  }
+  h->is_dir = S_ISDIR(st->st_mode);
+  if(h->is_dir && (req->create_options & SMB2_FILE_NON_DIRECTORY_FILE)) {
+    return SMB2_STATUS_FILE_IS_A_DIRECTORY;
+  }
+  if(!h->is_dir && (req->create_options & SMB2_FILE_DIRECTORY_FILE)) {
+    return SMB2_STATUS_NOT_A_DIRECTORY;
+  }
+  if(!h->is_dir && (h->fd=open(h->path, O_RDONLY)) < 0) {
+    return errno_status(errno);
+  }
+  return 0;
+}
+
+
+/* Read-write share: all dispositions of MS-SMB2 2.2.13. Sets the create
+ * action. */
+static uint32_t
+open_rw(handle_t *h, const struct smb2_create_request *req, struct stat *st,
+        uint32_t *action) {
+  uint32_t disp = req->create_disposition;
+  uint32_t opts = req->create_options;
+  int writing = (req->desired_access & DATA_WRITE_ACCESS) != 0;
+  uint32_t status;
+  target_t t;
+
+  if((opts & SMB2_FILE_DELETE_ON_CLOSE) &&
+     !(req->desired_access & (DELETE | GENERIC_ALL | MAXIMUM_ALLOWED))) {
+    return SMB2_STATUS_ACCESS_DENIED;
+  }
+  if((status=resolve_target(req->name, &t))) {
+    return status;
+  }
+  snprintf(h->path, sizeof h->path, "%s", t.path);
+  snprintf(h->rel, sizeof h->rel, "%s", t.rel);
+
+  if(t.exists) {
+    int truncate = disp == FILE_SUPERSEDE || disp == FILE_OVERWRITE ||
+                   disp == FILE_OVERWRITE_IF;
+
+    h->is_dir = S_ISDIR(t.st.st_mode);
+    if(disp == FILE_CREATE) {
+      return STATUS_OBJECT_NAME_COLLISION;
+    }
+    if(h->is_dir && (opts & SMB2_FILE_NON_DIRECTORY_FILE)) {
+      return SMB2_STATUS_FILE_IS_A_DIRECTORY;
+    }
+    if(!h->is_dir && (opts & SMB2_FILE_DIRECTORY_FILE)) {
+      return SMB2_STATUS_NOT_A_DIRECTORY;
+    }
+    if(h->is_dir && truncate) {
+      return SMB2_STATUS_INVALID_PARAMETER;
+    }
+    if(!h->rel[0] && (opts & SMB2_FILE_DELETE_ON_CLOSE)) {
+      return SMB2_STATUS_ACCESS_DENIED;    /* the share root stays */
+    }
+    if(h->is_dir && (opts & SMB2_FILE_DELETE_ON_CLOSE) && !dir_is_empty(h->path)) {
+      return SMB2_STATUS_DIRECTORY_NOT_EMPTY;
+    }
+    if(!h->is_dir) {
+      h->can_write = writing || truncate;
+      h->fd = open(h->path, (h->can_write ? O_RDWR : O_RDONLY) |
+                            (truncate ? O_TRUNC : 0));
+      /* MAXIMUM_ALLOWED alone asks for whatever is possible: a file that
+       * cannot be written is still opened for reading. */
+      if(h->fd < 0 && !truncate && (errno == EACCES || errno == EPERM || errno == EROFS) &&
+         !(req->desired_access & (DATA_WRITE_ACCESS & ~MAXIMUM_ALLOWED))) {
+        h->can_write = 0;
+        h->fd = open(h->path, O_RDONLY);
+      }
+      if(h->fd < 0) {
+        return errno_status(errno);
+      }
+      if(truncate) {
+        g.truncates++;
+      }
+    }
+    *action = disp == FILE_SUPERSEDE ? FILE_SUPERSEDED :
+              truncate ? FILE_OVERWRITTEN : FILE_OPENED;
+  } else {
+    if(disp == FILE_OPEN || disp == FILE_OVERWRITE) {
+      return SMB2_STATUS_OBJECT_NAME_NOT_FOUND;
+    }
+    if(opts & SMB2_FILE_DIRECTORY_FILE) {
+      if(mkdir(h->path, 0777) != 0) {
+        return errno_status(errno);
+      }
+      h->is_dir = 1;
+      g.dirs_created++;
+    } else {
+      if((h->fd=open(h->path, O_RDWR | O_CREAT | O_EXCL, 0666)) < 0) {
+        return errno_status(errno);
+      }
+      h->can_write = 1;
+      g.files_created++;
+    }
+    *action = FILE_CREATED;
+    if(stat(h->path, &g.last_created_st) == 0) {
+      snprintf(g.last_created, sizeof g.last_created, "%s", h->rel);
+    }
+  }
+  h->write_through = (opts & SMB2_FILE_WRITE_THROUGH) != 0;
+  h->delete_pending = (opts & SMB2_FILE_DELETE_ON_CLOSE) != 0;
+  if(stat(h->path, st) != 0) {
+    return errno_status(errno);
+  }
+  return 0;
+}
+
+
 static uint32_t
 do_create(conn_t *c, struct smb2_create_request *req,
           struct smb2_create_reply *rep) {
+  uint32_t action = FILE_OPENED;
   uint32_t tree_id = 0;
   uint32_t status;
   struct stat st;
   handle_t *h;
   int kind = tree_kind(c, &tree_id);
-  int is_dir;
 
   memset(&st, 0, sizeof st);
   if(kind == TREE_IPC) {
@@ -1048,45 +1427,16 @@ do_create(conn_t *c, struct smb2_create_request *req,
   if(kind != TREE_DISK) {
     return STATUS_NETWORK_NAME_DELETED;
   }
-  if((req->desired_access & WRITE_ACCESS) ||
-     (req->create_options & SMB2_FILE_DELETE_ON_CLOSE)) {
-    g.denied_writes++;
-    return SMB2_STATUS_ACCESS_DENIED;
-  }
   if(!(h=calloc(1, sizeof *h))) {
     return SMB2_STATUS_NO_MEMORY;
   }
   h->fd = -1;
-
-  status = resolve(req->name, h->path, h->rel, &st);
-  if(status == SMB2_STATUS_OBJECT_NAME_NOT_FOUND &&
-     req->create_disposition != FILE_OPEN &&
-     req->create_disposition != FILE_OVERWRITE) {
-    g.denied_writes++;
-    status = SMB2_STATUS_ACCESS_DENIED;   /* would create a file */
-  } else if(!status && req->create_disposition == FILE_CREATE) {
-    status = STATUS_OBJECT_NAME_COLLISION;
-  } else if(!status && req->create_disposition != FILE_OPEN &&
-            req->create_disposition != FILE_OPEN_IF) {
-    g.denied_writes++;
-    status = SMB2_STATUS_ACCESS_DENIED;   /* supersede or overwrite */
-  }
-  is_dir = S_ISDIR(st.st_mode);
-  if(!status && is_dir && (req->create_options & SMB2_FILE_NON_DIRECTORY_FILE)) {
-    status = SMB2_STATUS_FILE_IS_A_DIRECTORY;
-  }
-  if(!status && !is_dir && (req->create_options & SMB2_FILE_DIRECTORY_FILE)) {
-    status = SMB2_STATUS_NOT_A_DIRECTORY;
-  }
-  if(!status && !is_dir && (h->fd=open(h->path, O_RDONLY)) < 0) {
-    status = errno_status(errno);
-  }
+  status = g.writable ? open_rw(h, req, &st, &action) : open_ro(h, req, &st);
   if(status) {
     free_handle(h);
     return status;
   }
 
-  h->is_dir = is_dir;
   h->tree_id = tree_id;
   c->next_fid++;
   put64(h->fid, c->next_fid);
@@ -1095,8 +1445,8 @@ do_create(conn_t *c, struct smb2_create_request *req,
   c->handles = h;
 
   memset(rep, 0, sizeof *rep);
-  rep->create_action = FILE_OPENED;
-  rep->creation_time = filetime(&st.st_mtim);
+  rep->create_action = action;
+  rep->creation_time = filetime(birth(&st));
   rep->last_access_time = filetime(&st.st_atim);
   rep->last_write_time = filetime(&st.st_mtim);
   rep->change_time = filetime(&st.st_ctim);
@@ -1152,9 +1502,10 @@ close_cmd(struct smb2_server *srv, struct smb2_context *smb2,
     return reply_status(smb2, SMB2_CLOSE, status);
   }
   memset(rep, 0, sizeof *rep);
+  finish_delete(h);
   if((req->flags & SMB2_CLOSE_FLAG_POSTQUERY_ATTRIB) && stat(h->path, &st) == 0) {
     rep->flags = SMB2_CLOSE_FLAG_POSTQUERY_ATTRIB;
-    rep->creation_time = filetime(&st.st_mtim);
+    rep->creation_time = filetime(birth(&st));
     rep->last_access_time = filetime(&st.st_atim);
     rep->last_write_time = filetime(&st.st_mtim);
     rep->change_time = filetime(&st.st_ctim);
@@ -1456,6 +1807,7 @@ file_info(uint8_t cls, const handle_t *h, const struct stat *st,
     put64(buf, alloc_size(st));
     put64(buf + 8, end_of_file(st));
     put32(buf + 16, (uint32_t)st->st_nlink);
+    buf[20] = (uint8_t)h->delete_pending;
     buf[21] = h->is_dir;
     return 24;
   case SMB2_FILE_INTERNAL_INFORMATION:
@@ -1464,7 +1816,7 @@ file_info(uint8_t cls, const handle_t *h, const struct stat *st,
   case SMB2_FILE_EA_INFORMATION:
     return 4;
   case SMB2_FILE_ACCESS_INFORMATION:
-    put32(buf, READ_ACCESS);
+    put32(buf, g.writable ? FULL_ACCESS : READ_ACCESS);
     return 4;
   case SMB2_FILE_POSITION_INFORMATION:
   case SMB2_FILE_MODE_INFORMATION:
@@ -1476,9 +1828,10 @@ file_info(uint8_t cls, const handle_t *h, const struct stat *st,
     put64(buf + 40, alloc_size(st));
     put64(buf + 48, end_of_file(st));
     put32(buf + 56, (uint32_t)st->st_nlink);
+    buf[60] = (uint8_t)h->delete_pending;
     buf[61] = h->is_dir;
     put64(buf + 64, (uint64_t)st->st_ino);
-    put32(buf + 76, READ_ACCESS);
+    put32(buf + 76, g.writable ? FULL_ACCESS : READ_ACCESS);
     if((n=put_name(buf + 96, size - 96, h->rel, 1)) < 0) {
       break;
     }
@@ -1561,7 +1914,7 @@ fs_info(uint8_t cls, uint8_t *buf, size_t size, uint32_t *status) {
     return 8;
   case SMB2_FILE_FS_ATTRIBUTE_INFORMATION:
     put32(buf, FILE_CASE_PRESERVED_NAMES | FILE_UNICODE_ON_DISK |
-               FILE_READ_ONLY_VOLUME);
+               (g.writable ? 0 : FILE_READ_ONLY_VOLUME));
     put32(buf + 4, 255);
     put32(buf + 8, (uint32_t)utf16("NTFS", buf + 12, size - 12));
     return 12 + 8;
@@ -1669,40 +2022,338 @@ query_info_cmd(struct smb2_server *srv, struct smb2_context *smb2,
 }
 
 
-/* ------------------------------------------------- everything read-only */
+/* ---------------------------------------------------------------- writing */
 
-static int
-write_cmd(struct smb2_server *srv, struct smb2_context *smb2,
-          struct smb2_write_request *req, struct smb2_write_reply *rep) {
-  (void)srv;
-  (void)req;
-  (void)rep;
-  g.denied_writes++;
-  return reply_status(smb2, SMB2_WRITE, SMB2_STATUS_ACCESS_DENIED);
+static uint32_t
+sync_fd(int fd) {
+  uint64_t t0 = now_ns();
+  int rc = fsync(fd);
+
+  g.fsync_ns += now_ns() - t0;
+  g.fsyncs++;
+  return rc == 0 ? 0 : errno_status(errno);
 }
 
 
 static int
-set_info_cmd(struct smb2_server *srv, struct smb2_context *smb2,
-             struct smb2_set_info_request *req) {
-  (void)srv;
-  (void)req;
-  g.denied_writes++;
-  return reply_status(smb2, SMB2_SET_INFO, SMB2_STATUS_ACCESS_DENIED);
+write_cmd(struct smb2_server *srv, struct smb2_context *smb2,
+          struct smb2_write_request *req, struct smb2_write_reply *rep) {
+  conn_t *c = smb2_get_opaque(smb2);
+  uint32_t status = SMB2_STATUS_FILE_CLOSED;
+  handle_t *h = c ? lookup(c, req->file_id, &status) : NULL;
+  uint64_t offset = req->offset;
+  size_t done = 0;
+  uint64_t t0;
+
+  if(!g.writable) {
+    g.denied_writes++;
+    return reply_status(smb2, SMB2_WRITE, SMB2_STATUS_ACCESS_DENIED);
+  }
+  if(!h) {
+    return reply_status(smb2, SMB2_WRITE, status);
+  }
+  if(h->is_dir) {
+    return reply_status(smb2, SMB2_WRITE, SMB2_STATUS_INVALID_DEVICE_REQUEST);
+  }
+  if(!h->can_write) {
+    return reply_status(smb2, SMB2_WRITE, SMB2_STATUS_ACCESS_DENIED);
+  }
+  if(req->length > srv->max_write_size) {
+    return reply_status(smb2, SMB2_WRITE, SMB2_STATUS_INVALID_PARAMETER);
+  }
+  if(req->length && req->data_offset != WRITE_DATA_OFFSET) {
+    note("WRITE data offset %u", req->data_offset);
+    return reply_status(smb2, SMB2_WRITE, SMB2_STATUS_INVALID_PARAMETER);
+  }
+  if(offset == WRITE_TO_END_OF_FILE) {
+    struct stat st;
+
+    if(fstat(h->fd, &st) != 0) {
+      return reply_status(smb2, SMB2_WRITE, errno_status(errno));
+    }
+    offset = (uint64_t)st.st_size;
+  }
+
+  t0 = now_ns();
+  while(done < req->length) {
+    ssize_t n = pwrite(h->fd, req->buf + done, req->length - done,
+                       (off_t)(offset + done));
+    if(n < 0 && errno == EINTR) {
+      continue;
+    }
+    if(n <= 0) {
+      status = n < 0 ? errno_status(errno) : SMB2_STATUS_DISK_FULL;
+      break;
+    }
+    done += (size_t)n;
+  }
+  g.write_ns += now_ns() - t0;
+  if(!done && req->length) {
+    return reply_status(smb2, SMB2_WRITE, status);
+  }
+  g.writes++;
+  g.bytes_written += done;
+  if((h->write_through || (req->flags & SMB2_WRITEFLAG_WRITE_THROUGH)) &&
+     (status=sync_fd(h->fd))) {
+    return reply_status(smb2, SMB2_WRITE, status);
+  }
+  memset(rep, 0, sizeof *rep);
+  rep->count = (uint32_t)done;    /* a short count tells the client the rest failed */
+  return 0;
 }
 
 
 static int
 flush_cmd(struct smb2_server *srv, struct smb2_context *smb2,
           struct smb2_flush_request *req) {
+  conn_t *c = smb2_get_opaque(smb2);
+  uint32_t status = SMB2_STATUS_FILE_CLOSED;
+  handle_t *h = c ? lookup(c, req->file_id, &status) : NULL;
+
   (void)srv;
-  (void)smb2;
-  (void)req;
+  if(!h) {
+    return reply_status(smb2, SMB2_FLUSH, status);
+  }
+  if(h->fd >= 0 && h->can_write && (status=sync_fd(h->fd))) {
+    return reply_status(smb2, SMB2_FLUSH, status);
+  }
   return 0;
 }
 
 
-/* Byte-range locks are not enforced on a read-only share. */
+/* Keeps open handles pointing at the right place after a rename: the
+ * entry itself and, for a directory, everything below it. */
+static void
+renamed(const char *from, const char *to, const char *to_rel) {
+  size_t flen = strlen(from);
+
+  for(conn_t *c=g.conns; c; c=c->next) {
+    for(handle_t *h=c->handles; h; h=h->next) {
+      char path[PATH_SIZE];
+      char rel[PATH_SIZE];
+      const char *tail;
+
+      if(strncmp(h->path, from, flen) || (h->path[flen] && h->path[flen] != '/')) {
+        continue;
+      }
+      tail = h->path + flen;
+      if(snprintf(path, sizeof path, "%s%s", to, tail) >= (int)sizeof path ||
+         snprintf(rel, sizeof rel, "%s", to_rel) >= (int)sizeof rel) {
+        continue;
+      }
+      /* The share-relative tail is the host tail with '\' for '/'. */
+      for(size_t i=strlen(rel), j=0; tail[j] && i + 1 < sizeof rel; i++, j++) {
+        rel[i] = tail[j] == '/' ? '\\' : tail[j];
+        rel[i + 1] = '\0';
+      }
+      memcpy(h->path, path, sizeof path);
+      memcpy(h->rel, rel, sizeof rel);
+    }
+  }
+}
+
+
+/* FILE_RENAME_INFORMATION (MS-FSCC 2.4.42.2) and the _EX variant: the
+ * first byte (ReplaceIfExists, or bit 0 of Flags) asks to replace; the new
+ * name is a full share-relative path. */
+static uint32_t
+set_rename(handle_t *h, const uint8_t *buf, uint32_t len) {
+  uint16_t name16[PATH_SIZE];
+  uint32_t name_len;
+  uint32_t status;
+  struct stat src;
+  const char *name;
+  int replace;
+  target_t t;
+
+  if(len < 20) {
+    return SMB2_STATUS_INFO_LENGTH_MISMATCH;
+  }
+  replace = buf[0] & 1;
+  name_len = get32(buf + 16);
+  if(name_len % 2 || name_len > sizeof name16 || 20 + name_len > len ||
+     get64(buf + 8)) {             /* RootDirectory must be 0 over SMB2 */
+    return SMB2_STATUS_INVALID_PARAMETER;
+  }
+  if(!h->rel[0]) {
+    return SMB2_STATUS_ACCESS_DENIED;      /* the share root stays */
+  }
+  memcpy(name16, buf + 20, name_len);
+  if(!(name=smb2_utf16_to_utf8(name16, name_len / 2))) {
+    return SMB2_STATUS_NO_MEMORY;
+  }
+  status = resolve_target(name, &t);
+  free((void *)name);
+  if(status) {
+    return status;
+  }
+  if(lstat(h->path, &src) != 0) {
+    return errno_status(errno);
+  }
+  if(t.exists && !(t.st.st_ino == src.st_ino && t.st.st_dev == src.st_dev)) {
+    if(!replace) {
+      return STATUS_OBJECT_NAME_COLLISION;
+    }
+    if(S_ISDIR(t.st.st_mode)) {
+      return SMB2_STATUS_ACCESS_DENIED;    /* a directory is never replaced */
+    }
+  }
+  /* The client's spelling: for the same entry this is a change of case. */
+  if(!strcmp(t.asked, h->path)) {
+    return 0;
+  }
+  if(rename(h->path, t.asked) != 0) {
+    return errno_status(errno);
+  }
+  g.renames++;
+  {
+    char from[PATH_SIZE];
+
+    memcpy(from, h->path, sizeof from);
+    renamed(from, t.asked, t.asked_rel);
+  }
+  return 0;
+}
+
+
+/* FILE_BASIC_INFORMATION: access and write time are applied; creation time
+ * and attributes cannot be stored and are only counted. */
+static uint32_t
+set_basic(handle_t *h, const uint8_t *buf, uint32_t len) {
+  struct timespec ts[2];
+  uint64_t created;
+  uint32_t attrs;
+
+  if(len < 36) {
+    return SMB2_STATUS_INFO_LENGTH_MISMATCH;
+  }
+  created = get64(buf);
+  from_filetime(get64(buf + 8), &ts[0]);
+  from_filetime(get64(buf + 16), &ts[1]);
+  attrs = get32(buf + 32);
+  if(created && created < UINT64_MAX - 1) {
+    g.creation_times_ignored++;
+  }
+  if(attrs & ~(uint32_t)(SMB2_FILE_ATTRIBUTE_DIRECTORY | SMB2_FILE_ATTRIBUTE_ARCHIVE |
+                         SMB2_FILE_ATTRIBUTE_NORMAL)) {
+    g.attributes_ignored++;
+  }
+  if(ts[0].tv_nsec == UTIME_OMIT && ts[1].tv_nsec == UTIME_OMIT) {
+    return 0;
+  }
+  if(utimensat(AT_FDCWD, h->path, ts, 0) != 0) {
+    return errno_status(errno);
+  }
+  g.times_set++;
+  return 0;
+}
+
+
+static uint32_t
+set_size(handle_t *h, uint64_t size, int allocation) {
+  struct stat st;
+
+  if(h->is_dir) {
+    return SMB2_STATUS_INVALID_PARAMETER;
+  }
+  if(!h->can_write) {
+    return SMB2_STATUS_ACCESS_DENIED;
+  }
+  if(size > INT64_MAX) {
+    return SMB2_STATUS_INVALID_PARAMETER;
+  }
+  /* An allocation size only shrinks the file when it is below its end;
+   * reserving space is left to the file system. */
+  if(allocation) {
+    if(fstat(h->fd, &st) != 0) {
+      return errno_status(errno);
+    }
+    if(size >= (uint64_t)st.st_size) {
+      return 0;
+    }
+  }
+  if(ftruncate(h->fd, (off_t)size) != 0) {
+    return errno_status(errno);
+  }
+  g.truncates++;
+  return 0;
+}
+
+
+static uint32_t
+set_delete(handle_t *h, int pending) {
+  if(pending && !h->rel[0]) {
+    return SMB2_STATUS_ACCESS_DENIED;      /* the share root stays */
+  }
+  if(pending && h->is_dir && !dir_is_empty(h->path)) {
+    return SMB2_STATUS_DIRECTORY_NOT_EMPTY;
+  }
+  h->delete_pending = pending;
+  return 0;
+}
+
+
+static int
+set_info_cmd(struct smb2_server *srv, struct smb2_context *smb2,
+             struct smb2_set_info_request *req) {
+  conn_t *c = smb2_get_opaque(smb2);
+  uint32_t status = SMB2_STATUS_FILE_CLOSED;
+  handle_t *h = c ? lookup(c, req->file_id, &status) : NULL;
+  const uint8_t *buf = req->input_data;
+  uint32_t len = req->buffer_length;
+
+  (void)srv;
+  if(!g.writable) {
+    g.denied_writes++;
+    return reply_status(smb2, SMB2_SET_INFO, SMB2_STATUS_ACCESS_DENIED);
+  }
+  if(!h) {
+    return reply_status(smb2, SMB2_SET_INFO, status);
+  }
+  if(len && (!buf || req->buffer_offset != SET_INFO_DATA_OFFSET)) {
+    note("SET_INFO buffer offset %u", req->buffer_offset);
+    return reply_status(smb2, SMB2_SET_INFO, SMB2_STATUS_INVALID_PARAMETER);
+  }
+  if(req->info_type != SMB2_0_INFO_FILE) {
+    note("SET_INFO type %u", req->info_type);
+    return reply_status(smb2, SMB2_SET_INFO, SMB2_STATUS_NOT_SUPPORTED);
+  }
+
+  switch(req->file_info_class) {
+  case SMB2_FILE_BASIC_INFORMATION:
+    status = set_basic(h, buf, len);
+    break;
+  case SMB2_FILE_RENAME_INFORMATION:
+  case FILE_RENAME_INFORMATION_EX:
+    status = set_rename(h, buf, len);
+    break;
+  case SMB2_FILE_DISPOSITION_INFORMATION:
+    status = len < 1 ? SMB2_STATUS_INFO_LENGTH_MISMATCH : set_delete(h, buf[0] != 0);
+    break;
+  case FILE_DISPOSITION_INFORMATION_EX:
+    status = len < 4 ? SMB2_STATUS_INFO_LENGTH_MISMATCH
+                     : set_delete(h, (get32(buf) & FILE_DISPOSITION_DELETE) != 0);
+    break;
+  case SMB2_FILE_END_OF_FILE_INFORMATION:
+  case SMB2_FILE_ALLOCATION_INFORMATION:
+    status = len < 8 ? SMB2_STATUS_INFO_LENGTH_MISMATCH
+                     : set_size(h, get64(buf),
+                                req->file_info_class == SMB2_FILE_ALLOCATION_INFORMATION);
+    break;
+  case SMB2_FILE_POSITION_INFORMATION:
+  case SMB2_FILE_MODE_INFORMATION:
+    status = 0;     /* SMB2 has no file position; modes change nothing here */
+    break;
+  default:
+    note("SET_INFO file 0x%02x", req->file_info_class);
+    status = SMB2_STATUS_NOT_SUPPORTED;
+    break;
+  }
+  return status ? reply_status(smb2, SMB2_SET_INFO, status) : 0;
+}
+
+
+/* Byte-range locks are granted but not enforced (prototype). */
 static int
 lock_cmd(struct smb2_server *srv, struct smb2_context *smb2,
          struct smb2_lock_request *req) {
@@ -1782,7 +2433,7 @@ echo_cmd(struct smb2_server *srv, struct smb2_context *smb2) {
 
 /* Every pointer is set: the library calls some without a NULL check and
  * answers missing ones with STATUS_NOT_IMPLEMENTED. */
-struct smb2_server_request_handlers fsro_handlers = {
+struct smb2_server_request_handlers backend_handlers = {
   .destruction_event   = destruction_event,
   .authorize_user      = authorize_user,
   .session_established = session_established,
@@ -1808,15 +2459,22 @@ struct smb2_server_request_handlers fsro_handlers = {
 
 
 int
-fsro_init(const char *root, const char *share_name,
-          const char *user, const char *password) {
+backend_init(const char *root, const char *share_name,
+             const char *user, const char *password,
+             int writable, char profile) {
   snprintf(g.root, sizeof g.root, "%s", root);
   snprintf(g.share, sizeof g.share, "%s", share_name);
   snprintf(g.user, sizeof g.user, "%s", user);
   snprintf(g.password, sizeof g.password, "%s", password);
+  g.writable = writable;
   g.profile = &PROFILES[0];
+  for(size_t i=0; i<sizeof PROFILES / sizeof PROFILES[0]; i++) {
+    if(PROFILES[i].name == profile) {
+      g.profile = &PROFILES[i];
+    }
+  }
   g.listener_fd = -1;
-  fsro_reset_stats();
+  backend_reset_stats();
   if(stat(g.root, &g.root_st) != 0) {
     return -errno;
   }
@@ -1825,7 +2483,7 @@ fsro_init(const char *root, const char *share_name,
 
 
 int
-fsro_status(char *buf, size_t size) {
+backend_status(char *buf, size_t size) {
   struct rusage ru;
   uint64_t window = g.first_read_ns ? g.last_read_ns - g.first_read_ns : 0;
   int n;
@@ -1847,6 +2505,26 @@ fsro_status(char *buf, size_t size) {
                (unsigned long long)(window / 1000000),
                (unsigned long long)(g.read_ns / 1000000));
 
+  if(g.writable && n > 0 && (size_t)n < size) {
+    const struct stat *st = &g.last_created_st;
+
+    n += snprintf(buf + n, size - n,
+                  "writes=%llu\nbytes_written=%llu\npwrite_ms=%llu\n"
+                  "fsyncs=%llu\nfsync_ms=%llu\n"
+                  "files_created=%u\ndirs_created=%u\nrenames=%u\ndeletes=%u\n"
+                  "delete_failures=%u\ntruncates=%u\ntimes_set=%u\n"
+                  "creation_times_ignored=%u\nattributes_ignored=%u\n"
+                  "last_created=%s uid=%u gid=%u mode=%04o\n",
+                  g.writes, g.bytes_written,
+                  (unsigned long long)(g.write_ns / 1000000), g.fsyncs,
+                  (unsigned long long)(g.fsync_ns / 1000000),
+                  g.files_created, g.dirs_created, g.renames, g.deletes,
+                  g.delete_failures, g.truncates, g.times_set,
+                  g.creation_times_ignored, g.attributes_ignored,
+                  g.last_created[0] ? g.last_created : "-",
+                  (unsigned)st->st_uid, (unsigned)st->st_gid,
+                  (unsigned)(st->st_mode & 07777));
+  }
   for(int i=0; i<MAX_NOTES && g.notes[i].count && n > 0 && (size_t)n < size; i++) {
     n += snprintf(buf + n, size - n, "unsupported: %s x%u\n",
                   g.notes[i].what, g.notes[i].count);

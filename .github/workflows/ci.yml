@@ -141,6 +141,10 @@ jobs:
         shell: bash
         run: bash tests/spikes/s2-host-test.sh build/host/bin/s2-smbserver 2>&1 | tee -a ci.log
 
+      - name: S3 read-write SMB server against smbclient (E1)
+        shell: bash
+        run: bash tests/spikes/s3-host-test.sh build/host/bin/s3-smbserver 2>&1 | tee -a ci.log
+
       - name: Failure details as annotation (readable without login)
         if: failure()
         run: bash .github/scripts/annotate-tail.sh ci.log

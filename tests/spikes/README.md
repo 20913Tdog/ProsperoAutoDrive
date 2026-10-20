@@ -89,7 +89,7 @@ uid=1 euid=0
 
 **Was das Payload tut:**
 
-- `prospero-s2-smbserver.elf` legt einen **neuen** Testordner `/data/_ProsperoAutoDrive_Test_<Zeit>-<Zufall>` an und füllt ihn mit festen Testdateien, zusammen etwa 65 MB (Liste in `ps5/spikes/s2-smbserver/testdata.c`).
+- `prospero-s2-smbserver.elf` legt einen **neuen** Testordner `/data/_ProsperoAutoDrive_Test_<Zeit>-<Zufall>` an und füllt ihn mit festen Testdateien, zusammen etwa 65 MB (Liste in `ps5/spikes/smbserver/testdata.c`).
 - Genau dieser Ordner wird **schreibgeschützt** als `\<PS5-IP>\s2` freigegeben. Benutzer `prospero`; das Passwort erscheint als PS5-Benachrichtigung.
 - Port 4445 zeigt den Status, auch die Anfragen, die das Backend noch nicht unterstützt (`unsupported:`), und warum die letzten Verbindungen endeten (`connection_end:`).
 - Es beendet sich nach 15 Minuten von selbst, früher mit `curl.exe http://<PS5-IP>:4445/quit`.
@@ -108,7 +108,7 @@ uid=1 euid=0
    ```
    tools\Send-Payload.cmd <PS5-IP> dist\dev\prospero-s2-smbserver.elf
    ```
-   Auf der PS5 erscheint `Prospero S2 bereit: Freigabe s2, Benutzer prospero, Passwort xxxx-xxxx-xxxx (15 min)`.
+   Auf der PS5 erscheint `Prospero S2 bereit: Freigabe s2 (nur lesen), Benutzer prospero, Passwort xxxx-xxxx-xxxx (15 min)`.
 3. Prüfskript starten und das Passwort eingeben, wenn es danach fragt:
    ```
    tests\spikes\S2-Check.cmd <PS5-IP>
@@ -234,3 +234,53 @@ Am einfachsten mit `tools\Run-Test.cmd` (siehe oben), denn S2b ist der aktuelle 
 - **Signatur:** AES-CMAC kostet gut dreimal so viel Rechenzeit wie HMAC-SHA256, etwa 30 ms je MiB. Das begrenzt bei rund 33 MB/s, im WLAN bremst es also noch nicht. Für G2 und kabelgebundenes Netz bleibt eine schnelle AES-CMAC nötig. SMB 3.1.1 bleibt.
 - **WLAN:** Die SSD bremst nicht. Das WLAN schwankt stark: Schon die FTP-Referenz fiel von 5,2 auf 3,4 MB/s. Mit zwei Läufen je Profil lässt sich der Abstand zu ftpsrv nicht belastbar angeben. Die SMB-Läufe mit b und c lagen bei 2,1 bis 3,8 MB/s, also grob 50 bis 90 % der FTP-Werte. Das klärt erst S4, mit ≥ 7 abwechselnden Läufen und Median.
 - **Uhr:** Die Uhr der PS5 (`now_utc`) geht gegenüber echter UTC (github.com) genau **1 Stunde vor**, PC und Anzeige der PS5 stimmen. Vermutlich rechnet die PS5 die Sommerzeit nur in die Anzeige ein. Für S3 wichtig, denn Zeitstempel, die die PS5 selbst setzt, lägen in der Sommerzeit 1 Stunde daneben.
+
+## S3 – Schreibt Windows korrekt auf die PS5?
+
+**Frage:** Kann der Windows-Client über unser Backend Dateien und Ordner auf der PS5 anlegen, schreiben, überschreiben, umbenennen, verschieben und löschen? Kommen alle Bytes und die Änderungszeiten richtig an? Wem gehören neu angelegte Dateien, und welche Uhrzeit bekommen sie?
+
+**Was das Payload tut:**
+
+- `prospero-s3-smbserver.elf` legt wie in S2 einen **neuen** Testordner `/data/_ProsperoAutoDrive_Test_<Zeit>-<Zufall>` mit denselben Testdateien an. Diesen Ordner gibt es als `\<PS5-IP>\s3` frei, **zum Lesen und Schreiben**.
+- Geschrieben wird nur innerhalb dieses Ordners, denn Namen, die aus der Freigabe hinausführen, lehnt der Server ab. Der Ordner bleibt danach liegen. Ob und wann er weg soll, entscheidest du.
+- Socket-Einstellungen wie Profil b aus S2b. Das Payload läuft 30 Minuten.
+- Nicht in diesem Prototyp:
+  - Freigabemodi und Bereichssperren werden angenommen, aber nicht durchgesetzt.
+  - Attribute außer Ordner und Archiv sowie die Erstellungszeit werden nicht gespeichert, nur gezählt.
+  - Alternative Datenströme gibt es nicht.
+
+**Bereits geprüft (E1, CI unter Linux, Samba-`smbclient`, SMB 3.1.1 mit Signing):**
+
+- Hochladen aller 1507 Testdateien mit SHA-256-Vergleich auf dem Server
+- Überschreiben kürzt die Datei, die vorhandene Schreibweise bleibt erhalten
+- Ordner anlegen, auch die Ablehnung eines Ordners, der sich nur in Groß-/Kleinschreibung unterscheidet
+- Nicht leere Ordner werden nicht gelöscht, ein Ordnerbaum lässt sich löschen
+- Umbenennen, auch nur der Groß-/Kleinschreibung, Verschieben, Ersetzen nur auf Wunsch, Ordner umbenennen
+- Löschen
+- Vom Client gesetzte Änderungszeit
+- Kein Schreiben außerhalb der Freigabe, keine ungültigen Namen
+- Besitzer neuer Dateien
+
+### Ablauf auf deinem PC
+
+`tools\Run-Test.cmd` starten (siehe oben), denn S3 ist der aktuelle Test. Explorer-Fenster zur PS5 vorher schließen. Der Lauf dauert etwa 10 Minuten.
+
+Was `tests\spikes\S3-Check.cmd` dabei prüft:
+
+1. **Vorlage holen:** Die Testdateien werden auf den PC kopiert.
+2. **Hochladen:** Mit robocopy geht alles in den neuen Ordner `hochgeladen`.
+3. **Größen und Zeiten:** Größe und Änderungszeit jeder Datei müssen stimmen. Das prüft ein Probelauf von robocopy.
+4. **Byte für Byte:** Alles wird wieder heruntergeladen und mit den Prüfsummen verglichen.
+5. **Bearbeiten im Ordner `ops`:** anlegen, anhängen, überschreiben, innerhalb der Freigabe kopieren, umbenennen, nur die Groß-/Kleinschreibung ändern, verschieben, Ordner umbenennen und löschen. Ein nicht leerer Ordner darf nicht gelöscht werden. Ein kleiner Ordnerbaum, den der Test gerade selbst angelegt hat, wird rekursiv gelöscht.
+6. **Uhrzeit:** Eine neue Datei bekommt ihre Zeit von der Uhr der PS5. Das Skript zeigt sie neben der PC-Zeit und neben UTC von github.com.
+7. **Tempo:** 64 MiB werden per SMB und zum Vergleich per FTP (ftpsrv, Port 2121) in den Testordner geschrieben.
+
+### Auswertung
+
+| Ergebnis | Bedeutung | Konsequenz |
+|---|---|---|
+| `S3-CHECK: ALLES OK` | **S3 funktional bestanden** | Zeitstempel und Tempo bewerten, weiter mit S4 |
+| Fehler beim Hochladen oder `FALSCH` bei Bytes, Größen oder Zeiten | Daten oder Zeiten kommen falsch an | Blocker, analysieren |
+| einzelne `FALSCH` in Schritt 5 | Ein Dateivorgang verhält sich anders als unter Windows | einzeln bewerten |
+| Uhrzeit der neuen Datei 1 Stunde daneben | Die Uhr der PS5 schlägt durch, siehe S2b | Ausgleich im Server entwerfen |
+| `unsupported:`- oder `delete_failures`-Zeilen im Status | Windows fragt etwas, das das Backend nicht kann | einzeln bewerten |
