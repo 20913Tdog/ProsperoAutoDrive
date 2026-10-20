@@ -439,3 +439,12 @@ Das Verhältnis je Runde vergleicht SMB mit dem FTP-Lauf direkt daneben. So fäl
 | Firewall-Fenster erschienen | Windows sieht das Programm als Server | Ablauf ändern, etwa nur Unicast oder TCP |
 | keine Antwort, `ICMP meldet Port nicht erreichbar` | Das Payload hört nicht auf UDP 4446 | Payload-Status prüfen |
 | `discovery_skew_ms` etwa 3600000 | Uhr der PS5 1 Stunde vor, gemessen aus der PC-Zeit | Variante 1 funktioniert |
+
+### Ergebnis: bestanden (E3, 21.10.2026, Build `ff9d50a`, WLAN, Windows 11 25H2)
+
+`S7-CHECK: BESTANDEN`. Konsole ohne Administratorrechte, aktives Firewall-Profil **Öffentlich**, also das strengste, mit eingeschalteten Benachrichtigungen.
+
+- **Unicast:** 3 von 3 Anfragen beantwortet, nach 4 bis 5 ms.
+- **Broadcast:** In jedem der 3 Versuche kamen 2 Antworten, nach 26 bis 100 ms. Sowohl der Rundruf ins eigene Netz (192.168.188.255) als auch der allgemeine (255.255.255.255) erreichten die PS5. Das Netz der WSL-Schnittstelle bekam erwartungsgemäß keine Antwort. Das Payload zählte 9 Anfragen und 9 Antworten, keine ungültigen.
+- **Kein Firewall-Fenster.** Windows lässt die Antworten auf eigene Anfragen durch, auch auf einen Broadcast, ohne dass das Programm einen festen Port belegt.
+- **Uhr (Variante 1):** Die PS5 geht gegenüber der Uhr dieses PCs 3596,5 s vor, also 1 Stunde minus 3,5 s. Zwischen den 9 Messungen streute der Wert um weniger als 0,1 s. Gegenüber github.com geht die PS5 weiterhin etwa 3599 s vor. Die PC-Uhr weicht also selbst um einige Sekunden ab. Für das Laufwerk ist das richtig so: Die Zeiten sollen zur Uhr des PCs passen, mit der Windows arbeitet.

@@ -160,6 +160,15 @@ Bestanden (E2). Auf `windows-2025` besteht der echte SMB-Client von Windows das 
 - **smbtorture:** 13 von 43 Teiltests bestehen. Sie stehen in `tests/spikes/smbtorture-pass.txt`. Fällt einer davon durch, schlägt die CI fehl. Die 30 übrigen sind Arbeit für Phase 2.
 - **Ab jetzt** wird `dev-build` nur veröffentlicht, wenn beide Client-Jobs grün sind.
 
+### S7: Die PS5 wird ohne Firewall-Dialog gefunden (21.10.2026)
+
+Bestanden (E3, Build `ff9d50a`, Windows 11 25H2, normaler Benutzer, Firewall-Profil „Öffentlich“). In der CI läuft der Unicast-Teil mit (E2).
+
+- Unicast und Broadcast über UDP werden beide beantwortet, und es erscheint kein Firewall-Fenster. Das Programm belegt keinen festen Port, es verschickt Anfragen und liest die Antworten darauf.
+- **Variante 1 funktioniert:** Der Server misst seine Abweichung zur PC-Uhr auf etwa 0,1 s genau, hier 3596,5 s.
+- **Für das Programm heißt das:** Die PS5 wird über die gespeicherte IP gefunden. Ändert sich die IP, hilft der Broadcast, und die Server-ID sagt, ob es dieselbe PS5 ist.
+- **Noch offen für Phase 2:** der endgültige UDP-Port (im Spike 4446) und eine dauerhafte Server-ID statt einer zufälligen je Start.
+
 ### Regel: nur libkernel-Funktionen auf der PS5
 
 Das SDK enthält in `libc.a` für jede FreeBSD-Systemaufrufnummer einen nackten Aufruf. Diese Aufrufe setzen `errno` nicht, und auf der PS5 kann eine Nummer etwas anderes bedeuten. In S3 hat `utimensat()` deshalb nichts getan.
