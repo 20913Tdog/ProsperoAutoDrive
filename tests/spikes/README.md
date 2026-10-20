@@ -305,3 +305,15 @@ Build `20de186` blieb nach dem Start stumm: Die PS5 zeigte „bereit“, doch au
 **Weitere Befunde:**
 - Neue Dateien gehören `uid=0 gid=0` und haben die Rechte `0666`. Es gibt also keine umask, alle dürfen lesen und schreiben.
 - Neu in `unsupported:` ist `IOCTL 0x00140078`, die serverseitige Kopie. Die Sicherheitsabfrage (`QUERY_INFO type 3`) kam 3015-mal, robocopy fragt sie je Datei ab. Beide sind für das Produkt nachzurüsten.
+
+### Ergebnis: bestanden (E3, 20.10.2026, Build `46a55e4`, WLAN)
+
+`S3-CHECK: ALLES OK`.
+
+- Bytes, alle 13 Dateivorgänge und die Kopie innerhalb der Freigabe stimmen wie im ersten Lauf.
+- **Änderungszeiten:** Alle 1507 stimmen, sogar ohne Toleranz (`times_set=3030`, zwei Aufrufe je Datei). Die Zeiten der PS5 haben ohnehin nur Mikrosekunden-Auflösung, deshalb verliert `utimes()` hier nichts.
+- **Tempo Schreiben, 64 MiB, ein Lauf:** SMB 7,7 MB/s, FTP 7,2 MB/s. Für 1507 Dateien mit 65 MB brauchte das Hochladen 1:40 min, also etwa 66 ms je Datei.
+- **Uhr der PS5:** Neue Dateien liegen wieder genau 1 Stunde in der Zukunft. Laut `GET /clock` meldet der Kernel `tz_minuteswest=0` und `tz_dsttime=60`, und `sceKernelGettimezone` liefert dieselben Werte. Die PS5 führt ihre Kernel-Zeit also als „UTC“ und kennt dazu 60 Minuten Sommerzeit. Ihre Uhr geht genau um diese 60 Minuten vor.
+  - **Vermutung:** Die Sommerzeit steckt in der Kernel-Uhr selbst. Dann verschwindet die Abweichung nach dem Ende der Sommerzeit am 25.10.2026. Prüfbar ist das mit einem Lauf ab dem 26.10.
+  - **Sicher ist:** Die Abweichung ist konstant und lässt sich messen.
+- **Für das Produkt** muss der Server die Abweichung in beide Richtungen ausgleichen: abziehen, wenn er Zeiten meldet, und addieren, wenn ein Client Zeiten setzt. So bleiben die Zeiten auf der Platte im Zeitbezug der PS5, passend zu ftpsrv und anderen Programmen, und Windows sieht echte Zeiten. Woher der Server die Abweichung kennt, ist noch zu entscheiden.

@@ -106,6 +106,23 @@ Lesend ist alles korrekt angekommen:
 - SMB 3.1.1 bleibt.
 - Die interne UTC-Uhr der PS5 geht 1 Stunde vor. Das ist für Zeitstempel in S3 wichtig.
 
+### S3: Schreiben funktioniert
+
+Bestanden im zweiten Lauf (E3, Build `46a55e4`):
+
+- Alle Bytes, alle Änderungszeiten und alle 13 Dateivorgänge stimmen. Dazu gehören das Ändern nur der Groß-/Kleinschreibung, das Verschieben und das rekursive Löschen.
+- Schreiben ist so schnell wie mit ftpsrv (ein Lauf, je 64 MiB): SMB 7,7 MB/s, FTP 7,2 MB/s.
+- Neue Dateien gehören root und haben die Rechte `0666`.
+- Neue Dateien ohne Zeitangabe bekommen die Zeit der PS5 und liegen damit 1 Stunde in der Zukunft. Der Kernel meldet dazu Sommerzeit von 60 Minuten.
+- **Noch offen:** woher der Server diese Abweichung für den Ausgleich kennt.
+
+### Regel: nur libkernel-Funktionen auf der PS5
+
+Das SDK enthält in `libc.a` für jede FreeBSD-Systemaufrufnummer einen nackten Aufruf. Diese Aufrufe setzen `errno` nicht, und auf der PS5 kann eine Nummer etwas anderes bedeuten. In S3 hat `utimensat()` deshalb nichts getan.
+
+- **Regel:** Auf der PS5 nur Funktionen benutzen, die libkernel exportiert. Die CI prüft das (`.github/scripts/check-raw-syscalls.sh`).
+- **Ebenso:** Neue Bibliotheksfunktionen gelten erst als sicher, wenn sie auf der PS5 gelaufen sind. Nach `localtime_r()` blieb das Payload stumm.
+
 ## Testablauf, 20.10.2026
 
 ### Test mit einem Klick
@@ -117,5 +134,5 @@ Der Projektverantwortliche startet nur `tools\Run-Test.cmd` und schickt die Ausg
 3. Es holt das Passwort einmalig über den Steuerport.
 4. Es führt den Test aus und legt die Ausgabe in die Zwischenablage.
 
-- **Abwägung:** Das Testpayload gibt sein Passwort genau einmal heraus, danach nie wieder. Ein anderes Gerät im WLAN könnte es zuerst abholen. Es hätte dann nur Lesezugriff auf erzeugte Testdaten, für höchstens 15 Minuten. Der Steuerport war schon vorher ohne Passwort erreichbar. Ins Produkt kommt das nicht.
+- **Abwägung:** Das Testpayload gibt sein Passwort genau einmal heraus, danach nie wieder. Ein anderes Gerät im WLAN könnte es zuerst abholen. Es käme dann nur an den neu angelegten Testordner mit erzeugten Testdaten, für höchstens 15 Minuten (S2, nur lesen) oder 30 Minuten (S3, auch schreiben). Der Steuerport war schon vorher ohne Passwort erreichbar. Ins Produkt kommt das nicht.
 - **Verworfen:** den Payload-Manager (PLDMGR) über seine Schnittstelle fernzusteuern. Das hätte in seinen bestehenden Ordner auf der PS5 geschrieben, und Tests dürfen nur in neu angelegten Testordnern schreiben. Außerdem ist die Schnittstelle fremd und inoffiziell.
