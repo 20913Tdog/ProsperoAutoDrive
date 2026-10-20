@@ -209,26 +209,25 @@ serve_control(int fd) {
                    g_password);
     }
   } else {
-    /* The console's own clock and time zone, for comparison with a
-     * reference: in S2b its UTC ran one hour ahead. */
+    /* The console's own clock, for comparison with a reference: in S2b
+     * its UTC ran one hour ahead. No localtime_r() here: the first S3
+     * build called it at this point and stopped answering on the console
+     * (likely the cause, not confirmed), while gmtime_r() is proven. */
     time_t now = time(NULL);
     long up = (long)(now - g_start);
     char now_utc[32];
     struct tm tm;
-    struct tm local;
 
+    memset(&tm, 0, sizeof tm);
     gmtime_r(&now, &tm);
     strftime(now_utc, sizeof now_utc, "%Y-%m-%dT%H:%M:%SZ", &tm);
-    localtime_r(&now, &local);
     n = snprintf(body, sizeof body,
                  TAG " OK\nfolder=%s\nshare=%s\nuser=%s\nwritable=%d\n"
                  "uptime_s=%ld\nremaining_s=%ld\nconnections=%u\n"
-                 "password_given=%d\nnow_utc=%s\n"
-                 "local_offset_s=%ld\nlocal_isdst=%d\nlocal_zone=%s\n",
+                 "password_given=%d\nnow_utc=%s\n",
                  g_folder, SHARE_NAME, USER_NAME, WRITABLE, up,
                  (long)RUN_SECONDS - up, g_connections, g_password_given,
-                 now_utc, (long)local.tm_gmtoff, local.tm_isdst,
-                 local.tm_zone ? local.tm_zone : "");
+                 now_utc);
     if(n > 0 && (size_t)n < sizeof body) {
       n += backend_status(body + n, sizeof body - n);
     }

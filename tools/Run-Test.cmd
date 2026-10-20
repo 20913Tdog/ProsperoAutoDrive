@@ -181,6 +181,9 @@ if not errorlevel 1 (
 )
 if defined FOLDER if not "%FOLDER%"=="%OLD_FOLDER%" goto :ready
 if %N% geq %MAXN% (
+  rem "refused" means the payload has ended, a timeout that it hangs.
+  echo Letzter Versuch im Detail:
+  curl.exe -sS --connect-timeout 3 --max-time 5 -o nul "%CTL%/"
   call :fail "Das Payload meldet sich nicht auf Port 4445."
   exit /b 1
 )
