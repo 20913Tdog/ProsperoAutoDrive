@@ -51,3 +51,20 @@ Die Spikes S1–S7 klären vor jedem Produktcode, ob die Architektur „natives 
 | `bind 445: FAIL … Permission denied` | Keine Rechte für Port < 1024 | Rechte im Payload anheben, erneut testen |
 | 4445 erreichbar, 445 läuft in Timeout | Port 445 wird unterwegs gefiltert (z. B. vom Router oder WLAN-Gerät) | Netz prüfen, Alternativport bewerten |
 | Beide Ports Timeout | PS5 nicht erreichbar oder Payload nicht gestartet | IP und Payload-Start prüfen |
+
+### Ergebnis: bestanden (E3, 20.10.2026, Build `95dabbe`)
+
+Nachher-Messung vom Windows-PC zur PS5 im WLAN, auf beiden Ports identisch bis auf `connected_port`:
+
+```
+PROSPERO-S1 OK
+connected_port=445
+bind 445: OK
+bind 4445: OK
+uid=1 euid=0
+```
+
+**Bewertung:**
+- Das Payload belegt 445 mit effektiven Root-Rechten (`euid=0`), und Windows erreicht 445 über das WLAN, also ohne Filterung unterwegs.
+- Ein Fremddienst auf 445 ist ausgeschlossen. Selbst ein Dienst, der nur an die konkrete IP der PS5 gebunden wäre, hätte die Verbindung vor unserer Wildcard-Bindung bekommen.
+- **Konsequenz:** Port 445 ist der Primärpfad, der Alternativport entfällt. Für S3 notiert: Prüfen, mit welchem Besitzer und welchen Rechten neu angelegte Dateien entstehen (`uid=1`, `euid=0`).
