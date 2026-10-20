@@ -6,6 +6,20 @@ Die Spikes S1–S7 klären vor jedem Produktcode, ob die Architektur „natives 
 - **E2:** CI mit echtem Windows-Client
 - **E3:** echte PS5
 
+## Test mit einem Klick
+
+`tools\Run-Test.cmd` starten, per Doppelklick oder in der Konsole. Beim ersten Mal fragt es nach der IP-Adresse der PS5 und speichert sie in `tools\ps5.local.ini` (nicht in git). Danach läuft alles ohne Rückfragen:
+
+1. `git pull` auf `dev`
+2. den geprüften Build holen. Er muss genau zum Stand passen, sonst bricht das Skript ab, weil die CI noch läuft.
+3. alle Verbindungen zur PS5 trennen und ein laufendes Testpayload beenden
+4. das Payload senden (ELF-Loader, Port 9021) und warten, bis es bereit ist
+5. das Passwort einmalig über Port 4445 abholen, den aktuellen Test ausführen und das Payload danach beenden
+
+Am Ende steht die komplette Ausgabe in der Zwischenablage und in `logs\<Test>.log`. Sie muss nur noch in den Chat eingefügt werden. Explorer-Fenster zur PS5 vorher schließen.
+
+Welcher Test läuft, steht in `DEFAULT_TEST` im Skript. Ein anderer Test lässt sich direkt angeben: `tools\Run-Test.cmd S2 [PS5-IP]`. Die Einzelschritte in den Abschnitten unten bleiben als Weg von Hand erhalten.
+
 ## S1 – Kann ein Payload TCP 445 belegen?
 
 **Frage:** Darf ein Payload auf der PS5 den SMB-Port 445 (und den Ausweichport 4445) öffnen, und ist 445 nicht schon von etwas anderem belegt?
@@ -175,6 +189,8 @@ Windows 11 Pro 25H2 (Build 26200) im WLAN, `S2-CHECK: ALLES OK`, Explorer-Test u
 **Bereits geprüft (E1, CI):** Umschalten aller Profile, ausgehandelter Dialekt (3.1.1 bzw. 2.1) und die Zähler.
 
 ### Ablauf auf deinem PC
+
+Am einfachsten mit `tools\Run-Test.cmd` (siehe oben), denn S2b ist der aktuelle Test. Von Hand:
 
 1. Auf `dev` aktualisieren und den Build holen:
    ```

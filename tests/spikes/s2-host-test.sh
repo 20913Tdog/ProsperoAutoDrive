@@ -129,7 +129,20 @@ done
 curl -fsS --max-time 3 http://127.0.0.1:4445/profile/x | grep -q 'UNKNOWN PROFILE'
 echo "case 10 passed"
 
-echo "== case 11: status page and stop via control port"
+echo "== case 11: password handed out exactly once (Run-Test.cmd)"
+expect "$(status)" '^password_given=0$'
+out=$(curl -fsS --max-time 3 http://127.0.0.1:4445/password)
+expect "$out" "^password=$PASS\$"
+out=$(curl -fsS --max-time 3 http://127.0.0.1:4445/password)
+expect "$out" '^PROSPERO-S2 PASSWORD ALREADY GIVEN$'
+if grep -q -- "$PASS" <<<"$out"; then
+  echo "password handed out twice" >&2
+  exit 1
+fi
+expect "$(status)" '^password_given=1$'
+echo "case 11 passed"
+
+echo "== case 12: status page and stop via control port"
 out=$(status)
 expect "$out" '^sessions=[1-9]'
 expect "$out" '^lost_replies=0'
@@ -137,4 +150,4 @@ echo "$out"
 curl -fsS --max-time 3 http://127.0.0.1:4445/quit >/dev/null
 wait "$server"
 trap - EXIT
-echo "case 11 passed"
+echo "case 12 passed"

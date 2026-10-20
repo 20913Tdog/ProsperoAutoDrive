@@ -31,7 +31,12 @@ if errorlevel 1 (
 set "FOLDER="
 for /f "tokens=1,* delims==" %%A in ('findstr /b /c:"folder=" "%STATUS%"') do set "FOLDER=%%B"
 echo Testordner: %FOLDER%
-set /p "PW=Passwort aus der PS5-Benachrichtigung: "
+rem tools\Run-Test.cmd passes the password in PROSPERO_PW.
+if defined PROSPERO_PW (
+  set "PW=%PROSPERO_PW%"
+) else (
+  set /p "PW=Passwort aus der PS5-Benachrichtigung: "
+)
 mkdir "%OUT%"
 echo Start: %date% %time%
 echo Vorhandene Verbindungen zur PS5 (werden getrennt):

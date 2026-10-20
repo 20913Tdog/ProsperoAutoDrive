@@ -18,6 +18,9 @@
  * GET /quit stops the server. It also stops by itself after RUN_SECONDS.
  * For the speed diagnosis (S2b), GET /profile/<a|b|c> switches socket and
  * dialect settings and GET /reset restarts the timing counters.
+ * GET /password hands the password out once, for the one-click test run
+ * (tools\Run-Test.cmd); every later request is refused. The control port is
+ * unauthenticated anyway, and the share is read-only test data.
  *
  * Host build for the CI tests: s2-smbserver <base dir> <smb port> <password>
  */
@@ -64,6 +67,8 @@ static char g_folder[1024];
 static time_t g_start;
 static int g_ctl_fd = -1;
 static unsigned g_connections;
+static char g_password[32];
+static int g_password_given;
 
 
 static void
@@ -176,13 +181,22 @@ serve_control(int fd) {
   } else if(strncmp(req, "GET /profile/", 13) == 0) {
     n = snprintf(body, sizeof body, "PROSPERO-S2 %s\n",
                  fsro_set_profile(req[13]) == 0 ? "PROFILE" : "UNKNOWN PROFILE");
+  } else if(strncmp(req, "GET /password", 13) == 0) {
+    if(g_password_given) {
+      n = snprintf(body, sizeof body, "PROSPERO-S2 PASSWORD ALREADY GIVEN\n");
+    } else {
+      g_password_given = 1;
+      n = snprintf(body, sizeof body, "PROSPERO-S2 PASSWORD\npassword=%s\n",
+                   g_password);
+    }
   } else {
     long up = (long)(time(NULL) - g_start);
     n = snprintf(body, sizeof body,
                  "PROSPERO-S2 OK\nfolder=%s\nshare=%s\nuser=%s\n"
-                 "uptime_s=%ld\nremaining_s=%ld\nconnections=%u\n",
+                 "uptime_s=%ld\nremaining_s=%ld\nconnections=%u\n"
+                 "password_given=%d\n",
                  g_folder, SHARE_NAME, USER_NAME, up,
-                 (long)RUN_SECONDS - up, g_connections);
+                 (long)RUN_SECONDS - up, g_connections, g_password_given);
     if(n > 0 && (size_t)n < sizeof body) {
       n += fsro_status(body + n, sizeof body - n);
     }
@@ -241,7 +255,6 @@ on_new_client(struct smb2_context *smb2, void *cb_data) {
 int
 main(int argc, char **argv) {
   const char *base = "/data";
-  char password[32];
   uint16_t port = 445;
   int rc;
 
@@ -252,11 +265,11 @@ main(int argc, char **argv) {
   }
   base = argv[1];
   port = (uint16_t)atoi(argv[2]);
-  snprintf(password, sizeof password, "%s", argv[3]);
+  snprintf(g_password, sizeof g_password, "%s", argv[3]);
 #else
   (void)argc;
   (void)argv;
-  make_password(password, sizeof password);
+  make_password(g_password, sizeof g_password);
 #endif
 
   signal(SIGPIPE, SIG_IGN);
@@ -273,7 +286,7 @@ main(int argc, char **argv) {
     notify("Prospero S2: FEHLER Testordner: %s (%s)", strerror(-rc), g_folder);
     return 1;
   }
-  if((rc=fsro_init(g_folder, SHARE_NAME, USER_NAME, password))) {
+  if((rc=fsro_init(g_folder, SHARE_NAME, USER_NAME, g_password))) {
     notify("Prospero S2: FEHLER Freigabe: %s", strerror(-rc));
     return 1;
   }
@@ -287,7 +300,7 @@ main(int argc, char **argv) {
   g_server.extra_service = extra_service;
 
   notify("Prospero S2 bereit: Freigabe %s, Benutzer %s, Passwort %s (%d min)",
-         SHARE_NAME, USER_NAME, password, RUN_SECONDS / 60);
+         SHARE_NAME, USER_NAME, g_password, RUN_SECONDS / 60);
   rc = smb2_serve_port(&g_server, 8, on_new_client, NULL);
   if(rc < 0) {
     notify("Prospero S2: SMB-Port %u nicht verfuegbar (%d)", port, rc);

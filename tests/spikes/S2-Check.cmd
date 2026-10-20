@@ -26,7 +26,13 @@ if errorlevel 1 (
 )
 type "%STATUS%"
 echo.
-set /p "PW=Passwort aus der PS5-Benachrichtigung: "
+rem tools\Run-Test.cmd passes the password in PROSPERO_PW and sets
+rem PROSPERO_AUTO, which skips the manual Explorer step.
+if defined PROSPERO_PW (
+  set "PW=%PROSPERO_PW%"
+) else (
+  set /p "PW=Passwort aus der PS5-Benachrichtigung: "
+)
 
 echo.
 echo ===== 1. Verbinden =====
@@ -104,6 +110,10 @@ set "FAIL=1"
 :explorer
 echo.
 echo ===== 7. Explorer =====
+if defined PROSPERO_AUTO (
+  echo uebersprungen ^(automatischer Lauf^)
+  goto :report
+)
 echo Jetzt %SHARE% im Explorer oeffnen und wie in tests\spikes\README.md
 echo beschrieben testen. Danach hier eine Taste druecken.
 pause >nul
