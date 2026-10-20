@@ -111,7 +111,25 @@ out=$(smb -c 'volume' 2>&1)
 expect "$out" 'Volume: |PS5|'
 echo "case 9 passed"
 
-echo "== case 10: status page and stop via control port"
+echo "== case 10: speed-diagnosis profiles (S2b)"
+for p in b c a; do
+  curl -fsS --max-time 3 "http://127.0.0.1:4445/profile/$p" | grep -q 'PROSPERO-S2 PROFILE'
+  curl -fsS --max-time 3 http://127.0.0.1:4445/reset >/dev/null
+  smb -c "get pattern-1MiB.bin $WORK/profile-$p.bin" >/dev/null
+  cmp "$WORK/profile-$p.bin" "$folder/pattern-1MiB.bin"
+  out=$(status)
+  expect "$out" "^profile=$p "
+  expect "$out" '^bytes_read=1048576$'
+  if [ "$p" = c ]; then
+    expect "$out" '^dialect=0x0210$'
+  else
+    expect "$out" '^dialect=0x0311$'
+  fi
+done
+curl -fsS --max-time 3 http://127.0.0.1:4445/profile/x | grep -q 'UNKNOWN PROFILE'
+echo "case 10 passed"
+
+echo "== case 11: status page and stop via control port"
 out=$(status)
 expect "$out" '^sessions=[1-9]'
 expect "$out" '^lost_replies=0'
@@ -119,4 +137,4 @@ echo "$out"
 curl -fsS --max-time 3 http://127.0.0.1:4445/quit >/dev/null
 wait "$server"
 trap - EXIT
-echo "case 10 passed"
+echo "case 11 passed"

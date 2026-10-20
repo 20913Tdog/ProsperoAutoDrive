@@ -16,6 +16,8 @@
  * User "prospero", random password shown as a PS5 notification. GET / on
  * TCP 4445 reports status and the requests the backend does not support,
  * GET /quit stops the server. It also stops by itself after RUN_SECONDS.
+ * For the speed diagnosis (S2b), GET /profile/<a|b|c> switches socket and
+ * dialect settings and GET /reset restarts the timing counters.
  *
  * Host build for the CI tests: s2-smbserver <base dir> <smb port> <password>
  */
@@ -168,6 +170,12 @@ serve_control(int fd) {
   if(strncmp(req, "GET /quit", 9) == 0) {
     g_server.stop_requested = 1;
     n = snprintf(body, sizeof body, "PROSPERO-S2 QUIT\n");
+  } else if(strncmp(req, "GET /reset", 10) == 0) {
+    fsro_reset_stats();
+    n = snprintf(body, sizeof body, "PROSPERO-S2 RESET\n");
+  } else if(strncmp(req, "GET /profile/", 13) == 0) {
+    n = snprintf(body, sizeof body, "PROSPERO-S2 %s\n",
+                 fsro_set_profile(req[13]) == 0 ? "PROFILE" : "UNKNOWN PROFILE");
   } else {
     long up = (long)(time(NULL) - g_start);
     n = snprintf(body, sizeof body,
@@ -197,8 +205,8 @@ serve_control(int fd) {
 /* Hooks into smb2_serve_port(): it runs them at least every 100 ms. */
 static void
 extra_fdset(struct smb2_server *srv, fd_set *rfds, fd_set *wfds, int *maxfd) {
-  (void)srv;
   (void)wfds;
+  fsro_listener(srv->fd);
   FD_SET(g_ctl_fd, rfds);
   if(g_ctl_fd > *maxfd) {
     *maxfd = g_ctl_fd;

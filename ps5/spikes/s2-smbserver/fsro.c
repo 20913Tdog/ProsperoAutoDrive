@@ -33,12 +33,16 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <time.h>
 #include <unistd.h>
 
 #include <netinet/in.h>
+#include <netinet/tcp.h>
+#include <sys/resource.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/statvfs.h>
+#include <sys/time.h>
 
 #include <smb2/smb2.h>
 #include <smb2/libsmb2.h>
@@ -94,6 +98,22 @@
 
 enum tree_kind { TREE_NONE, TREE_IPC, TREE_DISK };
 
+/* Socket and dialect variants for the S2b speed diagnosis. 'a' must stay
+ * first and untouched: it is the setup S2 was measured with. */
+typedef struct profile {
+  char name;
+  int sockbuf;                          /* SO_SNDBUF/SO_RCVBUF, 0 = default */
+  int nodelay;                          /* TCP_NODELAY, -1 = as accepted */
+  enum smb2_negotiate_version version;
+  const char *what;
+} profile_t;
+
+static const profile_t PROFILES[] = {
+  {'a', 0,       -1, SMB2_VERSION_ANY,  "socket defaults as in S2"},
+  {'b', 1 << 20,  1, SMB2_VERSION_ANY,  "1 MiB socket buffers, TCP_NODELAY (as ftpsrv)"},
+  {'c', 1 << 20,  1, SMB2_VERSION_0210, "as b, but SMB 2.1 (HMAC-SHA256 signing, no AES-CMAC)"},
+};
+
 typedef struct dir_entry {
   char *name;
   struct stat st;
@@ -115,6 +135,7 @@ typedef struct handle {
 } handle_t;
 
 typedef struct conn {
+  struct conn *next;
   struct smb2_context *smb2;
   struct {
     uint32_t id;
@@ -166,6 +187,19 @@ static struct {
   /* Why the last connections ended, as libsmb2 reports it. */
   char last_errors[MAX_ERRORS][120];
   unsigned nerrors;
+
+  conn_t *conns;
+  const profile_t *profile;
+  int listener_fd;
+  const profile_t *listener_profile;
+  uint16_t last_dialect;
+
+  /* Since the last fsro_reset_stats(), for the speed diagnosis. */
+  uint64_t stats_start_ns;
+  struct rusage ru_start;
+  uint64_t read_ns;                     /* time spent in pread() */
+  uint64_t first_read_ns;
+  uint64_t last_read_ns;
 } g;
 
 
@@ -673,17 +707,90 @@ unlink_handle(conn_t *c, handle_t *h) {
 
 void
 fsro_attach(struct smb2_context *smb2) {
+  const profile_t *p = g.profile;
   conn_t *c = calloc(1, sizeof *c);
+  int fd = smb2_get_fd(smb2);
   int one = 1;
 
-  smb2_set_version(smb2, SMB2_VERSION_ANY);
+  smb2_set_version(smb2, p->version);
   smb2_set_passthrough(smb2, 1);
-  setsockopt(smb2_get_fd(smb2), SOL_SOCKET, SO_KEEPALIVE, &one, sizeof one);
+  setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &one, sizeof one);
+  if(p->sockbuf) {
+    setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &p->sockbuf, sizeof p->sockbuf);
+    setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &p->sockbuf, sizeof p->sockbuf);
+  }
+  if(p->nodelay >= 0) {
+    setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &p->nodelay, sizeof p->nodelay);
+  }
   if(c) {
     c->smb2 = smb2;
     c->last_create_status = SMB2_STATUS_FILE_CLOSED;
+    c->next = g.conns;
+    g.conns = c;
   }
   smb2_set_opaque(smb2, c);
+}
+
+
+/* Window scaling is agreed in the handshake, so the receive buffer has to be
+ * set on the listening socket to count. Profile 'a' never touches it. */
+void
+fsro_listener(int fd) {
+  const profile_t *p = g.profile;
+
+  if(fd < 0 || (fd == g.listener_fd && p == g.listener_profile)) {
+    return;
+  }
+  if(p->sockbuf) {
+    setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &p->sockbuf, sizeof p->sockbuf);
+    setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &p->sockbuf, sizeof p->sockbuf);
+  }
+  g.listener_fd = fd;
+  g.listener_profile = p;
+}
+
+
+int
+fsro_set_profile(char name) {
+  for(size_t i=0; i<sizeof PROFILES / sizeof PROFILES[0]; i++) {
+    if(PROFILES[i].name == name) {
+      g.profile = &PROFILES[i];
+      /* Running connections keep their settings; ending them makes the
+       * client's next connection start with the new ones. */
+      for(conn_t *c=g.conns; c; c=c->next) {
+        shutdown(smb2_get_fd(c->smb2), SHUT_RDWR);
+      }
+      return 0;
+    }
+  }
+  return -1;
+}
+
+
+static uint64_t
+now_ns(void) {
+  struct timespec ts;
+
+  clock_gettime(CLOCK_MONOTONIC, &ts);
+  return (uint64_t)ts.tv_sec * 1000000000ULL + (uint64_t)ts.tv_nsec;
+}
+
+
+static uint64_t
+tv_ms(const struct timeval *tv) {
+  return (uint64_t)tv->tv_sec * 1000 + (uint64_t)tv->tv_usec / 1000;
+}
+
+
+void
+fsro_reset_stats(void) {
+  g.reads = 0;
+  g.bytes_read = 0;
+  g.read_ns = 0;
+  g.first_read_ns = 0;
+  g.last_read_ns = 0;
+  getrusage(RUSAGE_SELF, &g.ru_start);
+  g.stats_start_ns = now_ns();
 }
 
 
@@ -706,6 +813,12 @@ destruction_event(struct smb2_server *srv, struct smb2_context *smb2) {
   g.ndeferred = j;
 
   if(c) {
+    for(conn_t **pp=&g.conns; *pp; pp=&(*pp)->next) {
+      if(*pp == c) {
+        *pp = c->next;
+        break;
+      }
+    }
     while(c->handles) {
       handle_t *h = c->handles;
       c->handles = h->next;
@@ -738,8 +851,8 @@ authorize_user(struct smb2_server *srv, struct smb2_context *smb2,
 static int
 session_established(struct smb2_server *srv, struct smb2_context *smb2) {
   (void)srv;
-  (void)smb2;
   g.sessions++;
+  g.last_dialect = smb2_get_dialect(smb2);
   return 0;
 }
 
@@ -1064,6 +1177,7 @@ read_cmd(struct smb2_server *srv, struct smb2_context *smb2,
   uint32_t status = SMB2_STATUS_FILE_CLOSED;
   handle_t *h = c ? lookup(c, req->file_id, &status) : NULL;
   uint32_t len = req->length;
+  uint64_t t0;
   uint8_t *buf;
   ssize_t n;
 
@@ -1083,7 +1197,13 @@ read_cmd(struct smb2_server *srv, struct smb2_context *smb2,
   if(!(buf=malloc(len))) {
     return reply_status(smb2, SMB2_READ, SMB2_STATUS_NO_MEMORY);
   }
+  t0 = now_ns();
   n = pread(h->fd, buf, len, (off_t)req->offset);
+  g.last_read_ns = now_ns();
+  g.read_ns += g.last_read_ns - t0;
+  if(!g.first_read_ns) {
+    g.first_read_ns = t0;
+  }
   if(n < 0) {
     status = errno_status(errno);
   } else if(n == 0 || (uint32_t)n < req->minimum_count) {
@@ -1694,6 +1814,9 @@ fsro_init(const char *root, const char *share_name,
   snprintf(g.share, sizeof g.share, "%s", share_name);
   snprintf(g.user, sizeof g.user, "%s", user);
   snprintf(g.password, sizeof g.password, "%s", password);
+  g.profile = &PROFILES[0];
+  g.listener_fd = -1;
+  fsro_reset_stats();
   if(stat(g.root, &g.root_st) != 0) {
     return -errno;
   }
@@ -1703,13 +1826,26 @@ fsro_init(const char *root, const char *share_name,
 
 int
 fsro_status(char *buf, size_t size) {
-  int n = snprintf(buf, size,
-                   "auth_attempts=%u\nsessions=%u\ncreates=%u\ncreates_ok=%u\n"
-                   "denied_writes=%u\ndir_queries=%u\nreads=%llu\n"
-                   "bytes_read=%llu\nlost_replies=%u\n",
-                   g.auth_attempts, g.sessions, g.creates, g.creates_ok,
-                   g.denied_writes, g.dir_queries, g.reads, g.bytes_read,
-                   g.lost_replies);
+  struct rusage ru;
+  uint64_t window = g.first_read_ns ? g.last_read_ns - g.first_read_ns : 0;
+  int n;
+
+  getrusage(RUSAGE_SELF, &ru);
+  n = snprintf(buf, size,
+               "profile=%c (%s)\ndialect=0x%04x\n"
+               "auth_attempts=%u\nsessions=%u\ncreates=%u\ncreates_ok=%u\n"
+               "denied_writes=%u\ndir_queries=%u\nlost_replies=%u\n"
+               "since_reset_ms=%llu\ncpu_user_ms=%llu\ncpu_sys_ms=%llu\n"
+               "reads=%llu\nbytes_read=%llu\nread_window_ms=%llu\npread_ms=%llu\n",
+               g.profile->name, g.profile->what, g.last_dialect,
+               g.auth_attempts, g.sessions, g.creates, g.creates_ok,
+               g.denied_writes, g.dir_queries, g.lost_replies,
+               (unsigned long long)((now_ns() - g.stats_start_ns) / 1000000),
+               (unsigned long long)(tv_ms(&ru.ru_utime) - tv_ms(&g.ru_start.ru_utime)),
+               (unsigned long long)(tv_ms(&ru.ru_stime) - tv_ms(&g.ru_start.ru_stime)),
+               g.reads, g.bytes_read,
+               (unsigned long long)(window / 1000000),
+               (unsigned long long)(g.read_ns / 1000000));
 
   for(int i=0; i<MAX_NOTES && g.notes[i].count && n > 0 && (size_t)n < size; i++) {
     n += snprintf(buf + n, size - n, "unsupported: %s x%u\n",

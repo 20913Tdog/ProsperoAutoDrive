@@ -127,3 +127,76 @@ uid=1 euid=0
 - Änderungsbenachrichtigungen (`CHANGE_NOTIFY`) werden abgelehnt; der Explorer aktualisiert die Ansicht dann nur mit F5.
 - Nach einem falsch eingegebenen Passwort kann ein zweiter Versuch auf derselben Verbindung scheitern (libsmb2, SMB 3.1.1). Dann `net use \<PS5-IP>\s2 /delete` und neu verbinden.
 - libsmb2 schickt die Antworten auf zusammengesetzte Anfragen (Compound) einzeln statt gebündelt. Ob Windows das ohne Nachteile annimmt, zeigt erst dieser Test.
+
+### Ergebnis: funktional bestanden (E3, 20.10.2026, Build `dc283f6`)
+
+Windows 11 Pro 25H2 (Build 26200) im WLAN, `S2-CHECK: ALLES OK`, Explorer-Test unauffällig.
+
+**Bewertung:**
+- Die Anmeldung mit NTLMv2 funktioniert. Windows 11 Pro verlangt Signing, die Sitzung war also signiert. Das fehlende SPNEGO-mechListMIC stört Windows nicht, anders als Sambas `smbclient`.
+- Alle 1507 Dateien kamen mit korrekter SHA-256 an. Groß-/Kleinschreibung, Unicode-Namen und der Ordner mit 1500 Einträgen funktionieren, und alle Schreibversuche wurden abgelehnt.
+- Der Status zeigt `lost_replies=0` und keine abgebrochenen Verbindungen.
+
+**Was Windows zusätzlich anfragt (`unsupported:`):**
+
+| Anfrage | Bedeutung | Bewertung |
+|---|---|---|
+| `QUERY_DIRECTORY class 0x51` ×16 | FileIdAllExtdBothDirectoryInformation (Windows 11) | Windows fällt sauber auf 0x25 zurück. Nachrüsten spart eine Anfrage je Ordner |
+| `QUERY_INFO type 3` ×1508 | Sicherheitsbeschreibung, robocopy fragt je Datei | unkritisch. Im Produkt eine einfache ACL liefern (Explorer-Reiter „Sicherheit“) |
+| `CREATE on IPC$ srvsvc` ×74, `wkssvc` ×6 | Freigabe- und Arbeitsstationsinfos per RPC | für ein Laufwerk unkritisch. Für das Produkt prüfen, denn 74 Fehlversuche kosten Wartezeit |
+| `CHANGE_NOTIFY` ×12 | Änderungsüberwachung des Explorers | **keine Schleife**: Windows akzeptiert die Ablehnung. Live-Aktualisierung später |
+| `IOCTL 0x000900C0` ×12 | FSCTL_CREATE_OR_GET_OBJECT_ID (Verknüpfungsverfolgung) | unkritisch |
+| `IOCTL 0x00094264` ×2 | FSCTL_OFFLOAD_READ (ODX-Kopierbeschleunigung) | unkritisch, Windows kopiert dann normal |
+| `IOCTL 0x00110018` ×1 | FSCTL_PIPE_WAIT auf IPC$ | unkritisch |
+
+**Geschwindigkeit: viel zu langsam.**
+- robocopy brauchte für alle 65 MB 5:38 min (≈ 0,2 MB/s). Ohne die 64-MiB-Datei sind das ≈ 180 ms je kleiner Datei.
+- Der Explorer brauchte für 64 MiB ≈ 65 s (≈ 1 MB/s, stark schwankend).
+- So ist Gate G1 nicht erreichbar. Deshalb kommt die Ursachenanalyse S2b vor S3.
+
+**Notiert für S3:** Die Uhr der PS5 und die des PCs liegen rund 50 Minuten auseinander. Das zeigen die Dateizeiten der PS5 im Vergleich zur robocopy-Endzeit. Für Zeitstempel beim Schreiben ist das wichtig.
+
+## S2b – Warum ist das Lesen so langsam?
+
+**Frage:** Liegt die Geschwindigkeit von S2 an zu kleinen Socket-Puffern auf der PS5, an der SMB3-Signatur (AES-CMAC, in libsmb2 ohne Hardwarebeschleunigung) oder am WLAN selbst?
+
+**Hintergrund:**
+- ftpsrv stellt für jede Datenverbindung 1 MiB Sende- und Empfangspuffer ein. Das deutet auf kleine Standardpuffer der PS5 hin.
+- libsmb2 berechnet AES-CMAC mit einer einfachen Software-AES und erweitert dabei den Schlüssel für jeden 16-Byte-Block neu. Das kostet viel Rechenzeit je MiB.
+
+**Was das neue Payload zusätzlich kann:** Über Port 4445 lässt es sich zwischen drei Profilen umschalten. Es zählt Rechenzeit (`cpu_user_ms`, `cpu_sys_ms`), Lesezeit von der SSD (`pread_ms`) und das Zeitfenster aller READs (`read_window_ms`).
+
+| Profil | Socket | SMB-Version und Signatur |
+|---|---|---|
+| a | Standard der PS5, genau wie in S2 | 3.1.1, AES-CMAC |
+| b | 1 MiB Puffer, TCP_NODELAY (wie ftpsrv) | 3.1.1, AES-CMAC |
+| c | wie b | 2.1, HMAC-SHA256 |
+
+**Bereits geprüft (E1, CI):** Umschalten aller Profile, ausgehandelter Dialekt (3.1.1 bzw. 2.1) und die Zähler.
+
+### Ablauf auf deinem PC
+
+1. Auf `dev` aktualisieren und den Build holen:
+   ```
+   git pull
+   tools\Get-DevBuild.cmd
+   ```
+2. Das Payload **neu** starten, damit Profil a unverändert ist:
+   ```
+   tools\Send-Payload.cmd <PS5-IP> dist\dev\prospero-s2-smbserver.elf
+   ```
+3. Messskript starten und das Passwort aus der PS5-Benachrichtigung eingeben:
+   ```
+   tests\spikes\S2-Speed.cmd <PS5-IP>
+   ```
+   Das dauert einige Minuten. Am PC und auf der PS5 in der Zeit möglichst nichts im Netz laden, keine Downloads und kein Streaming.
+4. Die komplette Ausgabe bis `S2-SPEED: FERTIG` zurückmelden.
+
+### Auswertung
+
+| Beobachtung | Bedeutung | Konsequenz |
+|---|---|---|
+| b deutlich schneller als a | Die Socket-Puffer bremsen | Profil b übernehmen |
+| c deutlich schneller als b, `cpu_user_ms` nahe `read_window_ms` | Die Signatur rechnet zu langsam | schnelle AES-CMAC (AES-NI) in libsmb2 einbauen, als Beitrag für upstream |
+| a, b und c ähnlich langsam wie die FTP-Referenz | Das WLAN begrenzt | Vergleich mit ftpsrv in S4 entscheidet |
+| alle deutlich langsamer als die FTP-Referenz, CPU niedrig | Wartezeiten im Protokollablauf | Ablauf genauer untersuchen |
