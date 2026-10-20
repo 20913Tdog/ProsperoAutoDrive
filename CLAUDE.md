@@ -26,7 +26,7 @@ Ein Windows-PC zeigt das Dateisystem einer PS5, auf der ein Homebrew-Payload lä
 
 - `main` ist stabil. **Niemals direkt auf `main` pushen.** Änderungen kommen nur per PR von `dev`, nach Live-Test und OK des Projektverantwortlichen.
 - Alle Änderungen werden committet und auf `dev` gepusht. Der Projektverantwortliche testet auf einem anderen PC und kommt nur über GitHub an die Dateien.
-- **Keine Binaries in Git** (CI-Guard). CI baut jeden `dev`-Commit; ein grüner Build aktualisiert das Pre-Release `dev`, das ein Skript mit `curl.exe` abruft.
+- **Keine Binaries in Git** (CI-Guard). CI baut jeden `dev`-Commit; ein grüner Build ersetzt das Pre-Release `dev-build`, das `tools\Get-DevBuild.cmd` mit `curl.exe` abruft und per SHA-256 prüft. Der Name ist bewusst nicht `dev`: Ein Tag `dev` neben dem Branch `dev` wäre mehrdeutig.
 - Ein Release veröffentlicht die hash-identischen Artefakte des getesteten `dev`-Builds mit gleichem Git-Tree-Hash. **Kein Rebuild beim Release.**
 - SemVer: `0.x` bis Gate G2, dann `1.0.0`.
 - Commit-Identität ist ausschließlich die GitHub-noreply-Adresse (repo-lokal gesetzt). **Niemals die globale bzw. Firmen-E-Mail verwenden.**

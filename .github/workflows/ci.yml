@@ -35,3 +35,91 @@ jobs:
             fi
           done < <(git ls-files -z)
           exit $fail
+
+  ps5-build:
+    name: ps5-build
+    runs-on: ubuntu-24.04
+    env:
+      SDK_VERSION: v0.44
+      SDK_SHA256: 4d06eab777bb135705b5a6816688c9132efb246093fe606ac488ab6cf65ca5b0
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install PS5 payload SDK (pinned version and hash)
+        run: |
+          set -euo pipefail
+          sudo apt-get update -q
+          sudo apt-get install -y -q clang-18 lld-18
+          curl -fsSL -o /tmp/ps5-payload-sdk.zip \
+            "https://github.com/ps5-payload-dev/sdk/releases/download/${SDK_VERSION}/ps5-payload-sdk.zip"
+          echo "${SDK_SHA256}  /tmp/ps5-payload-sdk.zip" | sha256sum -c -
+          sudo unzip -q -d /opt /tmp/ps5-payload-sdk.zip
+          echo "PS5_PAYLOAD_SDK=/opt/ps5-payload-sdk" >> "$GITHUB_ENV"
+
+      - name: Build S1 port probe
+        run: make -C ps5/spikes/s1-portprobe
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ps5-payloads
+          path: ps5/spikes/s1-portprobe/prospero-s1-portprobe.elf
+          if-no-files-found: error
+
+  ps5-host-test:
+    name: ps5-host-test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build host variant of the S1 probe
+        run: make -C ps5/spikes/s1-portprobe host
+
+      - name: S1 probe behaviour (E1)
+        run: bash tests/spikes/s1-host-test.sh
+
+  publish-dev:
+    name: publish-dev
+    if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
+    needs: [guards, ps5-build, ps5-host-test]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: publish-dev
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ps5-payloads
+          path: dist
+
+      - name: Build info and checksums
+        run: |
+          set -euo pipefail
+          {
+            echo "commit=${GITHUB_SHA}"
+            echo "tree=$(git rev-parse 'HEAD^{tree}')"
+            echo "run=${GITHUB_RUN_ID}"
+            echo "built=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          } > dist/BUILD-INFO.txt
+          cd dist
+          sha256sum -- * > ../SHA256SUMS
+          mv ../SHA256SUMS .
+          cat BUILD-INFO.txt SHA256SUMS
+
+      # Tag and release are named dev-build, not dev: a tag "dev" next to the
+      # branch "dev" would make the name ambiguous in git.
+      - name: Replace pre-release "dev-build"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release delete dev-build --cleanup-tag --yes || true
+          gh release create dev-build dist/* \
+            --prerelease \
+            --target "${GITHUB_SHA}" \
+            --title "dev $(git rev-parse --short HEAD)" \
+            --notes "Automatischer, getesteter Build des dev-Branches. Nicht fuer den produktiven Einsatz. Commit ${GITHUB_SHA}"
