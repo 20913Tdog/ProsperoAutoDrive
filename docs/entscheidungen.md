@@ -132,7 +132,19 @@ Bestanden (E3, Build `299cb3d`, WLAN, 7 abwechselnde Läufe je Richtung mit 256 
   - Erst wird gemessen, dann behoben (siehe S4 im Spike-README).
 - **G2 (≥ 95 %):** Aus dieser Messung lässt sich G2 nicht sicher ablesen. Beim Schreiben liegt SMB klar über 95 %. Beim Lesen streuen die Runden zu stark, dafür braucht es mehr Runden oder den Median der Verhältnisse je Runde. Gewertet wird ohnehin erst am Build, der 1.0.0 wird.
 
-Das Gate G1 ist damit noch nicht entschieden, denn S5, S6 und S7 fehlen noch.
+Das Gate G1 ist damit noch nicht entschieden, denn S6 und S7 fehlen noch.
+
+### S5 entfällt als Live-Test (21.10.2026)
+
+Ruhemodus und Neustart der PS5 werden nicht als eigener Spike live getestet. Stattdessen simulieren skriptgesteuerte Läufe in der CI, dass der Server wegfällt und wiederkommt: beenden, neu starten, Netz weg.
+
+- **Warum:** Der Projektverantwortliche hält einen aktiven Test dafür nicht für nötig.
+- **Was die Simulation nicht abdeckt:**
+  - ob die PS5 nach dem Ruhemodus die Verbindungen des Payloads erhält
+  - ob das Payload nach einem Neustart von selbst startet
+  
+  Das zeigt sich erst im normalen Betrieb in Phase 5. Das Log des Programms belegt es dort.
+- G1 hing ohnehin nicht an S5.
 
 ### Regel: nur libkernel-Funktionen auf der PS5
 

@@ -12,10 +12,10 @@ Evidenzebenen: **E1** Unit unter Linux, **E2** Protokoll-CI mit echtem Windows-C
 | S2, S2b | Bedient libsmb2 Windows korrekt, und wie schnell? | bestanden (E3) |
 | S3 | Funktioniert Schreiben? | bestanden (E3) |
 | S4 | Reicht der Durchsatz? | bestanden (E3): Lesen 96 %, Schreiben 98 % von ftpsrv |
-| S5 | Übersteht der Server Ruhemodus und Neustart? | offen |
-| S6 | Ist er in der CI mit echtem Windows-Client testbar? | offen |
+| S5 | Übersteht der Server Ruhemodus und Neustart? | entfällt als Live-Test, wird in der CI simuliert |
+| **S6** | Ist er in der CI mit echtem Windows-Client testbar? | **in Arbeit** |
 | S7 | Klappt die Discovery ohne Firewall-Dialog? | offen |
-| **G1** | Go für natives SMB? | nach S4–S7 |
+| **G1** | Go für natives SMB? | nach S6 und S7 |
 | Phase 2 | PS5-Server `prospero-smbd.elf` | |
 | Phase 3 | Windows-Programm `ProsperoAutoDrive.exe` | erstes Release 0.1.0 |
 | Phase 4 | Härtung | weitere 0.x |
@@ -39,9 +39,7 @@ Vor G1 entsteht kein Produktcode.
 
 ### S5 – Ruhemodus und Neustart
 
-- 3× Ruhemodus, 2× Neustart. Danach ist der Dienst ohne Eingriff wieder erreichbar.
-- **Voraussetzung:** Das Payload startet nach einem Neustart von selbst, etwa über das Autoload von PLDMGR oder den Autostart von etaHEN. Das richtet der Projektverantwortliche einmal selbst ein. Ein Test darf dort nicht schreiben, weil das bestehende Ordner sind.
-- Das Testskript sagt, wann welche Taste zu drücken ist, und misst, wann der Dienst wieder antwortet.
+**Entfällt als Live-Test (Entscheidung vom 21.10.2026).** In der CI simulieren Skripte, dass der Server wegfällt und wiederkommt. Ob die PS5 nach dem Ruhemodus die Verbindungen des Payloads erhält und ob das Payload nach einem Neustart von selbst startet, zeigt erst der normale Betrieb in Phase 5. Dafür richtet der Projektverantwortliche selbst einen Autostart ein, etwa über das Autoload von PLDMGR oder etaHEN.
 
 ### S6 – CI mit echtem Windows-Client
 

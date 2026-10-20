@@ -153,9 +153,169 @@ jobs:
         shell: bash
         run: bash tests/spikes/s4-host-test.sh build/host/bin/s4-smbserver 2>&1 | tee -a ci.log
 
+      # Static, so the same binaries also run in a minimal WSL 1 rootfs on
+      # the Windows runner (spike S6).
+      - name: Static host servers for the client tests
+        shell: bash
+        run: |
+          {
+            cmake -S . -B build/host-static -G Ninja -DCMAKE_BUILD_TYPE=Release \
+              -DCMAKE_EXE_LINKER_FLAGS=-static &&
+            cmake --build build/host-static --target s2-smbserver s3-smbserver s4-smbserver
+          } 2>&1 | tee -a ci.log
+
       - name: Failure details as annotation (readable without login)
         if: failure()
         run: bash .github/scripts/annotate-tail.sh ci.log
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: host-servers
+          path: build/host-static/bin/*-smbserver
+          if-no-files-found: error
+
+  # Spike S6 (E2): the real Windows SMB client against the real server
+  # code. The server is the static Linux build, run in WSL 1 (Alpine
+  # minirootfs, pinned by hash), which shares the network stack with
+  # Windows. Windows itself holds port 445, so the server listens on 4450
+  # and the client uses /TCPPORT (Server 2025 / Windows 11 24H2).
+  windows-client:
+    name: windows-client
+    needs: [ps5-host-test]
+    runs-on: windows-2025
+    timeout-minutes: 30
+    env:
+      ALPINE_URL: https://dl-cdn.alpinelinux.org/alpine/v3.22/releases/x86_64/alpine-minirootfs-3.22.6-x86_64.tar.gz
+      ALPINE_SHA256: 27694aaa55fd7a9e3ef596e0ad4eb66802308bb20172b17030cd5f4d8ae9bac2
+      SMB_PORT: "4450"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: host-servers
+          path: host-servers
+
+      - name: WSL 1 with the server
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $env:WSL_UTF8 = '1'
+          & {
+            wsl --version
+            curl.exe -fsSL -o alpine.tar.gz $env:ALPINE_URL
+            $sha = (Get-FileHash alpine.tar.gz -Algorithm SHA256).Hash.ToLower()
+            if ($sha -ne $env:ALPINE_SHA256) { throw "alpine rootfs hash $sha" }
+            wsl --import ci C:\wsl-ci alpine.tar.gz --version 1
+            if ($LASTEXITCODE) { throw "wsl --import failed: $LASTEXITCODE" }
+            wsl -l -v
+            $src = '/mnt/' + $env:GITHUB_WORKSPACE.Substring(0,1).ToLower() + ($env:GITHUB_WORKSPACE.Substring(2) -replace '\\','/') + '/host-servers'
+            wsl -d ci -u root -- sh -c "mkdir -p /root/base && cp $src/s3-smbserver /root/ && chmod +x /root/s3-smbserver && ls -l /root"
+            if ($LASTEXITCODE) { throw "copy into WSL failed: $LASTEXITCODE" }
+            Add-Content C:\Windows\System32\drivers\etc\hosts "`n127.0.0.1 prosperotest"
+            $pw = "ci-" + [guid]::NewGuid().ToString('N').Substring(0,12)
+            "PROSPERO_PW=$pw" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+            Start-Process -FilePath wsl.exe -ArgumentList '-d','ci','-u','root','--','/root/s3-smbserver','/root/base',$env:SMB_PORT,$pw `
+              -RedirectStandardOutput server.log -RedirectStandardError server.err -WindowStyle Hidden
+            $ok = $false
+            for ($i = 0; $i -lt 120 -and -not $ok; $i++) {
+              Start-Sleep 1
+              $status = curl.exe -fsS --max-time 3 http://127.0.0.1:4445/ 2>$null
+              $ok = [bool]($status | Select-String '^folder=/')
+            }
+            $status
+            if (-not $ok) { throw "server did not answer on 4445" }
+            Get-SmbClientConfiguration | Format-List RequireSecuritySignature, EnableInsecureGuestLogons
+          } *>&1 | Tee-Object -FilePath ci.log -Append
+
+      - name: S3-Check.cmd against the server (E2)
+        shell: cmd
+        run: |
+          set PROSPERO_AUTO=1
+          set PROSPERO_SMB_PORT=%SMB_PORT%
+          call tests\spikes\S3-Check.cmd prosperotest > s6.log 2>&1
+          set RC=%errorlevel%
+          type s6.log
+          exit /b %RC%
+
+      - name: Results as annotation (readable without login)
+        if: always()
+        shell: bash
+        run: |
+          [ -f s6.log ] && grep -E '^(OK|FALSCH|FEHLT|INFO|FEHLER|S3-CHECK|unsupported|connection_end|Systemfehler|System error)' s6.log > s6-summary.log || true
+          bash .github/scripts/annotate-tail.sh s6-summary.log notice "S3-Check on windows-2025"
+          for f in ci.log server.log server.err; do
+            [ -f "$f" ] && bash .github/scripts/annotate-tail.sh "$f" warning "$f"
+          done
+          true
+
+  # Spike S6 (E2): the Linux kernel client (cifs) and a smbtorture subset
+  # against the same static server build. smbtorture results are reported,
+  # not yet enforced: S6 asks whether this can run in CI at all.
+  linux-cifs:
+    name: linux-cifs
+    needs: [ps5-host-test]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: host-servers
+          path: host-servers
+
+      - name: Server and cifs mount
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            sudo apt-get update -q
+            sudo apt-get install -y -q cifs-utils samba-testsuite
+            sudo modprobe cifs || sudo apt-get install -y -q "linux-modules-extra-$(uname -r)" && sudo modprobe cifs
+            chmod +x host-servers/*
+            mkdir -p "$RUNNER_TEMP/base" "$RUNNER_TEMP/mnt"
+            PW="ci-$RANDOM$RANDOM"
+            echo "PW=$PW" >> "$GITHUB_ENV"
+            host-servers/s3-smbserver "$RUNNER_TEMP/base" 4450 "$PW" > server.log 2>&1 &
+            for _ in $(seq 100); do curl -fsS --max-time 2 http://127.0.0.1:4445/ 2>/dev/null | grep -q '^folder=/' && break; sleep 0.2; done
+            sudo mount -t cifs //127.0.0.1/s3 "$RUNNER_TEMP/mnt" \
+              -o "port=4450,username=prospero,password=$PW,vers=3.1.1,sign,cache=none,uid=$(id -u),gid=$(id -g)"
+            ls -la "$RUNNER_TEMP/mnt" | head
+            cd "$RUNNER_TEMP/mnt"
+            sha256sum -c --quiet "$GITHUB_WORKSPACE/tests/spikes/s2-expected.sha256"
+            echo "cifs read: all SHA-256 OK"
+            cd "$GITHUB_WORKSPACE"
+            head -c 3000000 /dev/urandom > "$RUNNER_TEMP/x.bin"
+            cp "$RUNNER_TEMP/x.bin" "$RUNNER_TEMP/mnt/x.bin"
+            cmp "$RUNNER_TEMP/x.bin" "$RUNNER_TEMP/mnt/x.bin"
+            echo "cifs write: OK"
+            sudo umount "$RUNNER_TEMP/mnt"
+          } 2>&1 | tee -a ci.log
+
+      - name: smbtorture subset (reported, not enforced)
+        shell: bash
+        run: |
+          for t in smb2.connect smb2.read smb2.dir smb2.rename smb2.setinfo smb2.getinfo smb2.delete-on-close-perms; do
+            if timeout 300 smbtorture //127.0.0.1/s3 -p 4450 -U "prospero%$PW" \
+                 --option=ntlmssp_client:force_old_spnego=yes --option=clientsigning=required \
+                 "$t" > "torture-$t.log" 2>&1; then r=PASS; else r="FAIL($?)"; fi
+            ok=$(grep -c '^success:' "torture-$t.log" || true)
+            bad=$(grep -c -E '^(failure|error):' "torture-$t.log" || true)
+            echo "$t: $r, $ok success, $bad failure/error" | tee -a torture.log
+            grep -E '^(failure|error):' "torture-$t.log" | head -n 8 | sed 's/^/    /' >> torture.log || true
+          done
+          true
+
+      - name: Results as annotation (readable without login)
+        if: always()
+        shell: bash
+        run: |
+          [ -f torture.log ] && bash .github/scripts/annotate-tail.sh torture.log notice "smbtorture subset"
+          for f in ci.log server.log; do
+            [ -f "$f" ] && bash .github/scripts/annotate-tail.sh "$f" warning "$f"
+          done
+          true
 
   publish-dev:
     name: publish-dev

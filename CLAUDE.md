@@ -13,7 +13,7 @@ Ein Windows-PC zeigt das Dateisystem einer PS5, auf der ein Homebrew-Payload lä
 - **Verbinden und Trennen:** UDP-Liveness mit Server-ID. Wegen WLAN wird erst getrennt, wenn UDP-Liveness **und** ein TCP-445-Test fehlschlagen.
 - **Uhrzeit:** Die interne UTC-Uhr der PS5 kann abweichen (gemessen: +1 h). Das Programm schickt in der UDP-Liveness die UTC-Zeit des PCs mit. Der Server misst daraus die Abweichung und rechnet Zeitstempel in beide Richtungen um.
 - **Ziele:** Windows 11 (Home/Pro/Enterprise, Standard-Sicherheit) voll unterstützt, Windows 10 22H2 Best Effort. Port 445 ist der Primärpfad.
-- **Vorgehen:** Vor jedem Produktcode laufen die Spikes S1–S7 und Gate G1. G1 verlangt Durchsatz ≥ 70 % von ftpsrv, G2 (Release 1.0.0) verlangt ≥ 95 %, gemessen im WLAN, je Richtung ≥ 7 Läufe abwechselnd, Median.
+- **Vorgehen:** Vor jedem Produktcode laufen die Spikes S1–S7 (S5 nur simuliert, Entscheidung vom 21.10.2026) und Gate G1. G1 verlangt Durchsatz ≥ 70 % von ftpsrv, G2 (Release 1.0.0) verlangt ≥ 95 %, gemessen im WLAN, je Richtung ≥ 7 Läufe abwechselnd, Median.
 
 ## Harte Regeln
 

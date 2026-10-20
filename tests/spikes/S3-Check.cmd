@@ -21,6 +21,10 @@ set "EXPECTED=%~dp0s2-expected.sha256"
 set "OUT=%TEMP%\ProsperoS3-%RANDOM%%RANDOM%"
 set "STATUS=%TEMP%\prospero-s3-status.txt"
 set "FAIL=0"
+rem The CI (spike S6) runs the server on another port, which the Windows 11
+rem 24H2 / Server 2025 client accepts with /TCPPORT. The console uses 445.
+set "PORTOPT="
+if defined PROSPERO_SMB_PORT set "PORTOPT=/TCPPORT:%PROSPERO_SMB_PORT%"
 
 echo ===== 0. Payload-Status =====
 curl.exe -s --connect-timeout 3 --max-time 5 -o "%STATUS%" "%CTL%/"
@@ -45,7 +49,7 @@ mkdir "%OUT%"
 echo.
 echo ===== 1. Verbinden =====
 call :disconnect
-net use "%SHARE%" "%PW%" /user:prospero /persistent:no
+net use "%SHARE%" "%PW%" /user:prospero /persistent:no %PORTOPT%
 if errorlevel 1 (
   echo FEHLER: Verbindung fehlgeschlagen. Fehlertext oben bitte mitschicken.
   echo Bestehende Verbindungen:
