@@ -196,11 +196,12 @@ jobs:
           name: host-servers
           path: host-servers
 
-      - name: WSL 1 with the server
+      - name: Server in WSL 1, S3-Check.cmd against it (E2)
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           $env:WSL_UTF8 = '1'
+          $pw = "ci-" + [guid]::NewGuid().ToString('N').Substring(0,12)
           & {
             wsl --version
             curl.exe -fsSL -o alpine.tar.gz $env:ALPINE_URL
@@ -213,8 +214,6 @@ jobs:
             wsl -d ci -u root -- sh -c "mkdir -p /root/base && cp $src/s3-smbserver /root/ && chmod +x /root/s3-smbserver && ls -l /root"
             if ($LASTEXITCODE) { throw "copy into WSL failed: $LASTEXITCODE" }
             Add-Content C:\Windows\System32\drivers\etc\hosts "`n127.0.0.1 prosperotest"
-            $pw = "ci-" + [guid]::NewGuid().ToString('N').Substring(0,12)
-            "PROSPERO_PW=$pw" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
             Start-Process -FilePath wsl.exe -ArgumentList '-d','ci','-u','root','--','/root/s3-smbserver','/root/base',$env:SMB_PORT,$pw `
               -RedirectStandardOutput server.log -RedirectStandardError server.err -WindowStyle Hidden
             $ok = $false
@@ -226,17 +225,19 @@ jobs:
             $status
             if (-not $ok) { throw "server did not answer on 4445" }
             Get-SmbClientConfiguration | Format-List RequireSecuritySignature, EnableInsecureGuestLogons
+            "status via the alias prosperotest:"
+            curl.exe -sS --max-time 3 http://prosperotest:4445/ | Select-Object -First 2
           } *>&1 | Tee-Object -FilePath ci.log -Append
 
-      - name: S3-Check.cmd against the server (E2)
-        shell: cmd
-        run: |
-          set PROSPERO_AUTO=1
-          set PROSPERO_SMB_PORT=%SMB_PORT%
-          call tests\spikes\S3-Check.cmd prosperotest > s6.log 2>&1
-          set RC=%errorlevel%
-          type s6.log
-          exit /b %RC%
+          # Same step on purpose: the runner may end processes a step leaves
+          # behind, and the server must outlive the check.
+          $env:PROSPERO_PW = $pw
+          $env:PROSPERO_AUTO = '1'
+          $env:PROSPERO_SMB_PORT = $env:SMB_PORT
+          cmd /c "tests\spikes\S3-Check.cmd prosperotest > s6.log 2>&1"
+          $rc = $LASTEXITCODE
+          Get-Content s6.log
+          exit $rc
 
       - name: Results as annotation (readable without login)
         if: always()
@@ -244,7 +245,7 @@ jobs:
         run: |
           [ -f s6.log ] && grep -E '^(OK|FALSCH|FEHLT|INFO|FEHLER|S3-CHECK|unsupported|connection_end|Systemfehler|System error)' s6.log > s6-summary.log || true
           bash .github/scripts/annotate-tail.sh s6-summary.log notice "S3-Check on windows-2025"
-          for f in ci.log server.log server.err; do
+          for f in ci.log server.log server.err s6.log; do
             [ -f "$f" ] && bash .github/scripts/annotate-tail.sh "$f" warning "$f"
           done
           true
