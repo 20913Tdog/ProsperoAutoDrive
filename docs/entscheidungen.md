@@ -114,7 +114,7 @@ Bestanden im zweiten Lauf (E3, Build `46a55e4`):
 - Schreiben ist so schnell wie mit ftpsrv (ein Lauf, je 64 MiB): SMB 7,7 MB/s, FTP 7,2 MB/s.
 - Neue Dateien gehören root und haben die Rechte `0666`.
 - Neue Dateien ohne Zeitangabe bekommen die Zeit der PS5 und liegen damit 1 Stunde in der Zukunft. Der Kernel meldet dazu Sommerzeit von 60 Minuten.
-- **Noch offen:** woher der Server diese Abweichung für den Ausgleich kennt.
+- **Geklärt:** Die Referenzzeit kommt vom PC, siehe [Uhrabweichung](#uhrabweichung-der-pc-liefert-die-referenzzeit).
 
 ### Regel: nur libkernel-Funktionen auf der PS5
 
@@ -136,3 +136,22 @@ Der Projektverantwortliche startet nur `tools\Run-Test.cmd` und schickt die Ausg
 
 - **Abwägung:** Das Testpayload gibt sein Passwort genau einmal heraus, danach nie wieder. Ein anderes Gerät im WLAN könnte es zuerst abholen. Es käme dann nur an den neu angelegten Testordner mit erzeugten Testdaten, für höchstens 15 Minuten (S2, nur lesen) oder 30 Minuten (S3, auch schreiben). Der Steuerport war schon vorher ohne Passwort erreichbar. Ins Produkt kommt das nicht.
 - **Verworfen:** den Payload-Manager (PLDMGR) über seine Schnittstelle fernzusteuern. Das hätte in seinen bestehenden Ordner auf der PS5 geschrieben, und Tests dürfen nur in neu angelegten Testordnern schreiben. Außerdem ist die Schnittstelle fremd und inoffiziell.
+
+## Uhrzeit, 20.10.2026
+
+### Uhrabweichung: der PC liefert die Referenzzeit
+
+Die interne UTC-Uhr der PS5 geht 1 Stunde vor (S2b, S3). Entschieden ist Variante 1:
+
+- Das Windows-Programm schickt in jeder UDP-Liveness-Meldung die UTC-Zeit des PCs mit.
+- Der Server misst daraus die Abweichung seiner Uhr und rechnet alle Zeitstempel um. Beim Melden an Windows zieht er die Abweichung ab, beim Setzen durch Windows zählt er sie dazu. Auf dem Datenträger stehen die Zeiten so, wie die PS5 sie selbst schreibt.
+- Das Programm bleibt generisch, denn eine Zeitangabe in einer Liveness-Meldung ist nichts PS5-Spezifisches.
+- **Warum:** Es funktioniert ohne Internet, und viele PS5 mit Jailbreak sind offline. Die Uhr eines Windows-PCs stellt normalerweise der Zeitdienst.
+- **Verworfen:**
+  - **Sommerzeit-Angabe des Kernels (`tz_dsttime`):** Ihre Bedeutung auf der PS5 ist nicht belegt.
+  - **NTP auf der PS5:** braucht Internet.
+- **Offen für Phase 2:**
+  - Die Abweichung runden und nur bei deutlicher Änderung übernehmen, damit Zeiten nicht um Sekunden springen.
+  - Nur echten Meldungen glauben, etwa nur von einem PC mit angemeldeter SMB-Sitzung oder mit einer Prüfsumme über das Passwort. Sonst könnte jedes Gerät im WLAN alle Zeiten verschieben.
+  - Festlegen, was vor der ersten Meldung gilt, etwa der zuletzt gemessene Wert.
+- **Zu prüfen ab 26.10.2026:** Ist die Abweichung nach dem Ende der Sommerzeit verschwunden, steckt die Sommerzeit in der Kernel-Uhr. Dann verschieben sich zweimal im Jahr die Zeiten aller älteren Dateien um 1 Stunde, wie auf der PS5 selbst. Sync-Programme würden danach einmal alles neu kopieren. Ob wir das abfangen, wird nach dieser Messung entschieden.
