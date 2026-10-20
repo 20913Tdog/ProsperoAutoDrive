@@ -11,7 +11,7 @@ setlocal EnableExtensions EnableDelayedExpansion
 chcp 65001 >nul
 
 rem The test the owner is asked to run right now.
-set "DEFAULT_TEST=S4"
+set "DEFAULT_TEST=S7"
 
 rem git pull may rewrite this very file, and cmd reads a running batch file
 rem from disk as it goes. So the pull runs from a copy in %TEMP%, which then
@@ -88,8 +88,14 @@ if /i "%TEST%"=="S4" (
   set "TAG=PROSPERO-S4"
   set "DURATION=etwa 30 bis 60 Minuten"
 )
+if /i "%TEST%"=="S7" (
+  set "ELF=prospero-s7-smbserver.elf"
+  set "SCRIPT=S7-Check.cmd"
+  set "TAG=PROSPERO-S7"
+  set "DURATION=etwa 1 Minute, am Ende kommt eine Frage"
+)
 if not defined ELF (
-  echo FEHLER: Unbekannter Test "%TEST%". Bekannt sind S2, S2b, S3 und S4.
+  echo FEHLER: Unbekannter Test "%TEST%". Bekannt sind S2, S2b, S3, S4 und S7.
   exit /b 2
 )
 

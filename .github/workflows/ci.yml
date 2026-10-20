@@ -104,6 +104,16 @@ jobs:
         run: |
           { cmake --preset ps5 && cmake --build --preset ps5; } 2>&1 | tee -a ci.log
 
+      - name: Build Windows programs
+        shell: bash
+        run: |
+          { cmake --preset windows && cmake --build --preset windows; } 2>&1 | tee -a ci.log
+
+      # One flat folder: the dev build lists every file next to each other.
+      - name: Collect binaries
+        shell: bash
+        run: mkdir -p build/out && cp build/ps5/bin/*.elf build/windows/bin/*.exe build/out/ && ls -l build/out
+
       - name: No bare syscall stubs of the SDK
         shell: bash
         run: bash .github/scripts/check-raw-syscalls.sh build/ps5 2>&1 | tee -a ci.log
@@ -114,8 +124,8 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: ps5-payloads
-          path: build/ps5/bin/*.elf
+          name: binaries
+          path: build/out/*
           if-no-files-found: error
 
   ps5-host-test:
@@ -153,6 +163,10 @@ jobs:
         shell: bash
         run: bash tests/spikes/s4-host-test.sh build/host/bin/s4-smbserver 2>&1 | tee -a ci.log
 
+      - name: S7 UDP discovery (E1)
+        shell: bash
+        run: bash tests/spikes/s7-host-test.sh build/host/bin/s7-smbserver 2>&1 | tee -a ci.log
+
       # Static, so the same binaries also run in a minimal WSL 1 rootfs on
       # the Windows runner (spike S6).
       - name: Static host servers for the client tests
@@ -161,7 +175,7 @@ jobs:
           {
             cmake -S . -B build/host-static -G Ninja -DCMAKE_BUILD_TYPE=Release \
               -DCMAKE_EXE_LINKER_FLAGS=-static &&
-            cmake --build build/host-static --target s2-smbserver s3-smbserver s4-smbserver
+            cmake --build build/host-static --target s2-smbserver s3-smbserver s4-smbserver s7-smbserver
           } 2>&1 | tee -a ci.log
 
       - name: Failure details as annotation (readable without login)
@@ -179,9 +193,13 @@ jobs:
   # minirootfs, pinned by hash), which shares the network stack with
   # Windows. Windows itself holds port 445, so the server listens on 4450
   # and the client uses /TCPPORT (Server 2025 / Windows 11 24H2).
+  #
+  # Spike S7 (E2) in the same job: the discovery client against the s7
+  # server, unicast over loopback. Whether a firewall prompt appears can
+  # only be seen live (E3): the runner is elevated and has no desktop.
   windows-client:
     name: windows-client
-    needs: [ps5-host-test]
+    needs: [ps5-build, ps5-host-test]
     runs-on: windows-2025
     timeout-minutes: 30
     env:
@@ -196,12 +214,28 @@ jobs:
           name: host-servers
           path: host-servers
 
-      - name: Server in WSL 1, S3-Check.cmd against it (E2)
+      - uses: actions/download-artifact@v4
+        with:
+          name: binaries
+          path: binaries
+
+      - name: Server in WSL 1, S3-Check.cmd and S7 against it (E2)
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           $env:WSL_UTF8 = '1'
           $pw = "ci-" + [guid]::NewGuid().ToString('N').Substring(0,12)
+          function Start-Server($spike, $port, $log) {
+            Start-Process -FilePath wsl.exe -WindowStyle Hidden `
+              -ArgumentList '-d','ci','-u','root','--',"/root/$spike-smbserver",'/root/base',$port,$pw `
+              -RedirectStandardOutput "$log.log" -RedirectStandardError "$log.err"
+            for ($i = 0; $i -lt 120; $i++) {
+              Start-Sleep 1
+              $status = curl.exe -fsS --max-time 3 http://127.0.0.1:4445/ 2>$null
+              if ($status | Select-String '^folder=/') { return $status }
+            }
+            throw "$spike server did not answer on 4445"
+          }
           & {
             wsl --version
             curl.exe -fsSL -o alpine.tar.gz $env:ALPINE_URL
@@ -211,19 +245,10 @@ jobs:
             if ($LASTEXITCODE) { throw "wsl --import failed: $LASTEXITCODE" }
             wsl -l -v
             $src = '/mnt/' + $env:GITHUB_WORKSPACE.Substring(0,1).ToLower() + ($env:GITHUB_WORKSPACE.Substring(2) -replace '\\','/') + '/host-servers'
-            wsl -d ci -u root -- sh -c "mkdir -p /root/base && cp $src/s3-smbserver /root/ && chmod +x /root/s3-smbserver && ls -l /root"
+            wsl -d ci -u root -- sh -c "mkdir -p /root/base && cp $src/s3-smbserver $src/s7-smbserver /root/ && chmod +x /root/*-smbserver && ls -l /root"
             if ($LASTEXITCODE) { throw "copy into WSL failed: $LASTEXITCODE" }
             Add-Content C:\Windows\System32\drivers\etc\hosts "`n127.0.0.1 prosperotest"
-            Start-Process -FilePath wsl.exe -ArgumentList '-d','ci','-u','root','--','/root/s3-smbserver','/root/base',$env:SMB_PORT,$pw `
-              -RedirectStandardOutput server.log -RedirectStandardError server.err -WindowStyle Hidden
-            $ok = $false
-            for ($i = 0; $i -lt 120 -and -not $ok; $i++) {
-              Start-Sleep 1
-              $status = curl.exe -fsS --max-time 3 http://127.0.0.1:4445/ 2>$null
-              $ok = [bool]($status | Select-String '^folder=/')
-            }
-            $status
-            if (-not $ok) { throw "server did not answer on 4445" }
+            Start-Server s3 $env:SMB_PORT server
             Get-SmbClientConfiguration | Format-List RequireSecuritySignature, EnableInsecureGuestLogons
             "status via the alias prosperotest:"
             curl.exe -sS --max-time 3 http://prosperotest:4445/ | Select-Object -First 2
@@ -237,6 +262,22 @@ jobs:
           cmd /c "tests\spikes\S3-Check.cmd prosperotest > s6.log 2>&1"
           $rc = $LASTEXITCODE
           Get-Content s6.log
+
+          # S7: unicast must work; broadcast over loopback is only reported.
+          curl.exe -s --max-time 3 http://127.0.0.1:4445/quit | Out-Null
+          Start-Sleep 3
+          & {
+            Start-Server s7 4451 s7server | Select-Object -First 1
+            .\binaries\prospero-s7-discover.exe 127.0.0.1 --unicast-only
+            "exit code unicast: $LASTEXITCODE"
+            .\binaries\prospero-s7-discover.exe
+            "exit code broadcast (reported only): $LASTEXITCODE"
+            curl.exe -fsS --max-time 3 http://127.0.0.1:4445/ | Select-String '^discovery_'
+          } *>&1 | Tee-Object -FilePath s7.log
+          if (-not (Select-String -Quiet -Path s7.log -Pattern '^S7-UNICAST: OK')) {
+            "S7 unicast failed"
+            if ($rc -eq 0) { $rc = 1 }
+          }
           exit $rc
 
       - name: Results as annotation (readable without login)
@@ -245,7 +286,8 @@ jobs:
         run: |
           [ -f s6.log ] && grep -E '^(OK|FALSCH|FEHLT|INFO|FEHLER|S3-CHECK|unsupported|connection_end|Systemfehler|System error)' s6.log > s6-summary.log || true
           bash .github/scripts/annotate-tail.sh s6-summary.log notice "S3-Check on windows-2025"
-          for f in ci.log server.log server.err s6.log; do
+          [ -f s7.log ] && bash .github/scripts/annotate-tail.sh s7.log notice "S7 discovery on windows-2025"
+          for f in ci.log server.log server.err s6.log s7server.log s7server.err; do
             [ -f "$f" ] && bash .github/scripts/annotate-tail.sh "$f" warning "$f"
           done
           true
@@ -324,7 +366,7 @@ jobs:
 
       - uses: actions/download-artifact@v4
         with:
-          name: ps5-payloads
+          name: binaries
           path: dist
 
       - name: Build info and checksums

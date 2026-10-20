@@ -14,7 +14,7 @@ Evidenzebenen: **E1** Unit unter Linux, **E2** Protokoll-CI mit echtem Windows-C
 | S4 | Reicht der Durchsatz? | bestanden (E3): Lesen 96 %, Schreiben 98 % von ftpsrv |
 | S5 | Übersteht der Server Ruhemodus und Neustart? | entfällt als Live-Test, wird in der CI simuliert |
 | S6 | Ist er in der CI mit echtem Windows-Client testbar? | bestanden (E2) |
-| **S7** | Klappt die Discovery ohne Firewall-Dialog? | **als Nächstes** |
+| **S7** | Klappt die Discovery ohne Firewall-Dialog? | **bereit zum Live-Test** |
 | **G1** | Go für natives SMB? | nach S7 |
 | Phase 2 | PS5-Server `prospero-smbd.elf` | |
 | Phase 3 | Windows-Programm `ProsperoAutoDrive.exe` | erstes Release 0.1.0 |

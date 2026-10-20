@@ -408,3 +408,34 @@ Das Verhältnis je Runde vergleicht SMB mit dem FTP-Lauf direkt daneben. So fäl
 - der PS5-Build selbst, Ruhemodus, WLAN, Durchsatz
 
 **Kleiner Unterschied:** Auf der PS5 stimmten alle Zeiten exakt, in der CI weichen ohne Toleranz etwa 1350 von 1507 ab. Die Testdateien entstehen dort mit Nanosekunden, `utimes()` setzt nur Mikrosekunden. Mit 2 s Toleranz stimmen alle.
+
+## S7 – Findet ein Windows-Programm die PS5 ohne Firewall-Dialog?
+
+**Frage:** Findet ein Programm, das als normaler Benutzer läuft, die PS5 im WLAN per UDP, gezielt (Unicast) und per Rundruf (Broadcast), ohne dass Windows ein Firewall-Fenster zeigt? Und kann der Server dabei aus der PC-Zeit seine Uhrabweichung messen (Variante 1)?
+
+**Was die Teile tun:**
+
+- `prospero-s7-smbserver.elf` legt wie in S2 einen **neuen** Testordner an und gibt ihn als `\<PS5-IP>\s7` **nur zum Lesen** frei. Zusätzlich beantwortet es UDP-Anfragen auf Port 4446 (`ps5/spikes/smbserver/discovery.c`). Es läuft 30 Minuten.
+- `prospero-s7-discover.exe` ist das erste Windows-Programm, C++ mit llvm-mingw, statisch gelinkt. Es schickt die Anfrage mit der UTC-Zeit des PCs, zuerst an die IP der PS5, dann als Broadcast in jedes Netz des PCs. Es bindet keinen festen Port, sondern bekommt wie jeder Client einen zufälligen.
+- **Protokoll** (eine Textzeile je Paket):
+  - Anfrage: `PROSPERO-DISCOVER 1 nonce=<hex> utc_ms=<PC-Zeit>`
+  - Antwort: `PROSPERO-HERE 1 nonce=<hex> id=<Server-ID> smb_port=<Port> utc_ms=<Serverzeit> skew_ms=<Abweichung> name=<Name>`
+  - Alles andere bleibt unbeantwortet.
+
+**Bereits geprüft:**
+- **E1 (Linux):** gültige und ungültige Anfragen, gemessene Abweichung, Zähler, Freigabe läuft daneben
+- **E2 (windows-2025):** Unicast über Loopback gegen den Server in WSL 1. Ob ein Firewall-Fenster erscheint, zeigt die CI nicht, denn der Runner läuft mit Adminrechten und ohne Bildschirm. Das prüft nur dein Lauf.
+
+### Ablauf auf deinem PC
+
+`tools\Run-Test.cmd` starten, denn S7 ist der aktuelle Test. Die Konsole bitte **nicht** als Administrator öffnen. Der Lauf dauert etwa eine Minute. Erscheint ein Fenster der Windows-Firewall, auf **Abbrechen** klicken. Am Ende fragt das Skript, ob ein solches Fenster erschienen ist: `j` oder `n` eingeben.
+
+### Auswertung
+
+| Ergebnis | Bedeutung | Konsequenz |
+|---|---|---|
+| `S7-CHECK: BESTANDEN` | Unicast und Broadcast kommen an, kein Fenster | S7 bestanden, G1 entscheiden |
+| Unicast OK, Broadcast keine Antwort | Rundruf geht im WLAN oder durch den Router nicht durch | Programm findet die PS5 über die gespeicherte IP, Suche per Broadcast nur als Hilfe beim Einrichten |
+| Firewall-Fenster erschienen | Windows sieht das Programm als Server | Ablauf ändern, etwa nur Unicast oder TCP |
+| keine Antwort, `ICMP meldet Port nicht erreichbar` | Das Payload hört nicht auf UDP 4446 | Payload-Status prüfen |
+| `discovery_skew_ms` etwa 3600000 | Uhr der PS5 1 Stunde vor, gemessen aus der PC-Zeit | Variante 1 funktioniert |

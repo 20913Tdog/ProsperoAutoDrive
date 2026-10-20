@@ -1,4 +1,4 @@
-/* Prospero AutoDrive - Spikes S2 to S4: SMB server prototype
+/* Prospero AutoDrive - Spikes S2 to S4 and S7: SMB server prototype
  *
  * Copyright (C) 2026 Prospero AutoDrive contributors
  *
@@ -10,7 +10,9 @@
  * Questions answered by these spikes: does the libsmb2 server engine with
  * our own file system backend serve a folder to the Windows 11 SMB client
  * (NTLMv2, signing required) correctly and completely - read-only (S2), and
- * read-write (S3)? Is it fast enough compared with ftpsrv (S4)?
+ * read-write (S3)? Is it fast enough compared with ftpsrv (S4)? Can a
+ * Windows program find it by UDP without a firewall prompt (S7, read-only
+ * share s7 plus discovery.c on UDP 4446)?
  *
  * The payload creates a new test folder with deterministic files
  * (testdata.c) and shares exactly that folder as \\<ps5>\s2 (read-only),
@@ -52,6 +54,7 @@
 #include <smb2/libsmb2.h>
 
 #include "backend.h"
+#include "discovery.h"
 #include "testdata.h"
 
 #define CONTROL_PORT 4445
@@ -60,7 +63,16 @@
 /* S2 keeps profile 'a' as default, the setup it was measured with. S3 and
  * S4 start with 'b', the result of S2b. The S4 run takes about 30 minutes,
  * on a slow WLAN more than an hour. */
-#if SPIKE == 4
+#if SPIKE == 7
+#define NAME         "Prospero S7"
+#define TAG          "PROSPERO-S7"
+#define SHARE_NAME   "s7"
+#define WRITABLE     0
+#define PROFILE      'b'
+#define RUN_SECONDS  1800
+#define BIG_MIB      0
+#define DISCOVERY    1
+#elif SPIKE == 4
 #define NAME         "Prospero S4"
 #define TAG          "PROSPERO-S4"
 #define SHARE_NAME   "s4"
@@ -85,6 +97,9 @@
 #define RUN_SECONDS  900
 #define BIG_MIB      0
 #endif
+#ifndef DISCOVERY
+#define DISCOVERY    0
+#endif
 
 
 #ifdef __SCE__
@@ -105,6 +120,8 @@ static struct smb2_server g_server;
 static char g_folder[1024];
 static time_t g_start;
 static int g_ctl_fd = -1;
+static int g_udp_fd = -1;
+static uint16_t g_smb_port;
 static unsigned g_connections;
 static char g_password[32];
 static int g_password_given;
@@ -294,6 +311,9 @@ serve_control(int fd) {
     if(n > 0 && (size_t)n < sizeof body) {
       n += backend_status(body + n, sizeof body - n);
     }
+    if(g_udp_fd >= 0 && n > 0 && (size_t)n < sizeof body) {
+      n += discovery_status(body + n, sizeof body - n);
+    }
   }
   if(n < 0) {
     n = 0;
@@ -319,6 +339,12 @@ extra_fdset(struct smb2_server *srv, fd_set *rfds, fd_set *wfds, int *maxfd) {
   if(g_ctl_fd > *maxfd) {
     *maxfd = g_ctl_fd;
   }
+  if(g_udp_fd >= 0) {
+    FD_SET(g_udp_fd, rfds);
+    if(g_udp_fd > *maxfd) {
+      *maxfd = g_udp_fd;
+    }
+  }
 }
 
 
@@ -331,6 +357,9 @@ extra_service(struct smb2_server *srv, fd_set *rfds, fd_set *wfds) {
     if(fd >= 0) {
       serve_control(fd);
     }
+  }
+  if(g_udp_fd >= 0 && FD_ISSET(g_udp_fd, rfds)) {
+    discovery_serve(g_udp_fd, NAME, g_smb_port);
   }
   if(time(NULL) - g_start >= RUN_SECONDS) {
     srv->stop_requested = 1;
@@ -386,7 +415,15 @@ main(int argc, char **argv) {
     return 1;
   }
 
+  if(DISCOVERY) {
+    if((g_udp_fd=discovery_open(DISCOVERY_PORT)) < 0) {
+      notify(NAME ": UDP-Port %d nicht frei: %s", DISCOVERY_PORT, strerror(-g_udp_fd));
+      return 1;
+    }
+  }
+
   snprintf(g_server.hostname, sizeof g_server.hostname, "%s", TAG);
+  g_smb_port = port;
   g_server.port = port;
   g_server.signing_enabled = 1;
   g_server.allow_anonymous = 0;
@@ -405,5 +442,8 @@ main(int argc, char **argv) {
   }
 
   close(g_ctl_fd);
+  if(g_udp_fd >= 0) {
+    close(g_udp_fd);
+  }
   return rc < 0 ? 1 : 0;
 }
