@@ -572,7 +572,9 @@ resolve(const char *name, char *path, char *rel, struct stat *st) {
         return *rest ? SMB2_STATUS_OBJECT_PATH_NOT_FOUND
                      : SMB2_STATUS_OBJECT_NAME_NOT_FOUND;
       }
-      snprintf(path + plen, PATH_SIZE - plen, "/%s", actual);
+      if(snprintf(path + plen, PATH_SIZE - plen, "/%s", actual) >= (int)(PATH_SIZE - plen)) {
+        return SMB2_STATUS_OBJECT_NAME_INVALID;
+      }
       if(stat(path, st) != 0) {
         return errno_status(errno);
       }
