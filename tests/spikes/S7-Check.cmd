@@ -33,7 +33,7 @@ if not exist "%EXE%" (
   exit /b 1
 )
 rem Standard user or administrator: an elevated token would hide a prompt.
-"%SystemRoot%System32whoami.exe" /groups | findstr /c:"S-1-16-12288" >nul && (
+"%SystemRoot%\System32\whoami.exe" /groups | findstr /c:"S-1-16-12288" >nul && (
   echo HINWEIS: Die Konsole laeuft mit Administratorrechten. Fuer S7 bitte als normaler Benutzer starten.
 ) || (
   echo OK      Konsole ohne Administratorrechte
