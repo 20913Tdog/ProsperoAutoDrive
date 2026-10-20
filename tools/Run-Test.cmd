@@ -156,11 +156,9 @@ echo Port 4445 ist frei.
 
 echo.
 call :say 3/6 Payload senden
+set "MAXN=36"
 call "%ROOT%\tools\Send-Payload.cmd" %PS5% "%ROOT%\dist\dev\%ELF%"
-if errorlevel 1 (
-  call :fail "Das Payload wurde nicht gesendet."
-  exit /b 1
-)
+if errorlevel 1 call :manual_load
 
 echo.
 call :say 4/6 Warten, bis das Payload bereit ist
@@ -177,7 +175,7 @@ if not errorlevel 1 (
   )
 )
 if defined FOLDER if not "%FOLDER%"=="%OLD_FOLDER%" goto :ready
-if %N% geq 36 (
+if %N% geq %MAXN% (
   call :fail "Das Payload meldet sich nicht auf Port 4445."
   exit /b 1
 )
@@ -225,6 +223,24 @@ echo Ende: %date% %time%
 echo RUN-TEST: %TEST% beendet, Exitcode %TEST_RC%
 exit /b %TEST_RC%
 
+
+rem Without an ELF loader on 9021 the owner starts the payload by hand, for
+rem example with a payload manager in the browser. The script opens the
+rem folder with the file and the usual manager address, then waits longer.
+:manual_load
+echo Kein ELF-Loader auf Port 9021, das Payload muss von Hand gestartet werden.
+>con echo.
+>con echo Kein ELF-Loader auf Port 9021. Bitte jetzt von Hand starten:
+>con echo   %ROOT%\dist\dev\%ELF%
+>con echo zum Beispiel ueber den Payload-Manager http://%PS5%:8084
+>con echo hochladen und starten. Der Ordner mit der Datei und der Browser
+>con echo werden geoeffnet. Das Skript wartet bis zu 10 Minuten.
+>con echo.
+start "" explorer.exe /select,"%ROOT%\dist\dev\%ELF%"
+start "" "http://%PS5%:8084"
+rem A closed port fails at once, so a round takes about 2 s.
+set "MAXN=300"
+goto :eof
 
 rem Progress for the console window; the log gets the same line.
 :say
