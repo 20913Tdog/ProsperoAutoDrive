@@ -12,6 +12,7 @@
 *.sh                text eol=lf
 *.yml               text eol=lf
 *.yaml              text eol=lf
+*.sha256            text eol=lf
 Makefile            text eol=lf
 
 # Binary assets (sources only; build outputs never go into git).
