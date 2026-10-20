@@ -188,12 +188,12 @@ Suche, Lebenszeichen, Uhrzeit und Kopplung laufen über eine TCP-Verbindung auf 
 
 - **Warum (Projektverantwortlicher):** TCP ist verbindungsorientiert.
 - **Folgen:**
-  - Einen Broadcast gibt es mit TCP nicht. Das Programm erreicht die PS5 über die gespeicherte IP. Antwortet sie dort nicht mehr, etwa nach einem IP-Wechsel, probiert es Port 4445 der Reihe nach im eigenen Netz durch. Ausgehende TCP-Verbindungen lösen kein Firewall-Fenster aus. Das hat auch jeder Testlauf mit `curl.exe` auf Port 4445 gezeigt.
-  - Der Broadcast aus S7 hat funktioniert, wird aber nicht gebraucht.
+  - Einen Broadcast gibt es mit TCP nicht. Die Suche bleibt deshalb bei UDP, siehe Ergänzung unten. Ausgehende TCP-Verbindungen lösen kein Firewall-Fenster aus. Das hat auch jeder Testlauf mit `curl.exe` auf Port 4445 gezeigt.
 - **Ändert:**
   - [Verbinden und Trennen (P8)](#verbinden-und-trennen-p8): Statt der UDP-Liveness gibt es ein Lebenszeichen über TCP 4445. Getrennt wird weiterhin erst, wenn auch der Test auf TCP 445 fehlschlägt.
   - [Uhrabweichung](#uhrabweichung-der-pc-liefert-die-referenzzeit): Die PC-Zeit kommt über diesen Kanal statt per UDP.
 - Port 4445 war bisher der Steuerport der Test-Payloads. Im Produkt gehört er dem Dienstkanal.
+- **Ergänzt am selben Tag (Projektverantwortlicher):** Gesucht wird weiter per **UDP 4446**, wie in S7 mit Unicast und Broadcast. Die Antwort nennt Server-ID, Name und die Ports. Alles andere läuft über TCP 4445. Damit entfällt das Durchprobieren des Netzes.
 
 ### Kopplung ohne Code (Variante C)
 
