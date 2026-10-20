@@ -1113,10 +1113,11 @@ list_directory(handle_t *h, const char *pattern) {
     const char *name = dots ? ".." : ".";
     char parent[PATH_SIZE];
 
-    if(!wild_match(pattern, name)) {
+    if(!wild_match(pattern, name) ||
+       snprintf(parent, sizeof parent, "%s%s", h->path,
+                (dots && h->rel[0]) ? "/.." : "") >= (int)sizeof parent) {
       continue;
     }
-    snprintf(parent, sizeof parent, "%s%s", h->path, (dots && h->rel[0]) ? "/.." : "");
     if(stat(parent, &h->entries[h->nentries].st) == 0 &&
        (h->entries[h->nentries].name=strdup(name))) {
       h->nentries++;
@@ -1139,8 +1140,8 @@ list_directory(handle_t *h, const char *pattern) {
       cap *= 2;
     }
     ent = &h->entries[h->nentries];
-    snprintf(path, sizeof path, "%s/%s", h->path, e->d_name);
-    if(stat(path, &ent->st) != 0 || !(ent->name=strdup(e->d_name))) {
+    if(snprintf(path, sizeof path, "%s/%s", h->path, e->d_name) >= (int)sizeof path ||
+       stat(path, &ent->st) != 0 || !(ent->name=strdup(e->d_name))) {
       continue;
     }
     h->nentries++;

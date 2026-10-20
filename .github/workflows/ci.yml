@@ -100,9 +100,13 @@ jobs:
           } >> "$GITHUB_ENV"
 
       - name: Build PS5 payloads
+        shell: bash
         run: |
-          cmake --preset ps5
-          cmake --build --preset ps5
+          { cmake --preset ps5 && cmake --build --preset ps5; } 2>&1 | tee -a ci.log
+
+      - name: Failure details as annotation (readable without login)
+        if: failure()
+        run: bash .github/scripts/annotate-tail.sh ci.log
 
       - uses: actions/upload-artifact@v4
         with:
@@ -120,16 +124,26 @@ jobs:
           submodules: true
 
       - name: Build host variant of the PS5 code
+        shell: bash
         run: |
-          sudo apt-get install -y -q ninja-build smbclient
-          cmake --preset host
-          cmake --build --preset host
+          {
+            sudo apt-get update -q &&
+            sudo apt-get install -y -q ninja-build smbclient &&
+            cmake --preset host &&
+            cmake --build --preset host
+          } 2>&1 | tee -a ci.log
 
       - name: S1 probe behaviour (E1)
-        run: bash tests/spikes/s1-host-test.sh build/host/bin/s1-portprobe
+        shell: bash
+        run: bash tests/spikes/s1-host-test.sh build/host/bin/s1-portprobe 2>&1 | tee -a ci.log
 
       - name: S2 SMB server against smbclient (E1)
-        run: bash tests/spikes/s2-host-test.sh build/host/bin/s2-smbserver
+        shell: bash
+        run: bash tests/spikes/s2-host-test.sh build/host/bin/s2-smbserver 2>&1 | tee -a ci.log
+
+      - name: Failure details as annotation (readable without login)
+        if: failure()
+        run: bash .github/scripts/annotate-tail.sh ci.log
 
   publish-dev:
     name: publish-dev
