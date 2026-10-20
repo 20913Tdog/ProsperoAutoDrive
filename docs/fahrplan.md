@@ -11,7 +11,7 @@ Evidenzebenen: **E1** Unit unter Linux, **E2** Protokoll-CI mit echtem Windows-C
 | S1 | Ist Port 445 auf der PS5 frei? | bestanden (E3) |
 | S2, S2b | Bedient libsmb2 Windows korrekt, und wie schnell? | bestanden (E3) |
 | S3 | Funktioniert Schreiben? | bestanden (E3) |
-| **S4** | Reicht der Durchsatz? | **bereit zum Live-Test** |
+| S4 | Reicht der Durchsatz? | bestanden (E3): Lesen 96 %, Schreiben 98 % von ftpsrv |
 | S5 | Übersteht der Server Ruhemodus und Neustart? | offen |
 | S6 | Ist er in der CI mit echtem Windows-Client testbar? | offen |
 | S7 | Klappt die Discovery ohne Firewall-Dialog? | offen |
@@ -35,6 +35,7 @@ Vor G1 entsteht kein Produktcode.
 - **Bestanden:** Der Median von SMB erreicht in jeder Richtung mindestens 70 % von ftpsrv (G1).
 - **Dateigröße:** 256 MiB je Lauf, entschieden am 20.10.2026. Der alte Plan sah 2 GiB vor. Im WLAN mit 5–8 MB/s hätte ein Lauf damit etwa 5 Minuten gedauert, alle 28 Läufe über 2 Stunden.
 - Ablauf und Auswertung: [`tests/spikes/README.md`](../tests/spikes/README.md#s4--reicht-der-durchsatz)
+- **Ergebnis:** bestanden. Lesen 96 %, Schreiben 98 % von ftpsrv. Die Wartezeit für eine kleine Datei steigt unter Last von 44 ms auf 2,9 s, das wird in Phase 2 angegangen.
 
 ### S5 – Ruhemodus und Neustart
 
@@ -69,6 +70,7 @@ Go für natives SMB, wenn S1, S2, S3, S6 und S7 bestanden sind und S4 mindestens
 - Zugangsdaten mit Anzeige als PS5-Benachrichtigung
 - Konfiguration, Ringlog, Weiterlaufen nach dem Ruhemodus, Plattformschicht
 - UDP-Liveness mit Server-ID und Uhrausgleich (Variante 1)
+- **Antwortzeit unter Last:** Kredite begrenzen und kleine Antworten vorziehen. S4 maß 2,9 s für eine kleine Datei während einer großen Kopie. Das Skript `S4-Check.cmd` misst es erneut.
 - offene Punkte aus S3:
   - **Sicherheitsbeschreibung** (QUERY_INFO Typ 3): Der Explorer fragt sie oft ab, in S3 über 3000-mal. Sie gehört zur Registerkarte „Sicherheit“.
   - **Verzeichnisklasse 0x51:** Windows weicht aus, das kostet je Ordner eine zusätzliche Anfrage.
@@ -119,7 +121,7 @@ Go für natives SMB, wenn S1, S2, S3, S6 und S7 bestanden sind und S4 mindestens
 
 - **CHANGE_NOTIFY:** Der Explorer aktualisiert sich selbst.
 - **Ereignisse:** PC-Standby, WLAN-Wechsel, IP-Wechsel
-- **Worker-Threads** für READ/WRITE, falls S4 oder die Latenz das nahelegen
+- **Worker-Threads** für READ/WRITE, nur falls die Begrenzung der Kredite aus Phase 2 die Antwortzeit unter Last nicht genug senkt
 - **Serverseitiges Kopieren**, in S3 als nicht unterstützter IOCTL gesehen: Kopieren innerhalb von `P:` läuft sonst zweimal durchs WLAN.
 - **Schnellere AES-CMAC-Signatur**, falls für G2 nötig. S2b hat 30 ms CPU je MiB gemessen.
 - **Leases**, optional, für schnelleres Lesen. Dann muss erneut nachgewiesen werden, dass ein Kopierabbruch sichtbar bleibt und nichts nachgesendet wird.

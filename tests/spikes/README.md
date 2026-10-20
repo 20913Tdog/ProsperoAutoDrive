@@ -347,5 +347,24 @@ Geschrieben wird nur `schreiben-smb.bin` und `schreiben-ftp.bin` im neuen Testor
 | `S4-CHECK: G1 BESTANDEN` | Median SMB ≥ 70 % von FTP in beiden Richtungen | S4 bestanden, weiter mit S5 |
 | `G1 NICHT ERREICHT`, Profil c deutlich schneller | Die Signatur bremst | schnelle AES-CMAC, dann neu messen |
 | `G1 NICHT ERREICHT`, Profil c ähnlich, CPU niedrig | Wartezeiten im Protokoll oder im Server | Ablauf untersuchen, z. B. mehr parallele Anfragen |
-| kleine Datei während der Kopie sehr langsam (Sekunden) | Der Server bearbeitet Anfragen nacheinander (Risiko R4) | Worker-Threads in Phase 4 einplanen |
+| kleine Datei während der Kopie sehr langsam (Sekunden) | Kleine Antworten warten hinter den großen (Risiko R4) | in Phase 2 Kredite begrenzen, nötigenfalls Worker-Threads |
 | `S4-CHECK: FEHLER` | Eine Übertragung ist fehlgeschlagen | Ausgabe analysieren, nichts automatisch wiederholen |
+
+### Ergebnis: G1 bestanden (E3, 20.10.2026, Build `299cb3d`, WLAN)
+
+`S4-CHECK: G1 BESTANDEN`. 7 abwechselnde Runden je Richtung mit 256 MiB, alle Dateien Byte für Byte gleich.
+
+| Richtung | SMB 3.1.1 (Median) | ftpsrv (Median) | SMB in % von FTP | Spanne SMB | Spanne FTP |
+|---|---|---|---|---|---|
+| Lesen | 3,90 MB/s | 4,06 MB/s | **96 %** | 2,78–4,56 | 3,38–4,34 |
+| Schreiben | 7,10 MB/s | 7,20 MB/s | **98 %** | 6,56–7,25 | 6,58–7,32 |
+
+**Bewertung:**
+- **WLAN begrenzt, nicht SMB.** SMB und FTP liegen in jeder Runde nah beieinander und schwanken gemeinsam, etwa in Runde 6 und 7. Lesen ist bei beiden fast halb so schnell wie Schreiben, das liegt am Funkweg der PS5. 96 und 98 % liegen im Rauschen des WLANs.
+- **Signatur:** SMB 2.1 mit HMAC-SHA256 bringt im WLAN nichts (Lesen 4,00, Schreiben 6,56 MB/s, je 3 Läufe). **SMB 3.1.1 bleibt.**
+- **CPU der PS5:** 36 bis 39 ms je MiB mit AES-CMAC, 16 bis 18 ms mit HMAC. Die Signatur kostet also etwa 20 ms je MiB, und zwar auf einem Kern. Im WLAN sind das 14 % (Lesen) bis 26 % (Schreiben) eines Kerns. Bei einer Grenze von rund 26 MiB/s für SMB 3.1.1 spielt das erst im Kabelnetz eine Rolle.
+- **Wartezeit unter Last: 2925 ms** je kleine Datei während einer großen Kopie, gegenüber 44 ms ohne Last. Das ist das Risiko R4. Es betrifft nicht G1, wohl aber das Gefühl im Explorer: Wer währenddessen einen Ordner öffnet, wartet mehrere Sekunden.
+  - **Vermutung, nicht belegt:** libsmb2 gibt dem Client jeden Kredit, den er verlangt (`lib/pdu.c`), und schickt die Antworten in der Reihenfolge der Anfragen. Windows legt mehrere 1-MiB-Lesevorgänge nebeneinander an. Bei 4 MB/s dauert es dann Sekunden, bis die Antworten davor draußen sind.
+  - **Prüfen in Phase 2:** Kredite begrenzen und kleine Antworten vorziehen. Worker-Threads allein würden daran nichts ändern, wenn die Vermutung stimmt.
+- **Uhr:** unverändert 1 Stunde vor (Kernel-UTC 22:35:56, github.com 21:35:59). Die Prüfung ab dem 26.10. steht noch aus.
+- Im Status stehen wie in S3 nur bekannte `unsupported:`-Zeilen (Verzeichnisklasse 0x51, Sicherheitsabfrage, Offload-Lesen). Das `connection_end` kommt vom Umschalten auf Profil c.

@@ -116,6 +116,20 @@ Bestanden im zweiten Lauf (E3, Build `46a55e4`):
 - Neue Dateien ohne Zeitangabe bekommen die Zeit der PS5 und liegen damit 1 Stunde in der Zukunft. Der Kernel meldet dazu Sommerzeit von 60 Minuten.
 - **Geklärt:** Die Referenzzeit kommt vom PC, siehe [Uhrabweichung](#uhrabweichung-der-pc-liefert-die-referenzzeit).
 
+### S4: Der Durchsatz reicht, G1 bestanden
+
+Bestanden (E3, Build `299cb3d`, WLAN, 7 abwechselnde Läufe je Richtung mit 256 MiB, Median):
+
+- Lesen: SMB 3,90 MB/s gegen FTP 4,06 MB/s, also **96 %**.
+- Schreiben: SMB 7,10 MB/s gegen FTP 7,20 MB/s, also **98 %**.
+- Das WLAN begrenzt, nicht SMB. Beide schwanken gemeinsam, und die Abstände liegen im Rauschen.
+- **SMB 3.1.1 bleibt.** SMB 2.1 mit HMAC-SHA256 ist im WLAN nicht schneller. Die AES-CMAC-Signatur kostet etwa 20 ms CPU je MiB, das begrenzt SMB 3.1.1 auf rund 26 MiB/s. Im WLAN ist das egal, im Kabelnetz nicht. Die schnelle AES-CMAC bleibt für Phase 4 vorgemerkt.
+- **Dateigröße:** 256 MiB statt 2 GiB je Lauf. Mit 2 GiB hätte der Test im WLAN über 2 Stunden gedauert.
+- **Offen: Wartezeit unter Last.** Eine kleine Datei braucht während einer großen Kopie 2,9 s statt 44 ms. Es ist keine G1-Bedingung, würde aber im Explorer auffallen. Vermutlich vergibt libsmb2 jeden verlangten Kredit und beantwortet in der Reihenfolge der Anfragen. Das wird in Phase 2 geprüft (Kredite begrenzen, kleine Antworten vorziehen).
+- **G2:** Dieselbe Messung ergäbe schon jetzt über 95 %. Gewertet wird erst am Build, der 1.0.0 wird.
+
+Das Gate G1 ist damit noch nicht entschieden, denn S5, S6 und S7 fehlen noch.
+
 ### Regel: nur libkernel-Funktionen auf der PS5
 
 Das SDK enthält in `libc.a` für jede FreeBSD-Systemaufrufnummer einen nackten Aufruf. Diese Aufrufe setzen `errno` nicht, und auf der PS5 kann eine Nummer etwas anderes bedeuten. In S3 hat `utimensat()` deshalb nichts getan.
