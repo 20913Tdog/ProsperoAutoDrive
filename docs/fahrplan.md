@@ -63,9 +63,9 @@ Go für natives SMB, wenn S1, S2, S3, S6 und S7 bestanden sind und S4 mindestens
 **Umfang:**
 
 - Port 445, eine Freigabe `/`, lesen und schreiben
-- Zugangsdaten mit Anzeige als PS5-Benachrichtigung
+- Zugangsdaten: werden beim Koppeln übertragen, nie angezeigt
 - Konfiguration, Ringlog, Weiterlaufen nach dem Ruhemodus, Plattformschicht
-- UDP-Liveness mit Server-ID und Uhrausgleich (Variante 1)
+- Dienstkanal auf TCP 4445 mit Server-ID, Lebenszeichen, Kopplung (Variante C) und Uhrausgleich (Variante 1), siehe [Entwurf Phase 2](entwurf-phase2.md)
 - **Antwortzeit unter Last:** S4 maß 2,9 s für eine kleine Datei während einer großen Kopie.
   - Zuerst messen, welcher Puffer wie viel davon ausmacht: die Sendeschlange von libsmb2 (jeder Kredit wird gewährt, Antworten stehen hinten an), der Sendepuffer von 1 MiB oder WLAN und Router.
   - Dann gezielt beheben: Kredite begrenzen, kleine Antworten vorziehen, Sendepuffer verkleinern. `S4-Check.cmd` misst die Wirkung.
@@ -94,8 +94,8 @@ Go für natives SMB, wenn S1, S2, S3, S6 und S7 bestanden sind und S4 mindestens
 **Umfang:**
 
 - eine einzelne exe, ohne Installer-Paket und ohne ZIP
-- Einrichtung beim ersten Start: PS5 finden (S7), Passwort eingeben und in der Windows-Anmeldeinformationsverwaltung ablegen
-- Zustandsautomat: UDP-Liveness mit PC-Zeit, Trennen erst, wenn UDP **und** TCP 445 fehlschlagen
+- Einrichtung beim ersten Start: PS5 finden, koppeln (Variante C), Zugangsdaten in der Windows-Anmeldeinformationsverwaltung ablegen
+- Zustandsautomat: Lebenszeichen über TCP 4445 mit PC-Zeit, Trennen erst, wenn das Lebenszeichen **und** TCP 445 fehlschlagen
 - temporäres Mapping `P:`; ein fremdes Mapping auf `P:` bleibt unberührt
 - Tray-Symbol, Benachrichtigungen, Autostart für den angemeldeten Benutzer, Ringlog
 - Deinstallation ohne Rückstände

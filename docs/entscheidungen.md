@@ -180,6 +180,31 @@ Der Projektverantwortliche hat G1 freigegeben. Erfüllt waren S1 bis S4, S6 und 
   - Ruhemodus und Neustart im normalen Betrieb
 - **Hinweis des Projektverantwortlichen zum Passwort:** Eine PS5-Benachrichtigung verschwindet und taucht danach **nicht** in der Liste der Benachrichtigungen auf. Ein Passwort, das nur einmal so angezeigt wird, reicht für das Produkt also nicht. Der Weg zum Passwort wird im Entwurf für Phase 2 entschieden.
 
+## Phase 2, Grundsatzentscheidungen (21.10.2026)
+
+### Dienstkanal über TCP 4445 statt UDP
+
+Suche, Lebenszeichen, Uhrzeit und Kopplung laufen über eine TCP-Verbindung auf Port **4445**, nicht über UDP.
+
+- **Warum (Projektverantwortlicher):** TCP ist verbindungsorientiert.
+- **Folgen:**
+  - Einen Broadcast gibt es mit TCP nicht. Das Programm erreicht die PS5 über die gespeicherte IP. Antwortet sie dort nicht mehr, etwa nach einem IP-Wechsel, probiert es Port 4445 der Reihe nach im eigenen Netz durch. Ausgehende TCP-Verbindungen lösen kein Firewall-Fenster aus. Das hat auch jeder Testlauf mit `curl.exe` auf Port 4445 gezeigt.
+  - Der Broadcast aus S7 hat funktioniert, wird aber nicht gebraucht.
+- **Ändert:**
+  - [Verbinden und Trennen (P8)](#verbinden-und-trennen-p8): Statt der UDP-Liveness gibt es ein Lebenszeichen über TCP 4445. Getrennt wird weiterhin erst, wenn auch der Test auf TCP 445 fehlschlägt.
+  - [Uhrabweichung](#uhrabweichung-der-pc-liefert-die-referenzzeit): Die PC-Zeit kommt über diesen Kanal statt per UDP.
+- Port 4445 war bisher der Steuerport der Test-Payloads. Im Produkt gehört er dem Dienstkanal.
+
+### Kopplung ohne Code (Variante C)
+
+Das Passwort wird nie angezeigt oder abgetippt. Der erste PC, der sich nach dem ersten Start über den Dienstkanal meldet, bekommt Benutzer und Passwort. Die PS5 meldet danach „gekoppelt mit …“.
+
+- **Warum (Projektverantwortlicher):** Im privaten WLAN ist jeder selbst für die Sicherheit verantwortlich. Wer so etwas in einem öffentlichen WLAN macht, handelt ohnehin fahrlässig. Das Risiko, dass ein anderes Gerät im WLAN zuerst koppelt, trägt bewusst der Benutzer.
+- **Verworfen:**
+  - **A, Passwort wiederholt anzeigen:** Ein langes Passwort ist mühsam abzutippen.
+  - **B, Kopplung mit Code:** mehr Aufwand, ohne dass der Projektverantwortliche den Schutz braucht.
+- Wann das Koppeln offen ist und wie ein zweiter PC dazukommt, steht im [Entwurf für Phase 2](entwurf-phase2.md).
+
 ### Regel: nur libkernel-Funktionen auf der PS5
 
 Das SDK enthält in `libc.a` für jede FreeBSD-Systemaufrufnummer einen nackten Aufruf. Diese Aufrufe setzen `errno` nicht, und auf der PS5 kann eine Nummer etwas anderes bedeuten. In S3 hat `utimensat()` deshalb nichts getan.
