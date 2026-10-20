@@ -76,16 +76,21 @@ call :server
 
 echo.
 echo ===== 4. Groessen und Aenderungszeiten =====
-rem A dry run lists every file that differs in size or write time.
+rem A dry run lists every file that differs in size or write time. The
+rem console keeps times to the microsecond, Windows to 100 ns, so the check
+rem uses robocopy's 2-second tolerance (/FFT); the exact count is shown too.
 set "DIFF=0"
-for /f %%N in ('robocopy "%OUT%\vorlage" "%SHARE%\hochgeladen" /E /L /R:0 /W:0 /NP /NJH /NJS /NDL /NC /NS /FP ^| findstr /r /c:"[^ ]" ^| find /c /v ""') do set "DIFF=%%N"
+for /f %%N in ('robocopy "%OUT%\vorlage" "%SHARE%\hochgeladen" /E /L /FFT /R:0 /W:0 /NP /NJH /NJS /NDL /NC /NS /FP ^| findstr /r /c:"[^ ]" ^| find /c /v ""') do set "DIFF=%%N"
 if "%DIFF%"=="0" (
-  echo OK      alle Dateien mit gleicher Groesse und gleicher Aenderungszeit
+  echo OK      alle Dateien mit gleicher Groesse und gleicher Aenderungszeit ^(auf 2 s^)
 ) else (
   echo FALSCH  %DIFF% Dateien weichen in Groesse oder Aenderungszeit ab, zum Beispiel:
-  robocopy "%OUT%\vorlage" "%SHARE%\hochgeladen" /E /L /R:0 /W:0 /NP /NJH /NJS /NDL /TS /FP | findstr /r /c:"[^ ]" | findstr /n "^" | findstr /b /r "[1-5]:"
+  robocopy "%OUT%\vorlage" "%SHARE%\hochgeladen" /E /L /FFT /R:0 /W:0 /NP /NJH /NJS /NDL /TS /FP | findstr /r /c:"[^ ]" | findstr /n "^" | findstr /b /r "[1-5]:"
   set "FAIL=1"
 )
+set "EXACT=0"
+for /f %%N in ('robocopy "%OUT%\vorlage" "%SHARE%\hochgeladen" /E /L /R:0 /W:0 /NP /NJH /NJS /NDL /NC /NS /FP ^| findstr /r /c:"[^ ]" ^| find /c /v ""') do set "EXACT=%%N"
+echo INFO    ohne Toleranz weichen %EXACT% von 1507 Dateien ab ^(erwartet: Rundung auf Mikrosekunden^)
 
 echo.
 echo ===== 5. Wieder herunterladen und Byte fuer Byte vergleichen =====

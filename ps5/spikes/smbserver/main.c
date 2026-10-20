@@ -21,6 +21,7 @@
  * GET /quit stops the server. It also stops by itself after RUN_SECONDS.
  * For the speed diagnosis (S2b), GET /profile/<a|b|c> switches socket and
  * dialect settings and GET /reset restarts the timing counters.
+ * GET /clock reports what the console knows about its time zone.
  * GET /password hands the password out once, for the one-click test run
  * (tools\Run-Test.cmd); every later request is refused. The control port is
  * unauthenticated anyway, and the share holds test data only.
@@ -42,6 +43,9 @@
 #include <sys/select.h>
 #include <sys/socket.h>
 #include <sys/time.h>
+#ifdef __SCE__
+#include <sys/sysctl.h>
+#endif
 
 #include <smb2/smb2.h>
 #include <smb2/libsmb2.h>
@@ -78,6 +82,10 @@ typedef struct notify_request {
 } notify_request_t;
 
 int sceKernelSendNotificationRequest(int, notify_request_t*, size_t, int);
+
+/* Exported by libkernel; the layout of its argument is not documented, so
+ * it gets more room than a struct timezone needs. */
+int sceKernelGettimezone(void *tz);
 #endif
 
 
@@ -177,6 +185,47 @@ make_password(char *out, size_t size) {
 #endif
 
 
+/* GET /clock: what the console knows about its time zone, to explain why
+ * its UTC ran one hour ahead in S2b and S3. Only libkernel exports are
+ * called, and Run-Test.cmd asks for it after the test, so a crash here
+ * cannot cost a test run. */
+static int
+clock_report(char *body, size_t size) {
+  struct timezone tz;
+  struct timeval tv;
+  int n;
+
+  memset(&tz, 0, sizeof tz);
+  gettimeofday(&tv, &tz);
+  n = snprintf(body, size,
+               TAG " CLOCK\nnow_s=%lld\ngettimeofday_minuteswest=%d\n"
+               "gettimeofday_dsttime=%d\n",
+               (long long)tv.tv_sec, tz.tz_minuteswest, tz.tz_dsttime);
+#ifdef __SCE__
+  {
+    int ktz[8];
+    int adj = 0;
+    int wall = 0;
+    size_t len;
+    int rc;
+
+    memset(ktz, 0, sizeof ktz);
+    rc = sceKernelGettimezone(ktz);
+    n += snprintf(body + n, size - n,
+                  "sceKernelGettimezone=%d words=%d %d %d %d\n",
+                  rc, ktz[0], ktz[1], ktz[2], ktz[3]);
+    len = sizeof adj;
+    rc = sysctlbyname("machdep.adjkerntz", &adj, &len, NULL, 0);
+    n += snprintf(body + n, size - n, "machdep.adjkerntz=%d (rc %d)\n", adj, rc);
+    len = sizeof wall;
+    rc = sysctlbyname("machdep.wall_cmos_clock", &wall, &len, NULL, 0);
+    n += snprintf(body + n, size - n, "machdep.wall_cmos_clock=%d (rc %d)\n", wall, rc);
+  }
+#endif
+  return n;
+}
+
+
 /* Serve one HTTP request on the control port. */
 static void
 serve_control(int fd) {
@@ -200,6 +249,8 @@ serve_control(int fd) {
   } else if(strncmp(req, "GET /profile/", 13) == 0) {
     n = snprintf(body, sizeof body, TAG " %s\n",
                  backend_set_profile(req[13]) == 0 ? "PROFILE" : "UNKNOWN PROFILE");
+  } else if(strncmp(req, "GET /clock", 10) == 0) {
+    n = clock_report(body, sizeof body);
   } else if(strncmp(req, "GET /password", 13) == 0) {
     if(g_password_given) {
       n = snprintf(body, sizeof body, TAG " PASSWORD ALREADY GIVEN\n");

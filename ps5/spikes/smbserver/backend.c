@@ -416,18 +416,18 @@ filetime(const struct timespec *ts) {
 }
 
 
-/* FILETIME from a client. 0 and -1/-2 (MS-FSCC 2.4.7) leave the time as it
- * is, so do values before 1970. */
-static void
-from_filetime(uint64_t ft, struct timespec *ts) {
+/* FILETIME from a client, to microseconds. 0 and -1/-2 (MS-FSCC 2.4.7)
+ * leave the time as it is, so do values before 1970: then tv keeps the
+ * current time and 0 is returned. */
+static int
+from_filetime(uint64_t ft, struct timeval *tv) {
   if(ft == 0 || ft == UINT64_MAX || ft == UINT64_MAX - 1 ||
      ft < FILETIME_EPOCH_DIFF * 10000000ULL) {
-    ts->tv_sec = 0;
-    ts->tv_nsec = UTIME_OMIT;
-    return;
+    return 0;
   }
-  ts->tv_sec = (time_t)(ft / 10000000ULL - FILETIME_EPOCH_DIFF);
-  ts->tv_nsec = (long)(ft % 10000000ULL) * 100;
+  tv->tv_sec = (time_t)(ft / 10000000ULL - FILETIME_EPOCH_DIFF);
+  tv->tv_usec = (suseconds_t)(ft % 10000000ULL / 10);
+  return 1;
 }
 
 
@@ -2217,19 +2217,23 @@ set_rename(handle_t *h, const uint8_t *buf, uint32_t len) {
 
 
 /* FILE_BASIC_INFORMATION: access and write time are applied; creation time
- * and attributes cannot be stored and are only counted. */
+ * and attributes cannot be stored and are only counted.
+ * utimes(), not utimensat(): the console's libkernel has no utimensat, and
+ * the SDK's libc.a stub for it is a bare FreeBSD syscall number, which on
+ * the console may be a different call (its result came back in place of
+ * errno in S3). So times are kept to the microsecond. */
 static uint32_t
 set_basic(handle_t *h, const uint8_t *buf, uint32_t len) {
-  struct timespec ts[2];
+  struct timeval tv[2];
+  struct stat st;
   uint64_t created;
   uint32_t attrs;
+  int given;
 
   if(len < 36) {
     return SMB2_STATUS_INFO_LENGTH_MISMATCH;
   }
   created = get64(buf);
-  from_filetime(get64(buf + 8), &ts[0]);
-  from_filetime(get64(buf + 16), &ts[1]);
   attrs = get32(buf + 32);
   if(created && created < UINT64_MAX - 1) {
     g.creation_times_ignored++;
@@ -2238,10 +2242,19 @@ set_basic(handle_t *h, const uint8_t *buf, uint32_t len) {
                          SMB2_FILE_ATTRIBUTE_NORMAL)) {
     g.attributes_ignored++;
   }
-  if(ts[0].tv_nsec == UTIME_OMIT && ts[1].tv_nsec == UTIME_OMIT) {
+  if(stat(h->path, &st) != 0) {
+    return errno_status(errno);
+  }
+  tv[0].tv_sec = st.st_atim.tv_sec;
+  tv[0].tv_usec = (suseconds_t)(st.st_atim.tv_nsec / 1000);
+  tv[1].tv_sec = st.st_mtim.tv_sec;
+  tv[1].tv_usec = (suseconds_t)(st.st_mtim.tv_nsec / 1000);
+  given = from_filetime(get64(buf + 8), &tv[0]);
+  given |= from_filetime(get64(buf + 16), &tv[1]);
+  if(!given) {
     return 0;
   }
-  if(utimensat(AT_FDCWD, h->path, ts, 0) != 0) {
+  if(utimes(h->path, tv) != 0) {
     return errno_status(errno);
   }
   g.times_set++;

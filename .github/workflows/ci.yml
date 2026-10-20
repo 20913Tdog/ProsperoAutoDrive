@@ -104,6 +104,10 @@ jobs:
         run: |
           { cmake --preset ps5 && cmake --build --preset ps5; } 2>&1 | tee -a ci.log
 
+      - name: No bare syscall stubs of the SDK
+        shell: bash
+        run: bash .github/scripts/check-raw-syscalls.sh build/ps5 2>&1 | tee -a ci.log
+
       - name: Failure details as annotation (readable without login)
         if: failure()
         run: bash .github/scripts/annotate-tail.sh ci.log

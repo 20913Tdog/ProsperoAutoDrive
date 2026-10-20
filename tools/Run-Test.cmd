@@ -223,6 +223,12 @@ set "TEST_RC=%errorlevel%"
 set "PROSPERO_PW="
 
 echo.
+echo ===== Uhr der PS5 =====
+rem After the test on purpose: if this request fails, the results stand.
+curl.exe -sS --connect-timeout 3 --max-time 5 "%CTL%/clock"
+curl.exe -sSI --max-time 5 https://github.com 2>&1 | findstr /b /i /c:"date:"
+
+echo.
 echo ===== Aufraeumen =====
 call :disconnect
 curl.exe -s --connect-timeout 3 --max-time 5 "%CTL%/quit"

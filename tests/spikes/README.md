@@ -284,3 +284,24 @@ Was `tests\spikes\S3-Check.cmd` dabei prüft:
 | einzelne `FALSCH` in Schritt 5 | Ein Dateivorgang verhält sich anders als unter Windows | einzeln bewerten |
 | Uhrzeit der neuen Datei 1 Stunde daneben | Die Uhr der PS5 schlägt durch, siehe S2b | Ausgleich im Server entwerfen |
 | `unsupported:`- oder `delete_failures`-Zeilen im Status | Windows fragt etwas, das das Backend nicht kann | einzeln bewerten |
+
+### Erster Lauf (E3, 20.10.2026, Build `1ec44bd`, WLAN)
+
+Build `20de186` blieb nach dem Start stumm: Die PS5 zeigte „bereit“, doch auf Port 4445 kam keine Antwort. Wahrscheinliche Ursache war `localtime_r()`, die einzige neue Bibliotheksfunktion auf diesem Weg. Seit `1ec44bd` ist sie entfernt, und das Payload antwortet. Das bestätigt die Vermutung nicht sicher, passt aber dazu.
+
+**Funktioniert:**
+- Alle 1507 Dateien kamen hochgeladen und wieder heruntergeladen Byte für Byte gleich an.
+- Alle 13 Dateivorgänge in `ops` liefen wie unter Windows, auch die Änderung nur der Groß-/Kleinschreibung, das Verschieben, die Ablehnung beim Löschen eines nicht leeren Ordners und das rekursive Löschen.
+- Kopieren innerhalb der Freigabe klappt: Windows fällt nach der abgelehnten serverseitigen Kopie (`IOCTL 0x00140078`) auf Lesen und Schreiben zurück.
+- **Tempo Schreiben, 64 MiB, ein Lauf:** SMB 6,9 MB/s, FTP (ftpsrv) 6,8 MB/s.
+
+**Nicht bestanden: Änderungszeiten.** Keine einzige der 1507 Zeiten wurde übernommen (`times_set=0`).
+- **Ursache:** Das SDK liefert `utimensat()` nur als nackten FreeBSD-Systemaufruf. libkernel der PS5 hat diese Funktion nicht, auf der Konsole kann die Nummer etwas anderes bedeuten, und das Ergebnis landet nicht in `errno`. Darum stand im Status ein veraltetes `errno 35`.
+- **Behoben:** Seit dem nächsten Build nutzt das Backend `utimes()` aus libkernel. Damit sind die Zeiten auf die Mikrosekunde genau, Windows rechnet mit 100 ns. Deshalb vergleicht die Prüfung mit 2 Sekunden Toleranz (`/FFT`) und zeigt die genaue Abweichung zusätzlich an.
+- **Absicherung:** Die CI bricht jetzt ab, sobald unser Code oder libsmb2 einen solchen nackten Systemaufruf verwendet (`.github/scripts/check-raw-syscalls.sh`).
+
+**Uhrzeit bestätigt:** Eine neue Datei, die ohne Zeitangabe geschrieben wird, bekommt die Zeit der PS5. Im Explorer liegt sie genau **1 Stunde in der Zukunft**: robocopy zeigt 18:47:01 UTC, github.com 17:47:00 UTC. Das muss der Server ausgleichen. `GET /clock` fragt dafür ab, was die PS5 über ihre Zeitzone weiß.
+
+**Weitere Befunde:**
+- Neue Dateien gehören `uid=0 gid=0` und haben die Rechte `0666`. Es gibt also keine umask, alle dürfen lesen und schreiben.
+- Neu in `unsupported:` ist `IOCTL 0x00140078`, die serverseitige Kopie. Die Sicherheitsabfrage (`QUERY_INFO type 3`) kam 3015-mal, robocopy fragt sie je Datei ab. Beide sind für das Produkt nachzurüsten.

@@ -154,7 +154,9 @@ expect "$out" "^last_created=.* uid=$(id -u) "
 expect "$out" '^delete_failures=0$'
 expect "$out" '^lost_replies=0$'
 expect "$out" '^files_created=[1-9]'
+expect "$out" '^times_set=[1-9]'
 echo "$out"
+expect "$(curl -fsS --max-time 3 http://127.0.0.1:4445/clock)" '^gettimeofday_minuteswest='
 curl -fsS --max-time 3 http://127.0.0.1:4445/quit >/dev/null
 wait "$server"
 trap - EXIT
