@@ -168,7 +168,7 @@ Windows 11 Pro 25H2 (Build 26200) im WLAN, `S2-CHECK: ALLES OK`, Explorer-Test u
 - Der Explorer brauchte für 64 MiB ≈ 65 s (≈ 1 MB/s, stark schwankend).
 - So ist Gate G1 nicht erreichbar. Deshalb kommt die Ursachenanalyse S2b vor S3.
 
-**Notiert für S3:** Die Uhr der PS5 und die des PCs liegen rund 50 Minuten auseinander. Das zeigen die Dateizeiten der PS5 im Vergleich zur robocopy-Endzeit. Für Zeitstempel beim Schreiben ist das wichtig.
+**Notiert für S3:** Die Dateizeiten der PS5 passten nicht zur robocopy-Endzeit. Die Messung in S2b zeigt den Grund: Intern geht die PS5 1 Stunde vor (siehe dort). Für Zeitstempel beim Schreiben ist das wichtig.
 
 ## S2b – Warum ist das Lesen so langsam?
 
@@ -218,3 +218,19 @@ Am einfachsten mit `tools\Run-Test.cmd` (siehe oben), denn S2b ist der aktuelle 
 | c deutlich schneller als b, `cpu_user_ms` nahe `read_window_ms` | Die Signatur rechnet zu langsam | schnelle AES-CMAC (AES-NI) in libsmb2 einbauen, als Beitrag für upstream |
 | a, b und c ähnlich langsam wie die FTP-Referenz | Das WLAN begrenzt | Vergleich mit ftpsrv in S4 entscheidet |
 | alle deutlich langsamer als die FTP-Referenz, CPU niedrig | Wartezeiten im Protokollablauf | Ablauf genauer untersuchen |
+
+### Ergebnis (E3, 20.10.2026, Build `5c2412e`, WLAN, je Profil 2 Läufe)
+
+| Messung | FTP (ftpsrv) | a | b | c |
+|---|---|---|---|---|
+| 64 MiB, Lauf 1 | 5,2 MB/s (vorher) | 2,7 MB/s | 2,1 MB/s | 3,6 MB/s |
+| 64 MiB, Lauf 2 | 3,4 MB/s (nachher) | 0,8 MB/s | 3,8 MB/s | 2,9 MB/s |
+| 100 kleine Dateien | – | 15 s | 6 s | 8 s |
+| CPU je 64 MiB (`cpu_user_ms`) | – | ≈ 1,95 s | ≈ 1,9 s | ≈ 0,58 s |
+| SSD-Lesezeit je 64 MiB (`pread_ms`) | – | ≈ 50 ms | ≈ 50 ms | ≈ 60 ms |
+
+**Bewertung:**
+- **Kleine Dateien:** b ist 2,5-mal schneller als a, etwa 60 statt 150 ms je Datei. Das passt zu TCP_NODELAY: Ohne diese Option halten Nagle-Algorithmus und verzögerte Bestätigungen jede kleine Antwort auf. **Profil b wird übernommen.**
+- **Signatur:** AES-CMAC kostet gut dreimal so viel Rechenzeit wie HMAC-SHA256, etwa 30 ms je MiB. Das begrenzt bei rund 33 MB/s, im WLAN bremst es also noch nicht. Für G2 und kabelgebundenes Netz bleibt eine schnelle AES-CMAC nötig. SMB 3.1.1 bleibt.
+- **WLAN:** Die SSD bremst nicht. Das WLAN schwankt stark: Schon die FTP-Referenz fiel von 5,2 auf 3,4 MB/s. Mit zwei Läufen je Profil lässt sich der Abstand zu ftpsrv nicht belastbar angeben. Die SMB-Läufe mit b und c lagen bei 2,1 bis 3,8 MB/s, also grob 50 bis 90 % der FTP-Werte. Das klärt erst S4, mit ≥ 7 abwechselnden Läufen und Median.
+- **Uhr:** Die Uhr der PS5 (`now_utc`) geht gegenüber echter UTC (github.com) genau **1 Stunde vor**, PC und Anzeige der PS5 stimmen. Vermutlich rechnet die PS5 die Sommerzeit nur in die Anzeige ein. Für S3 wichtig, denn Zeitstempel, die die PS5 selbst setzt, lägen in der Sommerzeit 1 Stunde daneben.
