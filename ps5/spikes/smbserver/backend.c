@@ -223,7 +223,7 @@ static struct {
   unsigned attributes_ignored;
   unsigned long long fsyncs;
   /* Owner and mode the console gives new entries. */
-  char last_created[96];
+  char last_created[PATH_SIZE];
   struct stat last_created_st;
 
   struct {
