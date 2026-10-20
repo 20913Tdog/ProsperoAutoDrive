@@ -9,7 +9,7 @@ Ein Windows-PC zeigt das Dateisystem einer PS5, auf der ein Homebrew-Payload lä
 ## Architektur (entschieden, Neustart vom 20.10.2026)
 
 - **PS5:** eigenes Payload `prospero-smbd.elf`. Es ist ein SMB2/3-Server auf Basis der libsmb2-Server-Engine (gepinnter `master`-Commit) mit eigenem, protokollneutralem POSIX-Dateisystem-Backend. Es nutzt NTLMv2, immer Signing, vergibt keine Oplocks/Leases und schreibt synchron. Es gibt genau eine Freigabe `/`, lesen und schreiben, ohne Schutzliste. Lizenz GPL-3.0 (PS5-SDK), im Verzeichnis `ps5/`.
-- **Windows:** nur der eingebaute SMB-Client plus `ProsperoAutoDrive.exe`, in C++/Win32 mit statischer CRT (`/MT`), MIT-Lizenz, im Verzeichnis `windows/`. Das Programm hat immer ein Tray-Symbol und benachrichtigt bei Verbinden, Trennen und Problemen. Es nutzt temporäre Mappings (`WNetAddConnection2`/`WNetCancelConnection2`) und bewahrt Zugangsdaten in der Windows-Anmeldeinformationsverwaltung auf. Es braucht keinen Admin, keinen Treiber und keine Fremdsoftware. **Das Windows-Programm bleibt generisch**: keine PS5- oder Jailbreak-spezifischen Funktionen, damit eine kostenlose Signierung später möglich bleibt.
+- **Windows:** nur der eingebaute SMB-Client plus `ProsperoAutoDrive.exe`, in C++/Win32, gebaut mit llvm-mingw und statisch gelinkt (nur Windows-eigene DLLs plus UCRT), MIT-Lizenz, im Verzeichnis `windows/`. Das Programm hat immer ein Tray-Symbol und benachrichtigt bei Verbinden, Trennen und Problemen. Es nutzt temporäre Mappings (`WNetAddConnection2`/`WNetCancelConnection2`) und bewahrt Zugangsdaten in der Windows-Anmeldeinformationsverwaltung auf. Es braucht keinen Admin, keinen Treiber und keine Fremdsoftware. **Das Windows-Programm bleibt generisch**: keine PS5- oder Jailbreak-spezifischen Funktionen, damit eine kostenlose Signierung später möglich bleibt.
 - **Verbinden und Trennen:** UDP-Liveness mit Server-ID. Wegen WLAN wird erst getrennt, wenn UDP-Liveness **und** ein TCP-445-Test fehlschlagen.
 - **Ziele:** Windows 11 (Home/Pro/Enterprise, Standard-Sicherheit) voll unterstützt, Windows 10 22H2 Best Effort. Port 445 ist der Primärpfad.
 - **Vorgehen:** Vor jedem Produktcode laufen die Spikes S1–S7 und Gate G1. G1 verlangt Durchsatz ≥ 70 % von ftpsrv, G2 (Release 1.0.0) verlangt ≥ 95 %, gemessen im WLAN, je Richtung ≥ 7 Läufe abwechselnd, Median.
@@ -21,6 +21,18 @@ Ein Windows-PC zeigt das Dateisystem einer PS5, auf der ein Homebrew-Payload lä
 - Automatisierte und Test-Schreiboperationen **ausschließlich** in neu erzeugten Ordnern `/data/_ProsperoAutoDrive_Test_<Zeitstempel>-<Zufall>`.
 - `/data/homebrew` und alle bereits bestehenden Verzeichnisse in Tests **weder lesen noch verändern**.
 - Nach einem unklaren Ergebnis einer Schreiboperation nur **lesend** prüfen. Keine automatische Wiederholung, keine automatische Bereinigung, keine breitflächigen Löschungen.
+
+### Toolchain
+
+- Es gibt eine Toolchain für alle Ziele, lokal und in der CI mit identischen Versionen. Sie liegen gepinnt in `.github/workflows/ci.yml`:
+  - **llvm-mingw** `20260922` (Clang 23) für PS5 und Windows
+  - **ps5-payload-sdk** `v0.44`
+  - CMake + Ninja
+- Kein MSVC und kein Visual Studio. Es gibt keine Lizenzfragen, und es braucht keinen Installer.
+- Gebaut wird über CMake-Presets: `ps5`, `windows`, `host` (Linux-Tests). Maschinenspezifische Pfade stehen in der nicht versionierten `CMakeUserPresets.json`, etwa `ps5-local` und `windows-local`.
+- Lokal (Entwicklungsrechner, ohne Admin): portable Ordner in `%LOCALAPPDATA%\Programs` (`llvm-mingw-20260922`, `ps5-payload-sdk-v0.44`, `cmake-4.4.4`). Ninja kommt aus dem SDK.
+- Die Compiler-Wrapper des SDK werden nicht verwendet. Unter Windows hängen sie `crt1.o` doppelt an. Details stehen in `cmake/toolchains/ps5.cmake`.
+- Lokale Builds sind schnelle Rückmeldung. Maßgeblich für Tests und Releases bleibt die CI.
 
 ### Git, Build, Release
 

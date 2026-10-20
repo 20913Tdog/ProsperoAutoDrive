@@ -36,33 +36,74 @@ jobs:
           done < <(git ls-files -z)
           exit $fail
 
+  # Same pinned toolchain as local development: llvm-mingw (clang) for PS5 and
+  # Windows targets, ps5-payload-sdk for the PS5 sysroot.
   ps5-build:
     name: ps5-build
     runs-on: ubuntu-24.04
     env:
+      LLVM_MINGW_VERSION: "20260922"
+      LLVM_MINGW_SHA256: bb7bb7654b33d5aa8712acb837c963b2e0c56352560c76105270a3268c665c21
       SDK_VERSION: v0.44
       SDK_SHA256: 4d06eab777bb135705b5a6816688c9132efb246093fe606ac488ab6cf65ca5b0
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install PS5 payload SDK (pinned version and hash)
+      - name: Toolchain cache
+        id: toolchain-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/toolchains
+          key: toolchains-llvm-mingw-${{ env.LLVM_MINGW_VERSION }}-ps5sdk-${{ env.SDK_VERSION }}
+
+      - name: Download toolchains (pinned versions and hashes)
+        if: steps.toolchain-cache.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
-          sudo apt-get update -q
-          sudo apt-get install -y -q clang-18 lld-18
-          curl -fsSL -o /tmp/ps5-payload-sdk.zip \
+          mkdir -p ~/toolchains && cd ~/toolchains
+          curl -fsSL -o llvm-mingw.tar.xz \
+            "https://github.com/mstorsjo/llvm-mingw/releases/download/${LLVM_MINGW_VERSION}/llvm-mingw-${LLVM_MINGW_VERSION}-ucrt-ubuntu-22.04-x86_64.tar.xz"
+          echo "${LLVM_MINGW_SHA256}  llvm-mingw.tar.xz" | sha256sum -c -
+          mkdir llvm-mingw
+          tar -xJf llvm-mingw.tar.xz -C llvm-mingw --strip-components=1
+          rm llvm-mingw.tar.xz
+          curl -fsSL -o ps5-payload-sdk.zip \
             "https://github.com/ps5-payload-dev/sdk/releases/download/${SDK_VERSION}/ps5-payload-sdk.zip"
-          echo "${SDK_SHA256}  /tmp/ps5-payload-sdk.zip" | sha256sum -c -
-          sudo unzip -q -d /opt /tmp/ps5-payload-sdk.zip
-          echo "PS5_PAYLOAD_SDK=/opt/ps5-payload-sdk" >> "$GITHUB_ENV"
+          echo "${SDK_SHA256}  ps5-payload-sdk.zip" | sha256sum -c -
+          unzip -q ps5-payload-sdk.zip
+          rm ps5-payload-sdk.zip
 
-      - name: Build S1 port probe
-        run: make -C ps5/spikes/s1-portprobe
+      - name: Toolchain environment
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y -q ninja-build
+          T="$HOME/toolchains"
+          # The SDK's prospero-lld asks llvm-config where ld.lld lives;
+          # llvm-mingw ships no llvm-config, so provide a minimal one.
+          mkdir -p "$T/shim"
+          cat > "$T/shim/llvm-config" <<EOF
+          #!/bin/sh
+          case "\$1" in
+            --bindir) echo "$T/llvm-mingw/bin" ;;
+            *) exit 1 ;;
+          esac
+          EOF
+          chmod +x "$T/shim/llvm-config"
+          {
+            echo "LLVM_ROOT=$T/llvm-mingw"
+            echo "PS5_PAYLOAD_SDK=$T/ps5-payload-sdk"
+            echo "LLVM_CONFIG=$T/shim/llvm-config"
+          } >> "$GITHUB_ENV"
+
+      - name: Build PS5 payloads
+        run: |
+          cmake --preset ps5
+          cmake --build --preset ps5
 
       - uses: actions/upload-artifact@v4
         with:
           name: ps5-payloads
-          path: ps5/spikes/s1-portprobe/prospero-s1-portprobe.elf
+          path: build/ps5/bin/*.elf
           if-no-files-found: error
 
   ps5-host-test:
@@ -72,11 +113,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build host variant of the S1 probe
-        run: make -C ps5/spikes/s1-portprobe host
+      - name: Build host variant of the PS5 code
+        run: |
+          sudo apt-get install -y -q ninja-build
+          cmake --preset host
+          cmake --build --preset host
 
       - name: S1 probe behaviour (E1)
-        run: bash tests/spikes/s1-host-test.sh
+        run: bash tests/spikes/s1-host-test.sh build/host/bin/s1-portprobe
 
   publish-dev:
     name: publish-dev

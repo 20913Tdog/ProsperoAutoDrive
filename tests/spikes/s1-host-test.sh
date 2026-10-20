@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # E1 test of the S1 port probe on Linux: same socket code as the PS5 build,
 # but not the PS5 itself. Needs sudo (port 445) and curl.
+# Usage: s1-host-test.sh <path to the host build of s1-portprobe>
 set -euo pipefail
 
-BIN="$(dirname "$0")/../../ps5/spikes/s1-portprobe/s1-portprobe-host"
+BIN="$(realpath "${1:?usage: $0 <s1-portprobe host binary>}")"
 
 wait_http() {
   for _ in $(seq 100); do

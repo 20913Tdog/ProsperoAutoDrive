@@ -1,0 +1,42 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": { "major": 3, "minor": 25, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
+    },
+    {
+      "name": "ps5",
+      "displayName": "PS5 payloads (needs LLVM_ROOT, PS5_PAYLOAD_SDK)",
+      "inherits": "base",
+      "toolchainFile": "${sourceDir}/cmake/toolchains/ps5.cmake",
+      "environment": {
+        "SCE_PROSPERO_SDK_DIR": "$env{PS5_PAYLOAD_SDK}",
+        "PATH": "$env{LLVM_ROOT}/bin${pathListSep}$penv{PATH}"
+      }
+    },
+    {
+      "name": "windows",
+      "displayName": "Windows programs, llvm-mingw (needs LLVM_ROOT)",
+      "inherits": "base",
+      "toolchainFile": "${sourceDir}/cmake/toolchains/mingw-x86_64.cmake",
+      "environment": {
+        "PATH": "$env{LLVM_ROOT}/bin${pathListSep}$penv{PATH}"
+      }
+    },
+    {
+      "name": "host",
+      "displayName": "Host build for tests (Linux)",
+      "inherits": "base"
+    }
+  ],
+  "buildPresets": [
+    { "name": "ps5", "configurePreset": "ps5" },
+    { "name": "windows", "configurePreset": "windows" },
+    { "name": "host", "configurePreset": "host" }
+  ]
+}

@@ -29,3 +29,6 @@ _ProsperoAutoDrive_Test_*/
 # Local configuration and secrets
 *.local.ini
 *.local.json
+
+# Machine-specific CMake presets (local tool paths)
+CMakeUserPresets.json
