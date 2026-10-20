@@ -205,7 +205,7 @@ Am einfachsten mit `tools\Run-Test.cmd` (siehe oben), denn S2b ist der aktuelle 
    ```
    tests\spikes\S2-Speed.cmd <PS5-IP> [FTP-Port]
    ```
-   Der FTP-Port ist optional (Standard 1337). Er gilt für einen FTP-Server, der auf der PS5 schon läuft und die WLAN-Referenz liefert. Das Skript trennt zuerst alle bestehenden Verbindungen zur PS5. Windows lässt pro Server nur einen Benutzernamen zu (Systemfehler 1219).
+   Der FTP-Port ist optional (Standard 2121, ftpsrv). Er gilt für den FTP-Server, der auf der PS5 schon läuft und die WLAN-Referenz liefert. Das Skript trennt zuerst alle bestehenden Verbindungen zur PS5. Windows lässt pro Server nur einen Benutzernamen zu (Systemfehler 1219).
 
    Das dauert einige Minuten. Am PC und auf der PS5 in der Zeit möglichst nichts im Netz laden, keine Downloads und kein Streaming.
 4. Die komplette Ausgabe bis `S2-SPEED: FERTIG` zurückmelden.

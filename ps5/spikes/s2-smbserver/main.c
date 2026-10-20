@@ -190,13 +190,21 @@ serve_control(int fd) {
                    g_password);
     }
   } else {
-    long up = (long)(time(NULL) - g_start);
+    /* The console's own clock, for comparison with a reference (S3). */
+    time_t now = time(NULL);
+    long up = (long)(now - g_start);
+    char now_utc[32];
+    struct tm tm;
+
+    gmtime_r(&now, &tm);
+    strftime(now_utc, sizeof now_utc, "%Y-%m-%dT%H:%M:%SZ", &tm);
     n = snprintf(body, sizeof body,
                  "PROSPERO-S2 OK\nfolder=%s\nshare=%s\nuser=%s\n"
                  "uptime_s=%ld\nremaining_s=%ld\nconnections=%u\n"
-                 "password_given=%d\n",
+                 "password_given=%d\nnow_utc=%s\n",
                  g_folder, SHARE_NAME, USER_NAME, up,
-                 (long)RUN_SECONDS - up, g_connections, g_password_given);
+                 (long)RUN_SECONDS - up, g_connections, g_password_given,
+                 now_utc);
     if(n > 0 && (size_t)n < sizeof body) {
       n += fsro_status(body + n, sizeof body - n);
     }

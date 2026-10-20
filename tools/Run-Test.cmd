@@ -185,6 +185,12 @@ ping -n 3 127.0.0.1 >nul
 goto :wait_ready
 :ready
 echo Bereit nach %N% Abfrage^(n^): %FOLDER%
+rem Clock check for S3: the console's UTC, the PC's local time and the Date
+rem header of github.com as a reference, taken within about a second.
+echo Uhrvergleich:
+findstr /b /c:"now_utc=" "%STATUS%"
+echo pc_local=%date% %time%
+curl.exe -sSI --max-time 5 https://github.com 2>&1 | findstr /b /i /c:"date:"
 
 echo.
 call :say 5/6 Passwort holen

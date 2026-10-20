@@ -146,6 +146,7 @@ echo "== case 12: status page and stop via control port"
 out=$(status)
 expect "$out" '^sessions=[1-9]'
 expect "$out" '^lost_replies=0'
+expect "$out" "^now_utc=$(date -u +%Y-%m-%d)T"
 echo "$out"
 curl -fsS --max-time 3 http://127.0.0.1:4445/quit >/dev/null
 wait "$server"

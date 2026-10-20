@@ -3,8 +3,8 @@ rem Spike S2b: where does the time go when Windows reads from the S2 server?
 rem For each server profile (a: as in S2, b: 1 MiB socket buffers and
 rem TCP_NODELAY, c: as b but SMB 2.1 signing) it copies the 64 MiB file twice
 rem and 100 small files once, and prints robocopy's timing next to the
-rem server's CPU and read counters. A download from the console's FTP server
-rem (port 1337 unless given) before and after gives a WLAN reference.
+rem server's CPU and read counters. A download from ftpsrv on the console
+rem (port 2121 unless given) before and after gives a WLAN reference.
 rem Needs a freshly started payload, so that profile a is untouched.
 rem Windows built-ins only (net, robocopy, curl.exe).
 setlocal EnableExtensions EnableDelayedExpansion
@@ -16,7 +16,7 @@ if "%~1"=="" (
 )
 set "PS5=%~1"
 set "FTPPORT=%~2"
-if not defined FTPPORT set "FTPPORT=1337"
+if not defined FTPPORT set "FTPPORT=2121"
 set "SHARE=\\%PS5%\s2"
 set "CTL=http://%PS5%:4445"
 set "OUT=%TEMP%\ProsperoS2b-%RANDOM%%RANDOM%"
