@@ -89,6 +89,7 @@
 #define MAX_TREES    8
 #define MAX_DEFERRED 64
 #define MAX_NOTES    32
+#define MAX_ERRORS   4
 #define PATH_SIZE    1024
 
 enum tree_kind { TREE_NONE, TREE_IPC, TREE_DISK };
@@ -161,6 +162,10 @@ static struct {
     char what[48];
     unsigned count;
   } notes[MAX_NOTES];
+
+  /* Why the last connections ended, as libsmb2 reports it. */
+  char last_errors[MAX_ERRORS][120];
+  unsigned nerrors;
 } g;
 
 
@@ -685,9 +690,14 @@ fsro_attach(struct smb2_context *smb2) {
 static int
 destruction_event(struct smb2_server *srv, struct smb2_context *smb2) {
   conn_t *c = smb2_get_opaque(smb2);
+  const char *err = smb2_get_error(smb2);
   int j = 0;
 
   (void)srv;
+  if(err && *err) {
+    snprintf(g.last_errors[g.nerrors++ % MAX_ERRORS], sizeof g.last_errors[0],
+             "%s", err);
+  }
   for(int i=0; i<g.ndeferred; i++) {
     if(g.deferred[i].smb2 != smb2) {
       g.deferred[j++] = g.deferred[i];
@@ -1381,7 +1391,9 @@ file_info(uint8_t cls, const handle_t *h, const struct stat *st,
     put64(buf + 8, (uint64_t)st->st_ino);
     return 24;
   case SMB2_FILE_ALTERNATE_NAME_INFORMATION:
-    *status = SMB2_STATUS_OBJECT_NAME_NOT_FOUND;    /* no 8.3 names */
+    /* No 8.3 names. NOT_SUPPORTED is the answer clients skip quietly;
+     * smbclient's allinfo aborts on OBJECT_NAME_NOT_FOUND. */
+    *status = SMB2_STATUS_NOT_SUPPORTED;
     return 0;
   default:
     note("QUERY_INFO file 0x%02x", cls);
@@ -1702,6 +1714,10 @@ fsro_status(char *buf, size_t size) {
   for(int i=0; i<MAX_NOTES && g.notes[i].count && n > 0 && (size_t)n < size; i++) {
     n += snprintf(buf + n, size - n, "unsupported: %s x%u\n",
                   g.notes[i].what, g.notes[i].count);
+  }
+  for(unsigned i=0; i<MAX_ERRORS && i<g.nerrors && n > 0 && (size_t)n < size; i++) {
+    n += snprintf(buf + n, size - n, "connection_end: %s\n",
+                  g.last_errors[(g.nerrors - 1 - i) % MAX_ERRORS]);
   }
   return (n < 0 || (size_t)n >= size) ? (int)(size ? size - 1 : 0) : n;
 }

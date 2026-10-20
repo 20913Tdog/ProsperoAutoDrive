@@ -77,7 +77,7 @@ uid=1 euid=0
 
 - `prospero-s2-smbserver.elf` legt einen **neuen** Testordner `/data/_ProsperoAutoDrive_Test_<Zeit>-<Zufall>` an und füllt ihn mit festen Testdateien, zusammen etwa 65 MB (Liste in `ps5/spikes/s2-smbserver/testdata.c`).
 - Genau dieser Ordner wird **schreibgeschützt** als `\<PS5-IP>\s2` freigegeben. Benutzer `prospero`; das Passwort erscheint als PS5-Benachrichtigung.
-- Port 4445 zeigt den Status, auch die Anfragen, die das Backend noch nicht unterstützt (`unsupported:`).
+- Port 4445 zeigt den Status, auch die Anfragen, die das Backend noch nicht unterstützt (`unsupported:`), und warum die letzten Verbindungen endeten (`connection_end:`).
 - Es beendet sich nach 15 Minuten von selbst, früher mit `curl.exe http://<PS5-IP>:4445/quit`.
 - Außerhalb des neuen Testordners liest und schreibt es nichts. Der Testordner bleibt danach auf der PS5 liegen. Er wird nicht automatisch gelöscht; ob und wann er weg soll, entscheidest du.
 
