@@ -11,7 +11,7 @@ permissions:
 jobs:
   guards:
     name: guards
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
@@ -149,7 +149,7 @@ jobs:
     name: publish-dev
     if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
     needs: [guards, ps5-build, ps5-host-test]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
     concurrency:
@@ -190,3 +190,31 @@ jobs:
             --target "${GITHUB_SHA}" \
             --title "dev $(git rev-parse --short HEAD)" \
             --notes "Automatischer, getesteter Build des dev-Branches. Nicht fuer den produktiven Einsatz. Commit ${GITHUB_SHA}"
+
+      # The owner fetches the build anonymously, so check exactly that. Once
+      # (run for b13868b) the step succeeded, the tag moved, and the release
+      # still stayed invisible, so a draft is published here and reported.
+      - name: Check dev-build is public
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if ! state=$(gh release view dev-build --json isDraft,isPrerelease,assets \
+            --jq '"draft=\(.isDraft) prerelease=\(.isPrerelease) assets=\(.assets | length)"'); then
+            echo "::error title=dev-build::release dev-build not found after creating it"
+            exit 1
+          fi
+          echo "::notice title=dev-build::${state}"
+          case "$state" in
+            draft=true*) gh release edit dev-build --draft=false --prerelease ;;
+          esac
+          url="https://github.com/${GITHUB_REPOSITORY}/releases/download/dev-build/BUILD-INFO.txt"
+          for i in $(seq 18); do
+            if curl -fsSL "$url" 2>/dev/null | grep -qx "commit=${GITHUB_SHA}"; then
+              echo "public download OK after ${i} attempt(s)"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error title=dev-build::BUILD-INFO.txt is not publicly downloadable for ${GITHUB_SHA}"
+          exit 1
