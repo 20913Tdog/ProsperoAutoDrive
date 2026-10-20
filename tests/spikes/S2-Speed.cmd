@@ -4,17 +4,19 @@ rem For each server profile (a: as in S2, b: 1 MiB socket buffers and
 rem TCP_NODELAY, c: as b but SMB 2.1 signing) it copies the 64 MiB file twice
 rem and 100 small files once, and prints robocopy's timing next to the
 rem server's CPU and read counters. A download from the console's FTP server
-rem on port 1337 (if there is one) before and after gives a WLAN reference.
+rem (port 1337 unless given) before and after gives a WLAN reference.
 rem Needs a freshly started payload, so that profile a is untouched.
 rem Windows built-ins only (net, robocopy, curl.exe).
 setlocal EnableExtensions EnableDelayedExpansion
 chcp 65001 >nul
 
 if "%~1"=="" (
-  echo Aufruf: %~nx0 ^<PS5-IP^>
+  echo Aufruf: %~nx0 ^<PS5-IP^> [FTP-Port]
   exit /b 2
 )
 set "PS5=%~1"
+set "FTPPORT=%~2"
+if not defined FTPPORT set "FTPPORT=1337"
 set "SHARE=\\%PS5%\s2"
 set "CTL=http://%PS5%:4445"
 set "OUT=%TEMP%\ProsperoS2b-%RANDOM%%RANDOM%"
@@ -32,12 +34,14 @@ echo Testordner: %FOLDER%
 set /p "PW=Passwort aus der PS5-Benachrichtigung: "
 mkdir "%OUT%"
 echo Start: %date% %time%
+echo Vorhandene Verbindungen zur PS5 (werden getrennt):
+net use 2>nul | findstr /i /c:"%PS5%"
 
 call :ftp vorher
 for %%P in (a b c) do call :profile %%P
 call :ftp nachher
 
-net use "%SHARE%" /delete /y >nul 2>&1
+call :disconnect
 rmdir /s /q "%OUT%"
 echo.
 echo Ende: %date% %time%
@@ -46,22 +50,35 @@ exit /b 0
 
 :ftp
 echo.
-echo ===== WLAN-Referenz %1: FTP auf Port 1337, 64 MiB =====
-curl.exe -s --connect-timeout 3 --max-time 300 -o NUL -w "Bytes %%{size_download}, Sekunden %%{time_total}, Bytes/s %%{speed_download}\n" "ftp://%PS5%:1337%FOLDER%/pattern-64MiB.bin"
-if errorlevel 1 echo ^(kein FTP-Server auf Port 1337 erreichbar, Referenz entfaellt^)
+echo ===== WLAN-Referenz %1: FTP auf Port %FTPPORT%, 64 MiB =====
+curl.exe -sS --connect-timeout 3 --max-time 300 -o NUL -w "Bytes %%{size_download}, Sekunden %%{time_total}, Bytes/s %%{speed_download}\n" "ftp://%PS5%:%FTPPORT%%FOLDER%/pattern-64MiB.bin"
+if errorlevel 1 echo ^(FTP-Referenz fehlgeschlagen, siehe curl-Meldung oben^)
+goto :eof
+
+rem Windows refuses a second user name for the same server (system error
+rem 1219), so every connection to the console goes, including IPC$ and ones
+rem the Explorer opened.
+:disconnect
+for /f "delims=" %%L in ('net use 2^>nul ^| findstr /i /c:"%PS5%"') do (
+  for %%T in (%%L) do (
+    set "T=%%T"
+    if "!T:~0,2!"=="\\" net use "%%T" /delete /y >nul 2>&1
+  )
+)
 goto :eof
 
 :profile
 set "P=%1"
 echo.
 echo ===== Profil %P% =====
-net use "%SHARE%" /delete /y >nul 2>&1
+call :disconnect
 curl.exe -s --max-time 5 "%CTL%/profile/%P%"
 rem Give the console a moment to end the previous connection.
 ping -n 3 127.0.0.1 >nul
 net use "%SHARE%" "%PW%" /user:prospero /persistent:no >nul
 if errorlevel 1 (
-  echo FEHLER: Verbindung mit Profil %P% fehlgeschlagen.
+  echo FEHLER: Verbindung mit Profil %P% fehlgeschlagen. Bestehende Verbindungen:
+  net use
   goto :eof
 )
 call :big 1

@@ -185,10 +185,12 @@ Windows 11 Pro 25H2 (Build 26200) im WLAN, `S2-CHECK: ALLES OK`, Explorer-Test u
    ```
    tools\Send-Payload.cmd <PS5-IP> dist\dev\prospero-s2-smbserver.elf
    ```
-3. Messskript starten und das Passwort aus der PS5-Benachrichtigung eingeben:
+3. Alle Explorer-Fenster schließen, die auf die PS5 zeigen. Dann das Messskript starten und das Passwort aus der PS5-Benachrichtigung eingeben:
    ```
-   tests\spikes\S2-Speed.cmd <PS5-IP>
+   tests\spikes\S2-Speed.cmd <PS5-IP> [FTP-Port]
    ```
+   Der FTP-Port ist optional (Standard 1337). Er gilt für einen FTP-Server, der auf der PS5 schon läuft und die WLAN-Referenz liefert. Das Skript trennt zuerst alle bestehenden Verbindungen zur PS5. Windows lässt pro Server nur einen Benutzernamen zu (Systemfehler 1219).
+
    Das dauert einige Minuten. Am PC und auf der PS5 in der Zeit möglichst nichts im Netz laden, keine Downloads und kein Streaming.
 4. Die komplette Ausgabe bis `S2-SPEED: FERTIG` zurückmelden.
 

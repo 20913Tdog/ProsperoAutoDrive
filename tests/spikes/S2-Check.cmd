@@ -30,9 +30,12 @@ set /p "PW=Passwort aus der PS5-Benachrichtigung: "
 
 echo.
 echo ===== 1. Verbinden =====
+call :disconnect
 net use "%SHARE%" "%PW%" /user:prospero /persistent:no
 if errorlevel 1 (
   echo FEHLER: Verbindung fehlgeschlagen. Fehlertext oben bitte mitschicken.
+  echo Bestehende Verbindungen:
+  net use
   set "FAIL=1"
   goto :report
 )
@@ -115,7 +118,7 @@ echo.
 echo ===== 9. Payload-Status danach =====
 curl.exe -s --connect-timeout 3 --max-time 5 "http://%PS5%:4445/"
 
-net use "%SHARE%" /delete /y >nul 2>&1
+call :disconnect
 if exist "%OUT%" rmdir /s /q "%OUT%"
 
 echo.
@@ -125,6 +128,18 @@ if "%FAIL%"=="0" (
   echo S2-CHECK: FEHLER, Ausgabe bitte komplett zurueckmelden
 )
 exit /b %FAIL%
+
+rem Windows refuses a second user name for the same server (system error
+rem 1219), so every connection to the console goes, including IPC$ and ones
+rem the Explorer opened.
+:disconnect
+for /f "delims=" %%L in ('net use 2^>nul ^| findstr /i /c:"%PS5%"') do (
+  for %%T in (%%L) do (
+    set "T=%%T"
+    if "!T:~0,2!"=="\\" net use "%%T" /delete /y >nul 2>&1
+  )
+)
+goto :eof
 
 :check
 set "FILE=%~2"
