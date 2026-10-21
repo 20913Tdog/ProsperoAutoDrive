@@ -65,7 +65,7 @@ Go für natives SMB, wenn S1, S2, S3, S6 und S7 bestanden sind und S4 mindestens
 - Port 445, eine Freigabe `/`, lesen und schreiben
 - Zugangsdaten: werden beim Koppeln übertragen, nie angezeigt
 - Konfiguration, Ringlog, Weiterlaufen nach dem Ruhemodus, Plattformschicht
-- Suche per UDP 4446 und Dienstkanal auf TCP 4445 mit Server-ID, Lebenszeichen, Kopplung (Variante C) und Uhrausgleich (Variante 1), siehe [Entwurf Phase 2](entwurf-phase2.md)
+- Suche per UDP 4445 und Dienstkanal auf TCP 4445 mit Server-ID, Lebenszeichen, Kopplung (Variante C) und Uhrausgleich (Variante 1), siehe [Entwurf Phase 2](entwurf-phase2.md)
 - **Antwortzeit unter Last:** S4 maß 2,9 s für eine kleine Datei während einer großen Kopie.
   - Zuerst messen, welcher Puffer wie viel davon ausmacht: die Sendeschlange von libsmb2 (jeder Kredit wird gewährt, Antworten stehen hinten an), der Sendepuffer von 1 MiB oder WLAN und Router.
   - Dann gezielt beheben: Kredite begrenzen, kleine Antworten vorziehen, Sendepuffer verkleinern. `S4-Check.cmd` misst die Wirkung.

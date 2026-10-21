@@ -194,6 +194,19 @@ Suche, Lebenszeichen, Uhrzeit und Kopplung laufen über eine TCP-Verbindung auf 
   - [Uhrabweichung](#uhrabweichung-der-pc-liefert-die-referenzzeit): Die PC-Zeit kommt über diesen Kanal statt per UDP.
 - Port 4445 war bisher der Steuerport der Test-Payloads. Im Produkt gehört er dem Dienstkanal.
 - **Ergänzt am selben Tag (Projektverantwortlicher):** Gesucht wird weiter per **UDP 4446**, wie in S7 mit Unicast und Broadcast. Die Antwort nennt Server-ID, Name und die Ports. Alles andere läuft über TCP 4445. Damit entfällt das Durchprobieren des Netzes.
+- **Geändert am selben Tag:** Die Suche läuft auf **UDP 4445** statt 4446, siehe [Ports und Ablauf der Suche](#ports-und-ablauf-der-suche).
+
+### Ports und Ablauf der Suche
+
+Die PS5 belegt **TCP 445** (SMB), **TCP 4445** (Dienstkanal) und **UDP 4445** (Suche). TCP und UDP haben getrennte Portnummern, dieselbe Zahl stört sich nicht.
+
+- **Ablauf im Programm:**
+  1. Im Alltag verbindet es sich per TCP 4445 mit der gespeicherten IP. Antwortet dort dieselbe Server-ID, ist die PS5 gefunden.
+  2. Nur wenn das scheitert, etwa bei der Einrichtung oder nach einem IP-Wechsel, sucht es per UDP-Broadcast.
+  3. Als letzter Ausweg gibt der Benutzer die IP von Hand ein, etwa wenn der Router Broadcasts filtert.
+- **Warum:** Auf meine Frage nach einem sinnvollen Aufbau hat der Projektverantwortliche diesem Vorschlag mit „dann leg los“ zugestimmt. Eine Nummer für beides ist leichter zu merken und in einer Firewall freizugeben. Ein Router oder Mesh-System, das Broadcasts filtert, stört so nur die erste Suche.
+- **Grenze:** Ein Gastnetz oder eine Client-Isolation im Router trennt PC und PS5 ganz. Dann hilft keine Portwahl.
+- **Ersetzt:** UDP 4446 aus der Ergänzung oben. Der Spike S7 bleibt bei 4446, wie er gemessen wurde.
 
 ### Kopplung ohne Code (Variante C)
 
