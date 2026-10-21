@@ -42,8 +42,8 @@ Textzeilen in ASCII, eine Anfrage und eine Antwort je Zeile. Das Programm baut d
 |---|---|
 | `HELLO 1` | `HELLO 1 server_id=<id> name=<Name> share=<Freigabe> smb_port=445 pairing=<open/closed> nonce=<16 hex>` |
 | `PAIR 1 pc=<Name>` | `PAIRED 1 user=<Benutzer> password=<Passwort>` oder `PAIR-REFUSED 1 reason=<Grund>` |
-| `PING 1 utc_ms=<PC-Zeit> mac=<Prüfsumme>` | `PONG 1 utc_ms=<Serverzeit> skew_ms=<Abweichung> trusted=<0/1>` |
-| `OPEN-PAIRING 1 utc_ms=<PC-Zeit> mac=<Prüfsumme>` | `PAIRING-OPEN 1 seconds=600` oder `ERROR 1 reason=bad-mac` |
+| `PING 1 seq=<n> utc_ms=<PC-Zeit> mac=<Prüfsumme>` | `PONG 1 utc_ms=<Serverzeit> skew_ms=<Abweichung> trusted=<0/1>` |
+| `OPEN-PAIRING 1 seq=<n> mac=<Prüfsumme>` | `PAIRING-OPEN 1 seconds=600` oder `ERROR 1 reason=bad-mac` |
 | `STATUS 1` | `STATUS 1`, dann Zeilen `Schlüssel=Wert`, dann `END 1` |
 | `QUIT 1` (nur von 127.0.0.1) | `BYE 1`, danach endet der Server |
 | alles andere | `ERROR 1 reason=<Grund>` |
@@ -51,7 +51,7 @@ Textzeilen in ASCII, eine Anfrage und eine Antwort je Zeile. Das Programm baut d
 Für `curl.exe` in den Testskripten versteht der Kanal auch eine HTTP-Anfrage: `GET /` liefert den Status, `GET /quit` beendet den Server (nur von 127.0.0.1). So beenden sich Produkt und Test-Payloads gegenseitig. Das Passwort steht nie im Status.
 
 - **Lebenszeichen:** Das Programm schickt alle 5 s ein `PING`. Bleibt die Antwort 15 s aus und schlägt auch TCP 445 fehl, gilt die PS5 als weg.
-- **Prüfsumme (`mac=`):** steht am Ende der Zeile. Sie ist HMAC-SHA256 in Kleinbuchstaben-Hex, Schlüssel ist das Passwort, berechnet über `<nonce aus HELLO> <Zeile bis vor " mac=">`. Die Nonce gilt nur für diese Verbindung, und `utc_ms` muss auf einer Verbindung wachsen. So lässt sich eine mitgeschnittene Zeile nicht wiederverwenden.
+- **Prüfsumme (`mac=`):** steht am Ende der Zeile. Sie ist HMAC-SHA256 in Kleinbuchstaben-Hex, Schlüssel ist das Passwort, berechnet über `<nonce aus HELLO> <Zeile bis vor " mac=">`. Die Nonce gilt nur für diese Verbindung, und der Zähler `seq` muss auf einer Verbindung wachsen. Ein Zähler statt der Uhrzeit, weil die PC-Uhr auch zurückgestellt werden kann. So lässt sich eine mitgeschnittene Zeile nicht wiederverwenden.
 - **Uhr:** Die Abweichung kommt aus dem `utc_ms` der `PING`-Zeilen. Übernommen wird sie nur aus einem `PING` mit gültiger Prüfsumme. Ein `PING` ohne Prüfsumme bekommt trotzdem eine Antwort (`trusted=0`), als reines Lebenszeichen. So kann kein anderes Gerät die Zeiten verschieben. Gerundet wird auf ganze Sekunden, geändert wird erst ab 2 s Unterschied. Bis zur ersten Messung gilt der Wert aus `config.ini`.
 - **Suchen:** Das läuft nicht über den Dienstkanal, sondern über UDP 4445 (siehe unten).
 - Höchstens 8 Verbindungen gleichzeitig. Eine Verbindung ohne Zeile für 60 s wird geschlossen.

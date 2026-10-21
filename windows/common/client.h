@@ -111,12 +111,14 @@ class Channel {
   bool OpenPairing(const std::string &key, int *seconds, std::string *err);
 
  private:
-  std::string Signed(const std::string &line, const std::string &key) const;
+  // "<command> 1 seq=<n> <rest> mac=<hmac>"
+  std::string Signed(const std::string &command, const std::string &rest, const std::string &key);
   bool ReadLine(std::string *line, std::string *err);
 
   SOCKET s_ = INVALID_SOCKET;
   std::string buf_;
   std::string nonce_;
+  uint64_t seq_ = 0;           // grows with every signed line
 };
 
 // Credentials, in the Windows Credential Manager -------------------------

@@ -234,6 +234,7 @@ void Channel::Close() {
   s_ = INVALID_SOCKET;
   buf_.clear();
   nonce_.clear();
+  seq_ = 0;
 }
 
 bool Channel::Connect(const std::string &ip, unsigned short port, DWORD timeout_ms,
@@ -316,7 +317,9 @@ bool Channel::Request(const std::string &line, std::string *reply, std::string *
   return ReadLine(reply, err);
 }
 
-std::string Channel::Signed(const std::string &line, const std::string &key) const {
+std::string Channel::Signed(const std::string &command, const std::string &rest,
+                            const std::string &key) {
+  std::string line = command + " 1 seq=" + std::to_string(++seq_) + (rest.empty() ? "" : " " + rest);
   return line + " mac=" + HmacSha256Hex(key, nonce_ + " " + line);
 }
 
@@ -358,9 +361,9 @@ bool Channel::Pair(const std::string &pc, std::string *user, std::string *passwo
 
 bool Channel::Ping(const std::string &key, Pong *out, std::string *err) {
   int64_t sent = UtcMs();
-  std::string line = "PING 1 utc_ms=" + std::to_string(sent);
+  std::string time = "utc_ms=" + std::to_string(sent);
   std::string rep;
-  if (!Request(key.empty() ? line : Signed(line, key), &rep, err)) return false;
+  if (!Request(key.empty() ? "PING 1 " + time : Signed("PING", time, key), &rep, err)) return false;
   if (rep.rfind("PONG 1 ", 0) != 0) {
     *err = "unerwartete Antwort: " + rep;
     return false;
@@ -376,7 +379,7 @@ bool Channel::Ping(const std::string &key, Pong *out, std::string *err) {
 
 bool Channel::OpenPairing(const std::string &key, int *seconds, std::string *err) {
   std::string rep;
-  if (!Request(Signed("OPEN-PAIRING 1 utc_ms=" + std::to_string(UtcMs()), key), &rep, err)) {
+  if (!Request(Signed("OPEN-PAIRING", "", key), &rep, err)) {
     return false;
   }
   if (rep.rfind("PAIRING-OPEN 1 ", 0) != 0) {

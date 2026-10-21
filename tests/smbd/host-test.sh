@@ -181,10 +181,10 @@ echo "case 2b passed"
 echo "== case 2c: PING, trusted only with a valid mac"
 export KEY="$PASS"
 T=$(( $(date +%s) * 1000 - 3600000 ))
-rep=$(svc 127.0.0.1 "PING 1 utc_ms=@NOW-3600000 mac=@MAC" \
-  "HELLO 1" "PING 1 utc_ms=@NOW-3600000 mac=@MAC" "PING 1 utc_ms=$T mac=@MAC" \
-  "PING 1 utc_ms=$T mac=@MAC" "PING 1 utc_ms=@NOW" \
-  "PING 1 utc_ms=@NOW+5 mac=0000000000000000000000000000000000000000000000000000000000000000" \
+rep=$(svc 127.0.0.1 "PING 1 seq=1 utc_ms=@NOW-3600000 mac=@MAC" \
+  "HELLO 1" "PING 1 seq=1 utc_ms=@NOW-3600000 mac=@MAC" "PING 1 seq=2 utc_ms=$T mac=@MAC" \
+  "PING 1 seq=2 utc_ms=$T mac=@MAC" "PING 1 utc_ms=@NOW" \
+  "PING 1 seq=3 utc_ms=@NOW mac=0000000000000000000000000000000000000000000000000000000000000000" \
   "PING 1 utc_ms=x")
 echo "$rep"
 mapfile -t r <<<"$rep"
@@ -193,24 +193,24 @@ expect "${r[2]}" ' trusted=1$'
 skew=$(sed -n 's/.* skew_ms=\([0-9-]*\) .*/\1/p' <<<"${r[2]}")
 need [ "$skew" -ge 3595000 ]
 need [ "$skew" -le 3605000 ]
-expect "${r[3]}" ' trusted=0$'     # older utc_ms than the last trusted one
-expect "${r[4]}" ' trusted=0$'     # replayed
+expect "${r[3]}" ' trusted=1$'     # an older time is fine: the PC clock may go back
+expect "${r[4]}" ' trusted=0$'     # replayed: same seq
 expect "${r[5]}" ' trusted=0$'     # no mac
 expect "${r[6]}" ' trusted=0$'     # wrong mac
 expect "${r[7]}" '^ERROR 1 reason=bad-time$'
-rep=$(KEY=wrong-password svc 127.0.0.1 "HELLO 1" "PING 1 utc_ms=@NOW mac=@MAC")
+rep=$(KEY=wrong-password svc 127.0.0.1 "HELLO 1" "PING 1 seq=1 utc_ms=@NOW mac=@MAC")
 expect "$rep" ' trusted=0$'
 out=$(status)
-expect "$out" '^skew_samples=1$'
+expect "$out" '^skew_samples=2$'
 need grep -q "clock: console runs" "$STATE/log.txt"
 echo "case 2c passed"
 
 echo "== case 2d: a paired PC opens pairing for another one"
-rep=$(svc 127.0.0.2 "OPEN-PAIRING 1 utc_ms=@NOW mac=@MAC")
+rep=$(svc 127.0.0.2 "OPEN-PAIRING 1 seq=1 mac=@MAC")
 expect "$rep" '^ERROR 1 reason=bad-mac$'    # no HELLO, no nonce
-rep=$(KEY=wrong-password svc 127.0.0.2 "HELLO 1" "OPEN-PAIRING 1 utc_ms=@NOW mac=@MAC")
+rep=$(KEY=wrong-password svc 127.0.0.2 "HELLO 1" "OPEN-PAIRING 1 seq=1 mac=@MAC")
 expect "$rep" '^ERROR 1 reason=bad-mac$'
-rep=$(svc 127.0.0.2 "HELLO 1" "OPEN-PAIRING 1 utc_ms=@NOW mac=@MAC" "HELLO 1")
+rep=$(svc 127.0.0.2 "HELLO 1" "OPEN-PAIRING 1 seq=1 mac=@MAC" "HELLO 1")
 expect "$rep" '^PAIRING-OPEN 1 seconds=600$'
 expect "$rep" ' pairing=open nonce='
 need grep -q "Koppeln fuer 10 Minuten offen (angefordert von 127.0.0.2)" "$STATE/log.txt"

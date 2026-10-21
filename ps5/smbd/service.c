@@ -17,9 +17,9 @@
  *   PAIR 1 pc=<name>
  *       -> PAIRED 1 user=<user> password=<password>
  *          or PAIR-REFUSED 1 reason=<closed|bad-name|storage>
- *   PING 1 utc_ms=<PC UTC, ms> [mac=<hex>]
+ *   PING 1 [seq=<n>] utc_ms=<PC UTC, ms> [mac=<hex>]
  *       -> PONG 1 utc_ms=<server UTC, ms> skew_ms=<server - PC> trusted=<0|1>
- *   OPEN-PAIRING 1 utc_ms=<ms> mac=<hex>
+ *   OPEN-PAIRING 1 seq=<n> mac=<hex>
  *       -> PAIRING-OPEN 1 seconds=<n>, or ERROR 1 reason=bad-mac
  *   STATUS 1
  *       -> STATUS 1, then "key=value" lines, then END 1
@@ -30,8 +30,9 @@
  * mac= is the last field: lowercase hex of HMAC-SHA256, keyed with the
  * password, over "<nonce of this connection> <line up to the space before
  * mac=>". So only a paired PC can make one, and a recorded line does not
- * work on another connection. On one connection utc_ms must grow, so a
- * line cannot be replayed there either. Only a PING with a valid mac
+ * work on another connection. On one connection seq must grow, so a line
+ * cannot be replayed there either. A counter and not the time, because
+ * the PC clock may be set back. Only a PING with a valid mac
  * counts for the clock (decision "variant 1"); a PING without one still
  * gets an answer, as a liveness check. A connection that sends nothing for
  * IDLE_SECONDS is closed.
@@ -69,7 +70,7 @@ typedef struct client {
   time_t last;
   int http;                     /* 0, or the HTTP request seen: 'S' or 'Q' */
   char nonce[17];               /* sent with HELLO, keys every mac= */
-  int64_t last_utc_ms;          /* of the last line with a valid mac */
+  int64_t last_seq;             /* of the last line with a valid mac */
   size_t len;
   char buf[LINE_SIZE];
 } client_t;
@@ -146,12 +147,12 @@ field(const char *line, const char *key, const char **val) {
 }
 
 
-/* utc_ms= as a number; -1 if missing or not digits. */
+/* A numeric field; -1 if missing or not digits. */
 static int64_t
-utc_field(const char *line) {
+num_field(const char *line, const char *key) {
   const char *v;
   int64_t ms = 0;
-  int n = field(line, "utc_ms", &v);
+  int n = field(line, key, &v);
 
   if(n < 1 || n > 18) {
     return -1;
@@ -166,17 +167,17 @@ utc_field(const char *line) {
 }
 
 
-/* 1 if the line ends in a valid mac= for this connection and its utc_ms
- * is newer than the last one that had one. */
+/* 1 if the line ends in a valid mac= for this connection and its seq is
+ * higher than in the last line that had one. */
 static int
 mac_ok(client_t *c, const char *line) {
   const char *sp = strrchr(line, ' ');
   char msg[LINE_SIZE + 32];
   uint8_t mac[32];
-  int64_t ms = utc_field(line);
+  int64_t seq = num_field(line, "seq");
   int n;
 
-  if(!c->nonce[0] || !sp || strncmp(sp + 1, "mac=", 4) || ms <= c->last_utc_ms) {
+  if(!c->nonce[0] || !sp || strncmp(sp + 1, "mac=", 4) || seq <= c->last_seq) {
     return 0;
   }
   n = snprintf(msg, sizeof msg, "%s %.*s", c->nonce, (int)(sp - line), line);
@@ -187,7 +188,7 @@ mac_ok(client_t *c, const char *line) {
   if(!hmac_hex_equal(mac, sp + 5, strlen(sp + 5))) {
     return 0;
   }
-  c->last_utc_ms = ms;
+  c->last_seq = seq;
   return 1;
 }
 
@@ -285,7 +286,7 @@ handle_line(client_t *c, const char *line) {
   } else if(is_cmd(line, "PAIR")) {
     n = pair(c, line, out, sizeof out);
   } else if(is_cmd(line, "PING")) {
-    int64_t pc = utc_field(line);
+    int64_t pc = num_field(line, "utc_ms");
     int64_t now = now_ms();
     int trusted = pc >= 0 && mac_ok(c, line);
 
