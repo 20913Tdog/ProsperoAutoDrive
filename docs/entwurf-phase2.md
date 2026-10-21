@@ -1,6 +1,6 @@
 # Entwurf Phase 2: PS5-Server `prospero-smbd.elf`
 
-Stand: 21.10.2026. Grundlage sind die Spikes S1 bis S7 und die Entscheidungen in [`entscheidungen.md`](entscheidungen.md). Was mit **Vorschlag** markiert ist, bestätigt der Projektverantwortliche noch oder ändert es.
+Stand: 21.10.2026. Grundlage sind die Spikes S1 bis S7 und die Entscheidungen in [`entscheidungen.md`](entscheidungen.md). Die Vorschläge hat der Projektverantwortliche am 21.10.2026 bestätigt, nur die Freigabe heißt `prospero` statt `PS5`.
 
 ## Ziel
 
@@ -25,7 +25,7 @@ Das Windows-Programm selbst ist Phase 3. In Phase 2 übernehmen Testskripte sein
 | Laufzeit | 15 bis 90 Minuten | unbegrenzt |
 | Profil | b | b (1 MiB Socket-Puffer, TCP_NODELAY), bis die Messung zur Wartezeit anderes ergibt |
 
-## Ordner auf der PS5 (Vorschlag)
+## Ordner auf der PS5
 
 `/data/prospero-smbd/` gehört dem Payload. Er wird beim ersten Start angelegt:
 
@@ -64,16 +64,16 @@ Im Alltag braucht das Programm keine Suche: Es verbindet sich per TCP 4445 mit d
 
 ## Kopplung (Variante C)
 
-Entschieden ist: Der erste PC, der sich meldet, bekommt Benutzer und Passwort. Die PS5 meldet dann „Prospero AutoDrive: gekoppelt mit \<PC-Name\> (\<IP\>)“. **Vorschlag** für die Einzelheiten:
+Entschieden ist: Der erste PC, der sich meldet, bekommt Benutzer und Passwort. Die PS5 meldet dann „Prospero AutoDrive: gekoppelt mit \<PC-Name\> (\<IP\>)“. Die Einzelheiten:
 
 1. **Erstes Koppeln:** offen, solange noch kein PC gekoppelt ist. Dafür gibt es keine Zeitgrenze, denn der Benutzer richtet das Programm vielleicht erst Tage später ein.
 2. **Weiterer PC:** Im Programm auf einem bereits gekoppelten PC wählt man „Weiteren PC koppeln“. Dann ist das Koppeln 10 Minuten lang offen. Ein unbekannter PC kann das nicht auslösen.
 3. **Zurücksetzen:** wenn es keinen gekoppelten PC mehr gibt, etwa nach einer Neuinstallation. Dann löscht der Benutzer `config.ini` über einen Dateimanager oder FTP. Beim nächsten Start ist das Payload wieder im Zustand des ersten Starts. Das kommt selten vor.
 4. **Passwort:** 24 zufällige Zeichen, das reicht, damit der mitgeschnittene NTLM-Handshake nicht offline zu knacken ist. Benutzer ist `prospero`.
 
-## Freigabe (Vorschlag)
+## Freigabe
 
-- **Name `PS5`.** Das Programm bekommt den Namen über `HELLO`. Es bleibt damit generisch und kennt den Namen nicht fest.
+- **Name `prospero`** (Projektverantwortlicher, 21.10.2026). Das Programm bekommt den Namen über `HELLO`. Es bleibt damit generisch und kennt den Namen nicht fest.
 - **Uhrausgleich im Backend:**
   - beim Melden einer Zeit an Windows die Abweichung abziehen
   - beim Setzen einer Zeit die Abweichung addieren

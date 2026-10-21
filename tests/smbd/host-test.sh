@@ -77,7 +77,7 @@ PY
 }
 
 smb() {
-  smbclient //127.0.0.1/PS5 -p "$PORT" -U "prospero%$PASS" -m SMB3_11 \
+  smbclient //127.0.0.1/prospero -p "$PORT" -U "prospero%$PASS" -m SMB3_11 \
     --client-protection=sign --option='ntlmssp_client:force_old_spnego=yes' "$@"
 }
 
@@ -94,7 +94,7 @@ ID=$(sed -n 's/^server_id=//p' "$STATE/config.ini")
 PASS=$(sed -n 's/^password=//p' "$STATE/config.ini")
 out=$(status)
 expect "$out" "^server_id=$ID$"
-expect "$out" '^share=PS5$'
+expect "$out" '^share=prospero$'
 expect "$out" "^smb_port=$PORT$"
 need grep -q "config.ini created (first start)" "$STATE/log.txt"
 if { echo "$out"; cat "$STATE/log.txt" "$WORK/server.log"; } | grep -q "$PASS"; then
@@ -106,7 +106,7 @@ echo "case 1 passed"
 echo "== case 2: service channel"
 rep=$(svc 127.0.0.1 "HELLO 1 utc_ms=1 pc=ci" "STATUS 1" "NOPE 1" "HELLO 2")
 echo "$rep"
-expect "$rep" "^HELLO 1 server_id=$ID name=PS5 share=PS5 smb_port=$PORT paired=0$"
+expect "$rep" "^HELLO 1 server_id=$ID name=PS5 share=prospero smb_port=$PORT paired=0$"
 expect "$rep" '^STATUS 1$'
 expect "$rep" '^PROSPERO-SMBD OK$'
 expect "$rep" '^END 1$'

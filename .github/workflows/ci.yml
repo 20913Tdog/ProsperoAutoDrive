@@ -285,7 +285,7 @@ jobs:
             if ($rc -eq 0) { $rc = 1 }
           }
 
-          # P2.1: the product server prospero-smbd, share PS5 on a scratch
+          # P2.1: the product server prospero-smbd, share prospero on a scratch
           # root. A new instance quits the s7 server by itself. Writes only
           # into a new test folder.
           & {
@@ -300,7 +300,7 @@ jobs:
             }
             if (-not $up) { throw "prospero-smbd did not answer on 4445" }
             $spw = (wsl -d ci -u root -- sed -n 's/^password=//p' /root/smbd-state/config.ini).Trim()
-            $share = '\\prosperotest\PS5'
+            $share = '\\prosperotest\prospero'
             net use $share $spw /user:prospero /TCPPORT:$env:SMB_PORT
             if ($LASTEXITCODE) { throw "net use failed: $LASTEXITCODE" }
             $t = '_ProsperoAutoDrive_Test_' + (Get-Date).ToUniversalTime().ToString('yyyyMMdd-HHmmss') + '-' + (Get-Random -Maximum 99999)

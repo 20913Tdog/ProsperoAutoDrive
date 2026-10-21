@@ -7,7 +7,7 @@
  * Free Software Foundation, either version 3 of the License, or (at your
  * option) any later version. See ps5/LICENSE.
  *
- * Shares the console's root "/" read-write as \\<ps5>\PS5 over SMB on port
+ * Shares the console's root "/" read-write as \\<ps5>\prospero over SMB on port
  * 445, with NTLMv2 and signing, through the libsmb2 server engine and our
  * own POSIX backend (backend.c). Runs until it is told to quit.
  *
@@ -48,7 +48,7 @@
 #include "service.h"
 
 #define NAME        "Prospero AutoDrive"
-#define SHARE_NAME  "PS5"
+#define SHARE_NAME  "prospero"
 #define PROFILE     'b'           /* 1 MiB socket buffers, TCP_NODELAY (S2b) */
 #define MAX_CONNS   8
 

@@ -218,6 +218,16 @@ Das Passwort wird nie angezeigt oder abgetippt. Der erste PC, der sich nach dem 
   - **B, Kopplung mit Code:** mehr Aufwand, ohne dass der Projektverantwortliche den Schutz braucht.
 - Wann das Koppeln offen ist und wie ein zweiter PC dazukommt, steht im [Entwurf für Phase 2](entwurf-phase2.md).
 
+### Entwurf Phase 2 bestätigt
+
+Der Projektverantwortliche hat die Vorschläge aus dem [Entwurf für Phase 2](entwurf-phase2.md) bestätigt, mit einer Änderung:
+
+- **Freigabe `prospero`** statt `PS5`, also `\\<PS5-IP>\prospero`.
+- **Kopplung:** Das erste Koppeln bleibt offen, bis ein PC gekoppelt ist. Ein weiterer PC kommt über „Weiteren PC koppeln“ auf einem gekoppelten PC dazu, danach ist das Koppeln 10 Minuten offen. Zurückgesetzt wird durch Löschen von `config.ini`.
+- **Lebenszeichen:** alle 5 s. Die PS5 gilt als weg nach 15 s ohne Antwort und einem fehlgeschlagenen Test auf TCP 445.
+- **Uhr:** Die Abweichung kommt nur aus Lebenszeichen mit gültiger Prüfsumme (HMAC-SHA256 mit dem Passwort).
+- **Ordner** `/data/prospero-smbd/` für Konfiguration und Log.
+
 ### Regel: nur libkernel-Funktionen auf der PS5
 
 Das SDK enthält in `libc.a` für jede FreeBSD-Systemaufrufnummer einen nackten Aufruf. Diese Aufrufe setzen `errno` nicht, und auf der PS5 kann eine Nummer etwas anderes bedeuten. In S3 hat `utimensat()` deshalb nichts getan.
