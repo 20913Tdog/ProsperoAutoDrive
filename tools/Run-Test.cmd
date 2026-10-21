@@ -11,7 +11,7 @@ setlocal EnableExtensions EnableDelayedExpansion
 chcp 65001 >nul
 
 rem The test the owner is asked to run right now.
-set "DEFAULT_TEST=S7"
+set "DEFAULT_TEST=P22"
 
 rem git pull may rewrite this very file, and cmd reads a running batch file
 rem from disk as it goes. So the pull runs from a copy in %TEMP%, which then
@@ -94,8 +94,22 @@ if /i "%TEST%"=="S7" (
   set "TAG=PROSPERO-S7"
   set "DURATION=etwa 1 Minute, am Ende kommt eine Frage"
 )
+rem Product server: it replaces a running instance by itself and refuses a
+rem quit from the network, it has no folder but an instance ID per start,
+rem and the probe pairs instead of a password over the control port. It
+rem keeps running after the test.
+set "PRODUCT="
+set "KEY=folder"
+if /i "%TEST%"=="P22" (
+  set "ELF=prospero-smbd.elf"
+  set "SCRIPT=..\smbd\P22-Check.cmd"
+  set "TAG=PROSPERO-SMBD"
+  set "PRODUCT=1"
+  set "KEY=instance"
+  set "DURATION=etwa 1 Minute"
+)
 if not defined ELF (
-  echo FEHLER: Unbekannter Test "%TEST%". Bekannt sind S2, S2b, S3, S4 und S7.
+  echo FEHLER: Unbekannter Test "%TEST%". Bekannt sind S2, S2b, S3, S4, S7 und P22.
   exit /b 2
 )
 
@@ -154,8 +168,12 @@ del /q "%STATUS%" 2>nul
 curl.exe -s --connect-timeout 3 --max-time 5 -o "%STATUS%" "%CTL%/"
 if exist "%STATUS%" (
   for /f "usebackq tokens=1,* delims==" %%A in ("%STATUS%") do (
-    if "%%A"=="folder" set "OLD_FOLDER=%%B"
+    if "%%A"=="%KEY%" set "OLD_FOLDER=%%B"
   )
+)
+if defined PRODUCT (
+  echo Das neue Payload loest ein laufendes selbst ab.
+  goto :gone
 )
 curl.exe -s --connect-timeout 3 --max-time 5 "%CTL%/quit"
 set "N=0"
@@ -189,7 +207,7 @@ set "FOLDER="
 findstr /b /c:"%TAG% OK" "%STATUS%" >nul 2>&1
 if not errorlevel 1 (
   for /f "usebackq tokens=1,* delims==" %%A in ("%STATUS%") do (
-    if "%%A"=="folder" set "FOLDER=%%B"
+    if "%%A"=="%KEY%" set "FOLDER=%%B"
   )
 )
 if defined FOLDER if not "%FOLDER%"=="%OLD_FOLDER%" goto :ready
@@ -213,6 +231,10 @@ curl.exe -sSI --max-time 5 https://github.com 2>&1 | findstr /b /i /c:"date:"
 
 echo.
 call :say 5/6 Passwort holen
+if defined PRODUCT (
+  echo Entfaellt: Das Testprogramm koppelt selbst.
+  goto :have_pw
+)
 del /q "%STATUS%" 2>nul
 curl.exe -s --connect-timeout 3 --max-time 5 -o "%STATUS%" "%CTL%/password"
 set "PROSPERO_PW="
@@ -227,6 +249,7 @@ if not defined PROSPERO_PW (
   exit /b 1
 )
 echo Passwort erhalten.
+:have_pw
 
 echo.
 call :say 6/6 Test %TEST% laeuft, das dauert %DURATION%
@@ -244,7 +267,11 @@ curl.exe -sSI --max-time 5 https://github.com 2>&1 | findstr /b /i /c:"date:"
 echo.
 echo ===== Aufraeumen =====
 call :disconnect
-curl.exe -s --connect-timeout 3 --max-time 5 "%CTL%/quit"
+if defined PRODUCT (
+  echo Das Payload laeuft weiter.
+) else (
+  curl.exe -s --connect-timeout 3 --max-time 5 "%CTL%/quit"
+)
 echo.
 echo Ende: %date% %time%
 echo RUN-TEST: %TEST% beendet, Exitcode %TEST_RC%

@@ -83,7 +83,7 @@ parse(const char *text, size_t len, config_t *cfg) {
         bad |= vlen != CONFIG_PASSWORD_LEN ||
                take(cfg->password, sizeof cfg->password, v, vlen, alphabet);
       } else if(klen == 4 && !memcmp(p, "name", 4)) {
-        bad |= take(cfg->name, sizeof cfg->name, v, vlen, NULL);
+        bad |= take(cfg->name, sizeof cfg->name, v, vlen, CONFIG_PC_NAME_CHARS);
       } else if(klen == 6 && !memcmp(p, "paired", 6)) {
         char pc[CONFIG_PC_NAME_SIZE];
 

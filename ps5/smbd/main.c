@@ -88,6 +88,7 @@ static discovery_info_t g_disc;
 static time_t g_pairing_until;
 static int64_t g_skew_ms;
 static unsigned g_skew_samples;
+static char g_instance[17];          /* random per start, for test scripts */
 
 
 /* PS5 notification and log line. Notifications vanish and do not stay in
@@ -180,11 +181,11 @@ status(char *buf, size_t size) {
   gmtime_r(&now, &tm);
   strftime(now_utc, sizeof now_utc, "%Y-%m-%dT%H:%M:%SZ", &tm);
   n = snprintf(buf, size,
-               "PROSPERO-SMBD OK\nversion=%s\nserver_id=%s\nname=%s\n"
+               "PROSPERO-SMBD OK\nversion=%s\ninstance=%s\nserver_id=%s\nname=%s\n"
                "share=%s\nroot=%s\nuser=%s\nsmb_port=%u\nuptime_s=%ld\n"
                "connections=%u\nrestarts=%u\nnow_utc=%s\npaired_pcs=%d\n"
                "pairing=%s\nskew_ms=%lld\nskew_samples=%u\n",
-               PROSPERO_VERSION, g_cfg.server_id, g_cfg.name, SHARE_NAME,
+               PROSPERO_VERSION, g_instance, g_cfg.server_id, g_cfg.name, SHARE_NAME,
                g_root, g_cfg.user, (unsigned)g_server.port,
                (long)(now - g_start), g_connections, g_restarts, now_utc,
                g_cfg.npaired, pairing_is_open() ? "open" : "closed",
@@ -292,6 +293,16 @@ main(int argc, char **argv) {
 
   signal(SIGPIPE, SIG_IGN);
   g_start = time(NULL);
+  {
+    static const char hex[] = "0123456789abcdef";
+    uint8_t raw[8];
+
+    arc4random_buf(raw, sizeof raw);
+    for(int i=0; i<8; i++) {
+      g_instance[2*i] = hex[raw[i] >> 4];
+      g_instance[2*i+1] = hex[raw[i] & 15];
+    }
+  }
 
   /* Creates state_dir, so the log can follow. */
   cfg_rc = config_load(state_dir, &g_cfg);

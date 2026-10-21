@@ -299,6 +299,14 @@ jobs:
               $up = [bool](curl.exe -fsS --max-time 3 http://127.0.0.1:4445/ 2>$null | Select-String '^PROSPERO-SMBD OK')
             }
             if (-not $up) { throw "prospero-smbd did not answer on 4445" }
+            # P2.2: the probe pairs (first run) and then uses the stored
+            # credential (second run). The share test needs port 445, so it
+            # stays with the smoke below and the live test.
+            .\binaries\prospero-probe.exe 127.0.0.1 --no-broadcast
+            if ($LASTEXITCODE) { throw "probe run 1 failed: $LASTEXITCODE" }
+            .\binaries\prospero-probe.exe 127.0.0.1 --no-broadcast --open-pairing
+            if ($LASTEXITCODE) { throw "probe run 2 failed: $LASTEXITCODE" }
+            curl.exe -fsS --max-time 3 http://127.0.0.1:4445/ | Select-String '^(paired_pcs|pairing|skew_)'
             $spw = (wsl -d ci -u root -- sed -n 's/^password=//p' /root/smbd-state/config.ini).Trim()
             $share = '\\prosperotest\prospero'
             net use $share $spw /user:prospero /TCPPORT:$env:SMB_PORT
