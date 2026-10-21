@@ -12,9 +12,13 @@
 //   4. PING with and without mac (liveness, clock skew)
 //   5. optional: OPEN-PAIRING, to let another PC pair for a while
 //   6. optional: connect to the share and write into a new test folder
+//   7. optional: keep a connection to the share for this logon, so the
+//      Explorer can open it without asking (until ProsperoAutoDrive.exe
+//      does that in phase 3)
 //
 //   prospero-probe.exe <IPv4 address> [--port N] [--no-broadcast]
 //                      [--open-pairing] [--write-test <folder in the share>]
+//                      [--connect]
 //
 // --write-test creates <folder>\_ProsperoAutoDrive_Test_<UTC time>-<random>
 // in the share, writes a file into it and reads it back. Nothing that
@@ -145,8 +149,11 @@ int main(int argc, char **argv) {
   bool broadcast = true;
   bool open_pairing = false;
   std::string write_folder;
+  bool connect = false;
   for (int i = 1; i < argc; i++) {
-    if (!std::strcmp(argv[i], "--no-broadcast")) {
+    if (!std::strcmp(argv[i], "--connect")) {
+      connect = true;
+    } else if (!std::strcmp(argv[i], "--no-broadcast")) {
       broadcast = false;
     } else if (!std::strcmp(argv[i], "--open-pairing")) {
       open_pairing = true;
@@ -163,7 +170,8 @@ int main(int argc, char **argv) {
   }
   if (ip.empty()) {
     std::printf("Aufruf: prospero-probe.exe <IPv4-Adresse> [--port N] [--no-broadcast]\n"
-                "                           [--open-pairing] [--write-test <Ordner>]\n");
+                "                           [--open-pairing] [--write-test <Ordner>]\n"
+                "                           [--connect]\n");
     return 2;
   }
   setvbuf(stdout, nullptr, _IONBF, 0);
@@ -298,6 +306,31 @@ int main(int argc, char **argv) {
       WriteTest(ip, hello, cred, write_folder);
     } else {
       Fail("ohne Zugangsdaten kein Schreibtest");
+    }
+  }
+
+  if (connect) {
+    std::printf("\n===== 7. Freigabe fuer den Explorer verbinden =====\n");
+    if (!have) {
+      Fail("ohne Zugangsdaten keine Verbindung");
+    } else {
+      // Temporary: it ends with the logon, nothing is remembered.
+      std::wstring share = L"\\\\" + Wide(ip) + L"\\" + Wide(hello.share);
+      std::wstring user = Wide(cred.user);
+      std::wstring password = Wide(cred.password);
+      NETRESOURCEW nr{};
+      nr.dwType = RESOURCETYPE_DISK;
+      nr.lpRemoteName = share.data();
+      DWORD rc = WNetAddConnection2W(&nr, password.c_str(), user.c_str(), CONNECT_TEMPORARY);
+      std::string text(share.begin(), share.end());
+      if (rc == NO_ERROR) {
+        Ok(text + " ist bis zur Abmeldung verbunden, der Explorer fragt nicht mehr nach dem Passwort");
+      } else if (rc == ERROR_SESSION_CREDENTIAL_CONFLICT) {
+        Fail(text + ": es besteht schon eine Verbindung mit anderen Anmeldedaten (Fehler 1219). "
+             "Explorer-Fenster schliessen, \"net use " + text + " /delete\" ausfuehren und neu starten");
+      } else {
+        Fail(text + ", Windows-Fehler " + std::to_string(rc));
+      }
     }
   }
 
