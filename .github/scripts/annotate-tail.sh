@@ -13,7 +13,9 @@ title="${3:-log tail}"
 [ -s "$log" ] || exit 0
 
 # GitHub cuts annotations at about 4 KB. Blank lines and ninja progress
-# lines are dropped.
+# lines are dropped. head ends its pipe early on a long log; that SIGPIPE
+# is expected, so pipefail is off from here on.
+set +o pipefail
 filtered=$(grep -v -e '^[[:space:]]*$' -e '^\[[0-9]*/[0-9]*\] ' "$log" || true)
 if [ "$level" = notice ]; then
   body=$(cut -c1-300 <<<"$filtered" | head -c 3800)

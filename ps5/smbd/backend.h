@@ -11,6 +11,7 @@
 #pragma once
 
 #include <stddef.h>
+#include <stdint.h>
 
 #include <smb2/smb2.h>
 #include <smb2/libsmb2.h>
