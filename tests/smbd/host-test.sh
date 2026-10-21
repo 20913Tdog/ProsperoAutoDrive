@@ -113,7 +113,9 @@ expect "$rep" '^END 1$'
 need [ "$(grep -c '^ERROR 1 reason=unknown-command$' <<<"$rep")" = 2 ]
 rep=$(svc 127.0.0.2 "QUIT 1")
 expect "$rep" '^ERROR 1 reason=not-local$'
-need curl -fsS --max-time 3 http://127.0.0.2:4445/quit -o "$WORK/quit.txt"
+# The source address must be set: towards 127.0.0.2 Linux still sends
+# from 127.0.0.1.
+need curl -fsS --max-time 3 --interface 127.0.0.2 http://127.0.0.1:4445/quit -o "$WORK/quit.txt"
 expect "$(cat "$WORK/quit.txt")" 'QUIT REFUSED not-local'
 need kill -0 "$server"
 echo "case 2 passed"
