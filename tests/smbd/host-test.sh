@@ -140,6 +140,10 @@ expect "$rep" '^STATUS 1$'
 expect "$rep" '^PROSPERO-SMBD OK$'
 expect "$rep" '^END 1$'
 need [ "$(grep -c '^ERROR 1 reason=unknown-command$' <<<"$rep")" = 2 ]
+rep=$(svc 127.0.0.1 "RESET-STATS 1")
+expect "$rep" '^RESET-STATS 1$'
+expect "$(status)" '^diag_outq_bytes=[0-9]* (max [0-9]*, avg [0-9]*)$'
+expect "$(status)" '^diag_sock_unsent_bytes=[0-9]* (max '   # SIOCOUTQ works on Linux
 rep=$(svc 127.0.0.2 "QUIT 1")
 expect "$rep" '^ERROR 1 reason=not-local$'
 # The source address must be set: towards 127.0.0.2 Linux still sends

@@ -10,7 +10,7 @@ add_library(prospero-client STATIC common/client.cpp)
 target_include_directories(prospero-client PUBLIC common)
 target_link_libraries(prospero-client PUBLIC ws2_32 iphlpapi bcrypt advapi32)
 
-add_executable(prospero-probe tools/probe/main.cpp)
+add_executable(prospero-probe tools/probe/main.cpp tools/probe/load.cpp)
 target_link_libraries(prospero-probe PRIVATE prospero-client mpr)
 
 add_subdirectory(spikes/s7-discover)

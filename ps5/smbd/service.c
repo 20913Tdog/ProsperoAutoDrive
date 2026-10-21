@@ -23,6 +23,8 @@
  *       -> PAIRING-OPEN 1 seconds=<n>, or ERROR 1 reason=bad-mac
  *   STATUS 1
  *       -> STATUS 1, then "key=value" lines, then END 1
+ *   RESET-STATS 1   restarts the counters of STATUS (measurements, P2.4)
+ *       -> RESET-STATS 1
  *   QUIT 1          only from 127.0.0.1, i.e. a new instance on the console
  *       -> BYE 1, then the server ends
  *   anything else   -> ERROR 1 reason=<word>
@@ -306,6 +308,9 @@ handle_line(client_t *c, const char *line) {
     } else {
       n = snprintf(out, sizeof out, "ERROR 1 reason=bad-mac\n");
     }
+  } else if(is_cmd(line, "RESET-STATS")) {
+    in->reset_stats();
+    n = snprintf(out, sizeof out, "RESET-STATS 1\n");
   } else if(is_cmd(line, "STATUS")) {
     n = snprintf(out, sizeof out, "STATUS 1\n");
     n += status_text(out + n, sizeof out - n - 8);

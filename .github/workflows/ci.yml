@@ -316,6 +316,11 @@ jobs:
             Set-Content -Path "$share\$t\hello.txt" -Value 'Prospero AutoDrive P2.1' -NoNewline
             $back = Get-Content -Raw -Path "$share\$t\hello.txt"
             $listed = (Get-ChildItem -Name $share) -contains $t
+            # P2.4: the load test of the probe over the connection above
+            # (alternate port), small, only to see that it runs.
+            New-Item -ItemType Directory -Force -Path "$share\data" | Out-Null
+            .\binaries\prospero-probe.exe 127.0.0.1 --no-broadcast --share-host prosperotest --load-test data 16
+            if ($LASTEXITCODE) { throw "probe load test failed: $LASTEXITCODE" }
             net use $share /delete /y
             curl.exe -fsS --max-time 3 http://127.0.0.1:4445/ | Select-String '^(PROSPERO-SMBD|share|connections|files_created|dirs_created)'
             curl.exe -fsS --max-time 3 http://127.0.0.1:4445/quit

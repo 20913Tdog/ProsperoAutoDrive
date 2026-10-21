@@ -110,6 +110,12 @@ class Channel {
   // Asks a server this PC is paired with to accept another PC for a while.
   bool OpenPairing(const std::string &key, int *seconds, std::string *err);
 
+  // STATUS: the server's "key=value" lines (diagnosis).
+  bool Status(std::map<std::string, std::string> *out, std::string *err);
+
+  // RESET-STATS: restarts the server's counters (measurements).
+  bool ResetStats(std::string *err);
+
  private:
   // "<command> 1 seq=<n> <rest> mac=<hmac>"
   std::string Signed(const std::string &command, const std::string &rest, const std::string &key);

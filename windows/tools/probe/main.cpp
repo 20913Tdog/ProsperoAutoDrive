@@ -18,7 +18,14 @@
 //
 //   prospero-probe.exe <IPv4 address> [--port N] [--no-broadcast]
 //                      [--open-pairing] [--write-test <folder in the share>]
-//                      [--connect]
+//                      [--connect] [--load-test <folder> <MiB> [--rounds N]]
+//                      [--share-host <name>]
+//
+// --share-host names the server in \\<name>\<share> when that is not the
+// address itself (CI: a hosts alias with an alternate SMB port).
+//
+// --load-test measures the response time under load (load.cpp), in its own
+// new test folder below <folder>.
 //
 // --write-test creates <folder>\_ProsperoAutoDrive_Test_<UTC time>-<random>
 // in the share, writes a file into it and reads it back. Nothing that
@@ -27,6 +34,7 @@
 // Exit code 0 if every step passed, 1 otherwise, 2 on wrong arguments.
 
 #include "client.h"
+#include "load.h"
 
 #include <winnetwk.h>
 
@@ -150,9 +158,20 @@ int main(int argc, char **argv) {
   bool open_pairing = false;
   std::string write_folder;
   bool connect = false;
+  std::string load_folder;
+  unsigned load_mib = 0;
+  int rounds = 1;
+  std::string share_host;      // name in \\host\share; default: the address
   for (int i = 1; i < argc; i++) {
     if (!std::strcmp(argv[i], "--connect")) {
       connect = true;
+    } else if (!std::strcmp(argv[i], "--load-test") && i + 2 < argc) {
+      load_folder = argv[++i];
+      load_mib = static_cast<unsigned>(std::atoi(argv[++i]));
+    } else if (!std::strcmp(argv[i], "--share-host") && i + 1 < argc) {
+      share_host = argv[++i];
+    } else if (!std::strcmp(argv[i], "--rounds") && i + 1 < argc) {
+      rounds = std::atoi(argv[++i]);
     } else if (!std::strcmp(argv[i], "--no-broadcast")) {
       broadcast = false;
     } else if (!std::strcmp(argv[i], "--open-pairing")) {
@@ -175,6 +194,7 @@ int main(int argc, char **argv) {
     return 2;
   }
   setvbuf(stdout, nullptr, _IONBF, 0);
+  const std::string unc = share_host.empty() ? ip : share_host;
   WSADATA wsa;
   if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) {
     std::printf("FEHLER: WSAStartup\n");
@@ -303,9 +323,26 @@ int main(int argc, char **argv) {
   if (!write_folder.empty()) {
     std::printf("\n===== 6. Freigabe: Testordner schreiben =====\n");
     if (have) {
-      WriteTest(ip, hello, cred, write_folder);
+      WriteTest(unc, hello, cred, write_folder);
     } else {
       Fail("ohne Zugangsdaten kein Schreibtest");
+    }
+  }
+
+  if (!load_folder.empty()) {
+    std::printf("\n===== 8. Antwortzeit unter Last =====\n");
+    if (!have) {
+      Fail("ohne Zugangsdaten kein Lasttest");
+    } else if (load_mib < 1 || rounds < 1) {
+      Fail("--load-test braucht eine Groesse ab 1 MiB und --rounds ab 1");
+    } else {
+      std::string name = TestFolderName();
+      int f = LoadTest(ip, unc, port, hello, cred, load_folder, &name, load_mib, rounds);
+      if (f) {
+        Fail("Lasttest: " + std::to_string(f) + " Uebertragung(en) fehlgeschlagen");
+      } else {
+        Ok("Lasttest durchgelaufen");
+      }
     }
   }
 
@@ -315,7 +352,7 @@ int main(int argc, char **argv) {
       Fail("ohne Zugangsdaten keine Verbindung");
     } else {
       // Temporary: it ends with the logon, nothing is remembered.
-      std::wstring share = L"\\\\" + Wide(ip) + L"\\" + Wide(hello.share);
+      std::wstring share = L"\\\\" + Wide(unc) + L"\\" + Wide(hello.share);
       std::wstring user = Wide(cred.user);
       std::wstring password = Wide(cred.password);
       NETRESOURCEW nr{};

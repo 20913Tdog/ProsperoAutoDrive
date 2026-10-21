@@ -53,6 +53,7 @@
 
 #include "backend.h"
 #include "config.h"
+#include "diag.h"
 #include "discovery.h"
 #include "log.h"
 #include "service.h"
@@ -191,6 +192,13 @@ on_clock(int64_t skew_ms) {
 }
 
 
+static void
+reset_stats(void) {
+  backend_reset_stats();
+  diag_reset();
+}
+
+
 static int
 status(char *buf, size_t size) {
   time_t now = time(NULL);
@@ -214,6 +222,9 @@ status(char *buf, size_t size) {
                g_cfg.has_skew ? "" : " (unmeasured)");
   if(n > 0 && (size_t)n < size) {
     n += discovery_status(buf + n, size - n);
+  }
+  if(n > 0 && (size_t)n < size) {
+    n += diag_status(buf + n, size - n);
   }
   if(n > 0 && (size_t)n < size) {
     n += backend_status(buf + n, size - n);
@@ -246,6 +257,7 @@ extra_service(struct smb2_server *srv, fd_set *rfds, fd_set *wfds) {
     notify(NAME " laeuft: Freigabe %s auf Port %u", SHARE_NAME, (unsigned)srv->port);
   }
   backend_flush();
+  diag_sample();
   if(g_udp_fd >= 0 && FD_ISSET(g_udp_fd, rfds)) {
     discovery_serve(g_udp_fd, &g_disc);
   }
@@ -368,6 +380,7 @@ main(int argc, char **argv) {
   g_info.paired = on_paired;
   g_info.open_pairing = on_open_pairing;
   g_info.clock = on_clock;
+  g_info.reset_stats = reset_stats;
   g_disc.server_id = g_cfg.server_id;
   g_disc.name = g_cfg.name;
   g_disc.service_port = SERVICE_PORT;

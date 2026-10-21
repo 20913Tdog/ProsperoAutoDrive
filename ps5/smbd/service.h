@@ -37,6 +37,8 @@ typedef struct service_info {
   void (*open_pairing)(uint32_t peer);
   /* A PING with a valid mac measured server time minus PC time. */
   void (*clock)(int64_t skew_ms);
+  /* RESET-STATS: restart the counters shown by STATUS. */
+  void (*reset_stats)(void);
 } service_info_t;
 
 enum service_result {

@@ -11,7 +11,7 @@ setlocal EnableExtensions EnableDelayedExpansion
 chcp 65001 >nul
 
 rem The test the owner is asked to run right now.
-set "DEFAULT_TEST=P22"
+set "DEFAULT_TEST=P24"
 
 rem git pull may rewrite this very file, and cmd reads a running batch file
 rem from disk as it goes. So the pull runs from a copy in %TEMP%, which then
@@ -108,8 +108,16 @@ if /i "%TEST%"=="P22" (
   set "KEY=instance"
   set "DURATION=etwa 1 Minute"
 )
+if /i "%TEST%"=="P24" (
+  set "ELF=prospero-smbd.elf"
+  set "SCRIPT=..\smbd\P24-Check.cmd"
+  set "TAG=PROSPERO-SMBD"
+  set "PRODUCT=1"
+  set "KEY=instance"
+  set "DURATION=etwa 10 bis 15 Minuten"
+)
 if not defined ELF (
-  echo FEHLER: Unbekannter Test "%TEST%". Bekannt sind S2, S2b, S3, S4, S7 und P22.
+  echo FEHLER: Unbekannter Test "%TEST%". Bekannt sind S2, S2b, S3, S4, S7, P22 und P24.
   exit /b 2
 )
 

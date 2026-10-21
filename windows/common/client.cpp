@@ -390,6 +390,32 @@ bool Channel::OpenPairing(const std::string &key, int *seconds, std::string *err
   return true;
 }
 
+bool Channel::Status(std::map<std::string, std::string> *out, std::string *err) {
+  std::string line;
+  if (!Request("STATUS 1", &line, err)) return false;
+  if (line != "STATUS 1") {
+    *err = "unerwartete Antwort: " + line;
+    return false;
+  }
+  out->clear();
+  for (;;) {
+    if (!ReadLine(&line, err)) return false;
+    if (line == "END 1") return true;
+    size_t eq = line.find('=');
+    if (eq != std::string::npos) (*out)[line.substr(0, eq)] = line.substr(eq + 1);
+  }
+}
+
+bool Channel::ResetStats(std::string *err) {
+  std::string rep;
+  if (!Request("RESET-STATS 1", &rep, err)) return false;
+  if (rep != "RESET-STATS 1") {
+    *err = "unerwartete Antwort: " + rep;
+    return false;
+  }
+  return true;
+}
+
 // Credentials ------------------------------------------------------------
 
 bool LoadCredential(const std::string &server_id, Credential *out) {
