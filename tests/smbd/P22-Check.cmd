@@ -1,5 +1,5 @@
 @echo off
-rem P2.2 live test (E3): the product server prospero-smbd on the console and
+rem P2.2 and P2.3 live test (E3): the product server prospero-smbd on the console and
 rem prospero-probe.exe from the dev build in the role of the later program.
 rem The probe finds the console by unicast and broadcast, pairs once (the
 rem credential goes into the Windows Credential Manager, as the program will
@@ -27,7 +27,7 @@ if errorlevel 1 (
   echo FEHLER: prospero-smbd antwortet nicht auf Port 4445. Laeuft es?
   exit /b 1
 )
-findstr /b /c:"version=" /c:"server_id=" /c:"share=" /c:"paired_pcs=" /c:"pairing=" /c:"skew_" /c:"now_utc=" /c:"restarts=" "%STATUS%"
+findstr /b /c:"version=" /c:"server_id=" /c:"share=" /c:"paired_pcs=" /c:"pairing=" /c:"skew_" /c:"clock_skew_s=" /c:"now_utc=" /c:"restarts=" "%STATUS%"
 if not exist "%EXE%" (
   echo FEHLER: %EXE% fehlt. Bitte tools\Get-DevBuild.cmd ausfuehren.
   exit /b 1
@@ -42,7 +42,7 @@ echo Exitcode %RC%
 echo.
 echo ===== 2. Server-Status nachher =====
 curl.exe -s --connect-timeout 3 --max-time 5 -o "%STATUS%" "%CTL%/"
-findstr /b /c:"paired_pcs=" /c:"pairing=" /c:"skew_" /c:"discovery_" /c:"connections=" /c:"files_created=" /c:"dirs_created=" /c:"special_refused=" "%STATUS%"
+findstr /b /c:"paired_pcs=" /c:"pairing=" /c:"skew_" /c:"clock_skew_s=" /c:"discovery_" /c:"connections=" /c:"files_created=" /c:"dirs_created=" /c:"special_refused=" "%STATUS%"
 echo Referenz UTC ^(github.com^):
 curl.exe -sSI --max-time 5 https://github.com 2>&1 | findstr /b /i /c:"date:"
 

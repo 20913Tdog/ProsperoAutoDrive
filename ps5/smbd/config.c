@@ -84,6 +84,18 @@ parse(const char *text, size_t len, config_t *cfg) {
                take(cfg->password, sizeof cfg->password, v, vlen, alphabet);
       } else if(klen == 4 && !memcmp(p, "name", 4)) {
         bad |= take(cfg->name, sizeof cfg->name, v, vlen, CONFIG_PC_NAME_CHARS);
+      } else if(klen == 6 && !memcmp(p, "skew_s", 6)) {
+        /* By hand: strtoll() is not proven on the console yet. */
+        size_t i = vlen && v[0] == '-';
+        long long x = 0;
+
+        cfg->has_skew = vlen > i && vlen - i <= 9;
+        for(; cfg->has_skew && i < vlen; i++) {
+          cfg->has_skew = v[i] >= '0' && v[i] <= '9';
+          x = x * 10 + (v[i] - '0');
+        }
+        cfg->skew_s = v[0] == '-' ? -x : x;
+        bad |= !cfg->has_skew;
       } else if(klen == 6 && !memcmp(p, "paired", 6)) {
         char pc[CONFIG_PC_NAME_SIZE];
 
@@ -151,6 +163,9 @@ save(const char *path, const char *tmp, const config_t *cfg) {
                "# new server ID and password, pairing open again.\n"
                "server_id=%s\nuser=%s\npassword=%s\nname=%s\n",
                cfg->server_id, cfg->user, cfg->password, cfg->name);
+  if(cfg->has_skew && n > 0 && n < (int)sizeof text) {
+    n += snprintf(text + n, sizeof text - n, "skew_s=%lld\n", cfg->skew_s);
+  }
   for(int i=0; i<cfg->npaired && n > 0 && n < (int)sizeof text; i++) {
     n += snprintf(text + n, sizeof text - n, "paired=%s\n", cfg->paired[i]);
   }

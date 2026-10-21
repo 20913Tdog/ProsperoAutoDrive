@@ -25,8 +25,12 @@
  * instance because rest mode took the sockets, everything is reopened after
  * a short pause (outer loop).
  *
- * Phase 2, work packages P2.1 and P2.2. The measured clock skew is only
- * reported yet; P2.3 applies it to the time stamps.
+ * Clock (P2.3): a PING with a valid mac measures how far the console
+ * clock runs ahead of the PC. Rounded to whole seconds, it is applied to
+ * every time stamp (backend_set_clock_skew) and kept in config.ini, so it
+ * holds from the start until the next measurement. A new value is only
+ * taken when it differs by CLOCK_HYSTERESIS_S or more, so times do not
+ * jump by a second back and forth.
  *
  * Host build for the CI tests:
  *   prospero-smbd <share root> <state dir> <smb port>
@@ -57,6 +61,7 @@
 #define SHARE_NAME  "prospero"
 #define PROFILE     'b'           /* 1 MiB socket buffers, TCP_NODELAY (S2b) */
 #define MAX_CONNS   8
+#define CLOCK_HYSTERESIS_S 2
 
 #ifndef PROSPERO_VERSION
 #define PROSPERO_VERSION "0.0.0"
@@ -157,16 +162,32 @@ on_open_pairing(uint32_t peer) {
 }
 
 
-/* P2.2 only records the measurement; changes of 2 s or more are logged. */
 static void
 on_clock(int64_t skew_ms) {
-  int64_t diff = skew_ms - g_skew_ms;
+  long long s = (long long)((skew_ms >= 0 ? skew_ms + 500 : skew_ms - 500) / 1000);
+  long long diff = s - g_cfg.skew_s;
 
-  if(!g_skew_samples || diff >= 2000 || diff <= -2000) {
-    log_msg("clock: console runs %lld ms ahead of the PC", (long long)skew_ms);
-  }
   g_skew_ms = skew_ms;
   g_skew_samples++;
+  if(g_cfg.has_skew && diff < CLOCK_HYSTERESIS_S && diff > -CLOCK_HYSTERESIS_S) {
+    return;
+  }
+  log_msg("clock: console runs %lld ms ahead of the PC, time stamps now offset by %lld s (was %lld s%s)",
+          (long long)skew_ms, s, g_cfg.skew_s, g_cfg.has_skew ? "" : ", unmeasured");
+  {
+    config_t next = g_cfg;
+    int rc;
+
+    next.has_skew = 1;
+    next.skew_s = s;
+    if((rc=config_save(g_state_dir, &next)) != 0) {
+      log_msg("clock: config.ini not written: %s", strerror(-rc));
+    }
+    /* Applied even if not stored: the measurement is right either way. */
+    g_cfg.has_skew = 1;
+    g_cfg.skew_s = s;
+  }
+  backend_set_clock_skew(s);
 }
 
 
@@ -184,12 +205,13 @@ status(char *buf, size_t size) {
                "PROSPERO-SMBD OK\nversion=%s\ninstance=%s\nserver_id=%s\nname=%s\n"
                "share=%s\nroot=%s\nuser=%s\nsmb_port=%u\nuptime_s=%ld\n"
                "connections=%u\nrestarts=%u\nnow_utc=%s\npaired_pcs=%d\n"
-               "pairing=%s\nskew_ms=%lld\nskew_samples=%u\n",
+               "pairing=%s\nskew_ms=%lld\nskew_samples=%u\nclock_skew_s=%lld%s\n",
                PROSPERO_VERSION, g_instance, g_cfg.server_id, g_cfg.name, SHARE_NAME,
                g_root, g_cfg.user, (unsigned)g_server.port,
                (long)(now - g_start), g_connections, g_restarts, now_utc,
                g_cfg.npaired, pairing_is_open() ? "open" : "closed",
-               (long long)g_skew_ms, g_skew_samples);
+               (long long)g_skew_ms, g_skew_samples, g_cfg.skew_s,
+               g_cfg.has_skew ? "" : " (unmeasured)");
   if(n > 0 && (size_t)n < size) {
     n += discovery_status(buf + n, size - n);
   }
@@ -329,6 +351,11 @@ main(int argc, char **argv) {
   if((rc=backend_init(g_root, SHARE_NAME, g_cfg.user, g_cfg.password, 1, PROFILE))) {
     notify(NAME ": FEHLER Freigabe %s: %s", g_root, strerror(-rc));
     return 1;
+  }
+  /* Until the first PING the last measured value holds. */
+  backend_set_clock_skew(g_cfg.skew_s);
+  if(g_cfg.has_skew) {
+    log_msg("clock: time stamps offset by %lld s (from config.ini)", g_cfg.skew_s);
   }
   g_info.server_id = g_cfg.server_id;
   g_info.name = g_cfg.name;

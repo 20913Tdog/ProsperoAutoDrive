@@ -26,6 +26,8 @@ typedef struct config {
   char user[32];
   char password[CONFIG_PASSWORD_LEN + 1];
   char name[64];
+  int has_skew;                         /* skew_s is a measured value */
+  long long skew_s;                     /* console minus PC clock, seconds */
   int npaired;                          /* PCs that got the password */
   char paired[CONFIG_MAX_PAIRED][CONFIG_PC_NAME_SIZE];
 } config_t;

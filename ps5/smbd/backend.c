@@ -414,10 +414,19 @@ errno_status(int err) {
 
 #define FILETIME_EPOCH_DIFF 11644473600ULL   /* 1601 to 1970, in seconds */
 
+/* How far the console clock runs ahead of the PC, in whole seconds
+ * (decision "variant 1", P2.3). Times on disk stay as the console writes
+ * them; Windows sees them minus the skew and sets them plus the skew. */
+static int64_t g_skew_s;
+
 static uint64_t
 filetime(const struct timespec *ts) {
-  return ((uint64_t)ts->tv_sec + FILETIME_EPOCH_DIFF) * 10000000ULL +
-         (uint64_t)ts->tv_nsec / 100;
+  int64_t s = (int64_t)ts->tv_sec - g_skew_s + (int64_t)FILETIME_EPOCH_DIFF;
+
+  if(s < 0) {
+    return 0;
+  }
+  return (uint64_t)s * 10000000ULL + (uint64_t)ts->tv_nsec / 100;
 }
 
 
@@ -430,7 +439,7 @@ from_filetime(uint64_t ft, struct timeval *tv) {
      ft < FILETIME_EPOCH_DIFF * 10000000ULL) {
     return 0;
   }
-  tv->tv_sec = (time_t)(ft / 10000000ULL - FILETIME_EPOCH_DIFF);
+  tv->tv_sec = (time_t)((int64_t)(ft / 10000000ULL - FILETIME_EPOCH_DIFF) + g_skew_s);
   tv->tv_usec = (suseconds_t)(ft % 10000000ULL / 10);
   return 1;
 }
@@ -2492,6 +2501,12 @@ struct smb2_server_request_handlers backend_handlers = {
   .query_info_cmd      = query_info_cmd,
   .set_info_cmd        = set_info_cmd,
 };
+
+
+void
+backend_set_clock_skew(int64_t seconds) {
+  g_skew_s = seconds;
+}
 
 
 int

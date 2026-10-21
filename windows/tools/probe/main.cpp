@@ -105,6 +105,29 @@ bool WriteTest(const std::string &ip, const prospero::Hello &hello,
       if (std::string(back, n) == text) {
         Ok("Datei geschrieben und gleich zurueckgelesen (" + std::to_string(n) + " Bytes)");
         good = true;
+        // The server stamps a new file with its own clock and reports it
+        // corrected by the measured skew, so it should match this PC.
+        WIN32_FILE_ATTRIBUTE_DATA fa;
+        FILETIME now;
+        GetSystemTimeAsFileTime(&now);
+        if (GetFileAttributesExW(file.c_str(), GetFileExInfoStandard, &fa)) {
+          auto ticks = [](const FILETIME &f) {
+            return static_cast<int64_t>((static_cast<uint64_t>(f.dwHighDateTime) << 32) |
+                                        f.dwLowDateTime);
+          };
+          int64_t diff_s = (ticks(fa.ftLastWriteTime) - ticks(now)) / 10000000;
+          std::string what = "Aenderungszeit der neuen Datei weicht " + std::to_string(diff_s) +
+                             " s von der PC-Uhr ab";
+          if (diff_s >= -10 && diff_s <= 10) {
+            Ok(what);
+          } else {
+            Fail(what + " (erlaubt: 10 s)");
+            good = false;
+          }
+        } else {
+          Fail("Aenderungszeit lesen, Windows-Fehler " + std::to_string(GetLastError()));
+          good = false;
+        }
       } else {
         Fail("Datei zurueckgelesen, aber anders (" + std::to_string(n) + " Bytes)");
       }

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# E1 test of prospero-smbd (P2.1, P2.2) on Linux: configuration, ring log,
+# E1 test of prospero-smbd (P2.1 to P2.3) on Linux: configuration, ring log,
 # service channel on TCP 4445 with pairing and PING, discovery on UDP
 # 4445, one instance, and the share through smbclient. Writes only into a
 # new _ProsperoAutoDrive_Test_* folder below a temporary share root. Needs
@@ -221,6 +221,31 @@ need grep -q '^paired=second$' "$STATE/config.ini"
 expect "$(status)" '^paired_pcs=2$'
 echo "case 2d passed"
 
+echo "== case 2e: time stamps are offset by the measured skew"
+# Case 2c measured about 3600 s: Windows sees times 1 h earlier than on
+# disk and sets them 1 h later on disk.
+out=$(status)
+expect "$out" '^clock_skew_s=3600$'
+need grep -q '^skew_s=3600$' "$STATE/config.ini"
+CLK="_ProsperoAutoDrive_Test_clock-$RANDOM"
+mkdir "$ROOT/$CLK"
+printf 'clock\r\n' > "$ROOT/$CLK/t.txt"
+touch -d @1700000000 "$ROOT/$CLK/t.txt"
+wt=$(TZ=UTC smb -c "allinfo $CLK/t.txt" | sed -n 's/^write_time:[[:space:]]*//p')
+echo "write_time as seen by the client: $wt"
+need [ "$(TZ=UTC date -d "$wt" +%s)" = 1699996400 ]
+# smbclient takes the time as local time, so TZ=UTC: 2023-11-14 22:13:20
+# UTC is 1700000000.
+TZ=UTC smb -c "utimes $CLK/t.txt -1 -1 23:11:14-22:13:20 -1" >/dev/null
+need [ "$(stat -c %Y "$ROOT/$CLK/t.txt")" = 1700003600 ]
+# Hysteresis: 1 s more is not taken, 3 s more is.
+svc 127.0.0.1 "HELLO 1" "PING 1 seq=1 utc_ms=@NOW-3601000 mac=@MAC" >/dev/null
+expect "$(status)" '^clock_skew_s=3600$'
+svc 127.0.0.1 "HELLO 1" "PING 1 seq=1 utc_ms=@NOW-3603000 mac=@MAC" >/dev/null
+expect "$(status)" '^clock_skew_s=3603$'
+need grep -q '^skew_s=3603$' "$STATE/config.ini"
+echo "case 2e passed"
+
 echo "== case 3: the share, read and write"
 TEST="_ProsperoAutoDrive_Test_$(date -u +%Y%m%d-%H%M%S)-$RANDOM"
 printf 'Prospero AutoDrive P2.1\r\n' > "$WORK/up.txt"
@@ -255,6 +280,8 @@ out=$(status)
 expect "$out" "^server_id=$ID$"
 expect "$out" '^paired_pcs=2$'
 expect "$out" '^pairing=closed$'
+expect "$out" '^clock_skew_s=3603$'
+need grep -q "offset by 3603 s (from config.ini)" "$STATE/log.txt"
 smb -c "get $TEST/up.txt $WORK/down2.txt" >/dev/null
 cmp "$WORK/up.txt" "$WORK/down2.txt"
 echo "case 5 passed"
@@ -273,6 +300,7 @@ need test -f "$STATE/config.ini.bad"
 out=$(status)
 expect "$out" '^server_id=[0-9a-f]\{16\}$'
 expect "$out" '^pairing=open$'
+expect "$out" '^clock_skew_s=0 (unmeasured)$'
 need [ "$(sed -n 's/^server_id=//p' "$STATE/config.ini")" != "$ID" ]
 need grep -q "config.ini war fehlerhaft" "$STATE/log.txt"
 svc 127.0.0.1 "QUIT 1" >/dev/null
