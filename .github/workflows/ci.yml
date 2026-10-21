@@ -167,6 +167,10 @@ jobs:
         shell: bash
         run: bash tests/spikes/s7-host-test.sh build/host/bin/s7-smbserver 2>&1 | tee -a ci.log
 
+      - name: prospero-smbd against smbclient (E1)
+        shell: bash
+        run: bash tests/smbd/host-test.sh build/host/bin/prospero-smbd 2>&1 | tee -a ci.log
+
       # Static, so the same binaries also run in a minimal WSL 1 rootfs on
       # the Windows runner (spike S6).
       - name: Static host servers for the client tests
@@ -175,7 +179,7 @@ jobs:
           {
             cmake -S . -B build/host-static -G Ninja -DCMAKE_BUILD_TYPE=Release \
               -DCMAKE_EXE_LINKER_FLAGS=-static &&
-            cmake --build build/host-static --target s2-smbserver s3-smbserver s4-smbserver s7-smbserver
+            cmake --build build/host-static --target s2-smbserver s3-smbserver s4-smbserver s7-smbserver prospero-smbd
           } 2>&1 | tee -a ci.log
 
       - name: Failure details as annotation (readable without login)
@@ -185,7 +189,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: host-servers
-          path: build/host-static/bin/*-smbserver
+          path: |
+            build/host-static/bin/*-smbserver
+            build/host-static/bin/prospero-smbd
           if-no-files-found: error
 
   # Spike S6 (E2): the real Windows SMB client against the real server
@@ -245,7 +251,7 @@ jobs:
             if ($LASTEXITCODE) { throw "wsl --import failed: $LASTEXITCODE" }
             wsl -l -v
             $src = '/mnt/' + $env:GITHUB_WORKSPACE.Substring(0,1).ToLower() + ($env:GITHUB_WORKSPACE.Substring(2) -replace '\\','/') + '/host-servers'
-            wsl -d ci -u root -- sh -c "mkdir -p /root/base && cp $src/s3-smbserver $src/s7-smbserver /root/ && chmod +x /root/*-smbserver && ls -l /root"
+            wsl -d ci -u root -- sh -c "mkdir -p /root/base && cp $src/s3-smbserver $src/s7-smbserver $src/prospero-smbd /root/ && chmod +x /root/*-smbserver /root/prospero-smbd && ls -l /root"
             if ($LASTEXITCODE) { throw "copy into WSL failed: $LASTEXITCODE" }
             Add-Content C:\Windows\System32\drivers\etc\hosts "`n127.0.0.1 prosperotest"
             Start-Server s3 $env:SMB_PORT server
@@ -278,6 +284,41 @@ jobs:
             "S7 unicast failed"
             if ($rc -eq 0) { $rc = 1 }
           }
+
+          # P2.1: the product server prospero-smbd, share PS5 on a scratch
+          # root. A new instance quits the s7 server by itself. Writes only
+          # into a new test folder.
+          & {
+            wsl -d ci -u root -- sh -c "mkdir -p /root/smbroot"
+            Start-Process -FilePath wsl.exe -WindowStyle Hidden `
+              -ArgumentList '-d','ci','-u','root','--','/root/prospero-smbd','/root/smbroot/','/root/smbd-state',$env:SMB_PORT `
+              -RedirectStandardOutput smbd.log -RedirectStandardError smbd.err
+            $up = $false
+            for ($i = 0; $i -lt 60 -and -not $up; $i++) {
+              Start-Sleep 1
+              $up = [bool](curl.exe -fsS --max-time 3 http://127.0.0.1:4445/ 2>$null | Select-String '^PROSPERO-SMBD OK')
+            }
+            if (-not $up) { throw "prospero-smbd did not answer on 4445" }
+            $spw = (wsl -d ci -u root -- sed -n 's/^password=//p' /root/smbd-state/config.ini).Trim()
+            $share = '\\prosperotest\PS5'
+            net use $share $spw /user:prospero /TCPPORT:$env:SMB_PORT
+            if ($LASTEXITCODE) { throw "net use failed: $LASTEXITCODE" }
+            $t = '_ProsperoAutoDrive_Test_' + (Get-Date).ToUniversalTime().ToString('yyyyMMdd-HHmmss') + '-' + (Get-Random -Maximum 99999)
+            New-Item -ItemType Directory -Path "$share\$t" | Out-Null
+            Set-Content -Path "$share\$t\hello.txt" -Value 'Prospero AutoDrive P2.1' -NoNewline
+            $back = Get-Content -Raw -Path "$share\$t\hello.txt"
+            $listed = (Get-ChildItem -Name $share) -contains $t
+            net use $share /delete /y
+            curl.exe -fsS --max-time 3 http://127.0.0.1:4445/ | Select-String '^(PROSPERO-SMBD|share|connections|files_created|dirs_created)'
+            curl.exe -fsS --max-time 3 http://127.0.0.1:4445/quit
+            if ($back -ne 'Prospero AutoDrive P2.1') { throw "read back: '$back'" }
+            if (-not $listed) { throw "test folder not listed in the root" }
+            'SMBD-E2: OK'
+          } *>&1 | Tee-Object -FilePath smbd-e2.log
+          if (-not (Select-String -Quiet -Path smbd-e2.log -Pattern '^SMBD-E2: OK')) {
+            "prospero-smbd E2 smoke failed"
+            if ($rc -eq 0) { $rc = 1 }
+          }
           exit $rc
 
       - name: Results as annotation (readable without login)
@@ -287,7 +328,8 @@ jobs:
           [ -f s6.log ] && grep -E '^(OK|FALSCH|FEHLT|INFO|FEHLER|S3-CHECK|unsupported|connection_end|Systemfehler|System error)' s6.log > s6-summary.log || true
           bash .github/scripts/annotate-tail.sh s6-summary.log notice "S3-Check on windows-2025"
           [ -f s7.log ] && bash .github/scripts/annotate-tail.sh s7.log notice "S7 discovery on windows-2025"
-          for f in ci.log server.log server.err s6.log s7server.log s7server.err; do
+          [ -f smbd-e2.log ] && bash .github/scripts/annotate-tail.sh smbd-e2.log notice "prospero-smbd on windows-2025"
+          for f in ci.log server.log server.err s6.log s7server.log s7server.err smbd.log smbd.err; do
             [ -f "$f" ] && bash .github/scripts/annotate-tail.sh "$f" warning "$f"
           done
           true
