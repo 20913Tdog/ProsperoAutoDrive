@@ -11,16 +11,29 @@
  * by single spaces; the number after the command is the protocol version.
  * The PC opens the connection and keeps it (docs/entwurf-phase2.md):
  *
- *   HELLO 1 [utc_ms=<ms>] [pc=<name>]
+ *   HELLO 1 [more fields]
  *       -> HELLO 1 server_id=<id> name=<name> share=<share>
- *          smb_port=<port> paired=0
+ *          smb_port=<port> pairing=<open|closed> nonce=<16 hex>
+ *   PAIR 1 pc=<name>
+ *       -> PAIRED 1 user=<user> password=<password>
+ *          or PAIR-REFUSED 1 reason=<closed|bad-name|storage>
+ *   PING 1 utc_ms=<PC UTC, ms> [mac=<hex>]
+ *       -> PONG 1 utc_ms=<server UTC, ms> skew_ms=<server - PC> trusted=<0|1>
+ *   OPEN-PAIRING 1 utc_ms=<ms> mac=<hex>
+ *       -> PAIRING-OPEN 1 seconds=<n>, or ERROR 1 reason=bad-mac
  *   STATUS 1
  *       -> STATUS 1, then "key=value" lines, then END 1
  *   QUIT 1          only from 127.0.0.1, i.e. a new instance on the console
  *       -> BYE 1, then the server ends
  *   anything else   -> ERROR 1 reason=<word>
  *
- * PAIR and PING follow in P2.2. A connection that sends nothing for
+ * mac= is the last field: lowercase hex of HMAC-SHA256, keyed with the
+ * password, over "<nonce of this connection> <line up to the space before
+ * mac=>". So only a paired PC can make one, and a recorded line does not
+ * work on another connection. On one connection utc_ms must grow, so a
+ * line cannot be replayed there either. Only a PING with a valid mac
+ * counts for the clock (decision "variant 1"); a PING without one still
+ * gets an answer, as a liveness check. A connection that sends nothing for
  * IDLE_SECONDS is closed.
  *
  * For curl.exe in the test scripts, an HTTP request is understood as well:
@@ -32,6 +45,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
@@ -41,17 +55,21 @@
 #include <sys/socket.h>
 #include <sys/time.h>
 
+#include "config.h"
+#include "hmac.h"
 #include "service.h"
 
-#define MAX_CLIENTS  8
-#define LINE_SIZE    512
-#define IDLE_SECONDS 60
+#define MAX_CLIENTS     8
+#define LINE_SIZE       512
+#define IDLE_SECONDS    60
 
 typedef struct client {
   int fd;
   uint32_t peer;                /* IPv4, host byte order */
   time_t last;
   int http;                     /* 0, or the HTTP request seen: 'S' or 'Q' */
+  char nonce[17];               /* sent with HELLO, keys every mac= */
+  int64_t last_utc_ms;          /* of the last line with a valid mac */
   size_t len;
   char buf[LINE_SIZE];
 } client_t;
@@ -102,6 +120,114 @@ status_text(char *buf, size_t size) {
 }
 
 
+static int64_t
+now_ms(void) {
+  struct timeval tv;
+
+  gettimeofday(&tv, NULL);
+  return (int64_t)tv.tv_sec * 1000 + tv.tv_usec / 1000;
+}
+
+
+/* Value of " key=" in line, up to the next space; its length or -1. */
+static int
+field(const char *line, const char *key, const char **val) {
+  size_t klen = strlen(key);
+  const char *p = line;
+
+  while((p=strchr(p, ' '))) {
+    p++;
+    if(!strncmp(p, key, klen) && p[klen] == '=') {
+      *val = p + klen + 1;
+      return (int)strcspn(*val, " ");
+    }
+  }
+  return -1;
+}
+
+
+/* utc_ms= as a number; -1 if missing or not digits. */
+static int64_t
+utc_field(const char *line) {
+  const char *v;
+  int64_t ms = 0;
+  int n = field(line, "utc_ms", &v);
+
+  if(n < 1 || n > 18) {
+    return -1;
+  }
+  for(int i=0; i<n; i++) {
+    if(v[i] < '0' || v[i] > '9') {
+      return -1;
+    }
+    ms = ms * 10 + (v[i] - '0');
+  }
+  return ms;
+}
+
+
+/* 1 if the line ends in a valid mac= for this connection and its utc_ms
+ * is newer than the last one that had one. */
+static int
+mac_ok(client_t *c, const char *line) {
+  const char *sp = strrchr(line, ' ');
+  char msg[LINE_SIZE + 32];
+  uint8_t mac[32];
+  int64_t ms = utc_field(line);
+  int n;
+
+  if(!c->nonce[0] || !sp || strncmp(sp + 1, "mac=", 4) || ms <= c->last_utc_ms) {
+    return 0;
+  }
+  n = snprintf(msg, sizeof msg, "%s %.*s", c->nonce, (int)(sp - line), line);
+  if(n < 0 || n >= (int)sizeof msg) {
+    return 0;
+  }
+  hmac_sha256(g.info->password, strlen(g.info->password), msg, (size_t)n, mac);
+  if(!hmac_hex_equal(mac, sp + 5, strlen(sp + 5))) {
+    return 0;
+  }
+  c->last_utc_ms = ms;
+  return 1;
+}
+
+
+static void
+make_nonce(char out[17]) {
+  static const char hex[] = "0123456789abcdef";
+  uint8_t raw[8];
+
+  arc4random_buf(raw, sizeof raw);
+  for(int i=0; i<8; i++) {
+    out[2*i] = hex[raw[i] >> 4];
+    out[2*i+1] = hex[raw[i] & 15];
+  }
+  out[16] = '\0';
+}
+
+
+static int
+pair(client_t *c, const char *line, char *out, size_t size) {
+  const char *v;
+  char pc[CONFIG_PC_NAME_SIZE];
+  int n = field(line, "pc", &v);
+
+  if(n < 1 || n >= (int)sizeof pc || (int)strspn(v, CONFIG_PC_NAME_CHARS) < n) {
+    return snprintf(out, size, "PAIR-REFUSED 1 reason=bad-name\n");
+  }
+  memcpy(pc, v, (size_t)n);
+  pc[n] = '\0';
+  if(!g.info->pairing_is_open()) {
+    return snprintf(out, size, "PAIR-REFUSED 1 reason=closed\n");
+  }
+  if(g.info->paired(pc, c->peer) != 0) {
+    return snprintf(out, size, "PAIR-REFUSED 1 reason=storage\n");
+  }
+  return snprintf(out, size, "PAIRED 1 user=%s password=%s\n",
+                  g.info->user, g.info->password);
+}
+
+
 /* Answers the HTTP request once its header is complete, then closes. */
 static int
 answer_http(client_t *c) {
@@ -149,9 +275,36 @@ handle_line(client_t *c, const char *line) {
   }
 
   if(is_cmd(line, "HELLO")) {
+    if(!c->nonce[0]) {
+      make_nonce(c->nonce);
+    }
     n = snprintf(out, sizeof out,
-                 "HELLO 1 server_id=%s name=%s share=%s smb_port=%u paired=0\n",
-                 in->server_id, in->name, in->share, (unsigned)in->smb_port);
+                 "HELLO 1 server_id=%s name=%s share=%s smb_port=%u pairing=%s nonce=%s\n",
+                 in->server_id, in->name, in->share, (unsigned)in->smb_port,
+                 in->pairing_is_open() ? "open" : "closed", c->nonce);
+  } else if(is_cmd(line, "PAIR")) {
+    n = pair(c, line, out, sizeof out);
+  } else if(is_cmd(line, "PING")) {
+    int64_t pc = utc_field(line);
+    int64_t now = now_ms();
+    int trusted = pc >= 0 && mac_ok(c, line);
+
+    if(pc < 0) {
+      n = snprintf(out, sizeof out, "ERROR 1 reason=bad-time\n");
+    } else {
+      if(trusted) {
+        in->clock(now - pc);
+      }
+      n = snprintf(out, sizeof out, "PONG 1 utc_ms=%lld skew_ms=%lld trusted=%d\n",
+                   (long long)now, (long long)(now - pc), trusted);
+    }
+  } else if(is_cmd(line, "OPEN-PAIRING")) {
+    if(mac_ok(c, line)) {
+      in->open_pairing(c->peer);
+      n = snprintf(out, sizeof out, "PAIRING-OPEN 1 seconds=%d\n", PAIRING_SECONDS);
+    } else {
+      n = snprintf(out, sizeof out, "ERROR 1 reason=bad-mac\n");
+    }
   } else if(is_cmd(line, "STATUS")) {
     n = snprintf(out, sizeof out, "STATUS 1\n");
     n += status_text(out + n, sizeof out - n - 8);

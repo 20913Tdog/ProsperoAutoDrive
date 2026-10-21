@@ -84,6 +84,14 @@ parse(const char *text, size_t len, config_t *cfg) {
                take(cfg->password, sizeof cfg->password, v, vlen, alphabet);
       } else if(klen == 4 && !memcmp(p, "name", 4)) {
         bad |= take(cfg->name, sizeof cfg->name, v, vlen, NULL);
+      } else if(klen == 6 && !memcmp(p, "paired", 6)) {
+        char pc[CONFIG_PC_NAME_SIZE];
+
+        if(take(pc, sizeof pc, v, vlen, CONFIG_PC_NAME_CHARS) == 0) {
+          config_add_paired(cfg, pc);
+        } else {
+          bad = 1;
+        }
       }
     }
     p = eol ? eol + 1 : end;
@@ -117,6 +125,21 @@ generate(config_t *cfg) {
 }
 
 
+void
+config_add_paired(config_t *cfg, const char *pc) {
+  for(int i=0; i<cfg->npaired; i++) {
+    if(!strcmp(cfg->paired[i], pc)) {
+      return;
+    }
+  }
+  if(cfg->npaired == CONFIG_MAX_PAIRED) {
+    memmove(cfg->paired[0], cfg->paired[1], sizeof cfg->paired[0] * (CONFIG_MAX_PAIRED - 1));
+    cfg->npaired--;
+  }
+  snprintf(cfg->paired[cfg->npaired++], sizeof cfg->paired[0], "%s", pc);
+}
+
+
 static int
 save(const char *path, const char *tmp, const config_t *cfg) {
   char text[MAX_SIZE];
@@ -128,6 +151,9 @@ save(const char *path, const char *tmp, const config_t *cfg) {
                "# new server ID and password, pairing open again.\n"
                "server_id=%s\nuser=%s\npassword=%s\nname=%s\n",
                cfg->server_id, cfg->user, cfg->password, cfg->name);
+  for(int i=0; i<cfg->npaired && n > 0 && n < (int)sizeof text; i++) {
+    n += snprintf(text + n, sizeof text - n, "paired=%s\n", cfg->paired[i]);
+  }
   if(n < 0 || n >= (int)sizeof text) {
     return -EINVAL;
   }
@@ -151,6 +177,31 @@ save(const char *path, const char *tmp, const config_t *cfg) {
 }
 
 
+static int
+paths(const char *dir, char *path, char *tmp, char *bad) {
+  if(snprintf(path, 1024, "%s/config.ini", dir) >= 1024) {
+    return -ENAMETOOLONG;
+  }
+  snprintf(tmp, 1040, "%s.tmp", path);
+  snprintf(bad, 1040, "%s.bad", path);
+  return 0;
+}
+
+
+int
+config_save(const char *dir, const config_t *cfg) {
+  char path[1024];
+  char tmp[1040];
+  char bad[1040];
+  int rc;
+
+  if((rc=paths(dir, path, tmp, bad))) {
+    return rc;
+  }
+  return save(path, tmp, cfg);
+}
+
+
 int
 config_load(const char *dir, config_t *cfg) {
   char path[1024];
@@ -162,11 +213,9 @@ config_load(const char *dir, config_t *cfg) {
   int rc;
   int fd;
 
-  if(snprintf(path, sizeof path, "%s/config.ini", dir) >= (int)sizeof path) {
-    return -ENAMETOOLONG;
+  if((rc=paths(dir, path, tmp, bad))) {
+    return rc;
   }
-  snprintf(tmp, sizeof tmp, "%s.tmp", path);
-  snprintf(bad, sizeof bad, "%s.bad", path);
   if(mkdir(dir, 0700) != 0 && errno != EEXIST) {
     return -errno;
   }

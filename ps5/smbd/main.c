@@ -12,16 +12,21 @@
  * own POSIX backend (backend.c). Runs until it is told to quit.
  *
  * State lives in /data/prospero-smbd/: config.ini (server ID, user,
- * password; created on the first start) and the ring log log.txt. The
- * service channel on TCP 4445 (service.c) reports the server to the PC.
+ * password, paired PCs; created on the first start) and the ring log
+ * log.txt. The agent on the PC finds the server over UDP 4445
+ * (discovery.c), pairs once over the service channel on TCP 4445
+ * (service.c) and then sends PING there as liveness and clock reference.
+ *
+ * Pairing (variant C, docs/entwurf-phase2.md): open while no PC is paired;
+ * afterwards only for PAIRING_SECONDS after a paired PC asked for it.
  *
  * One instance: a new start first asks a running one, or a spike payload,
  * to quit and waits until the ports are free. If the server loop fails, for
  * instance because rest mode took the sockets, everything is reopened after
  * a short pause (outer loop).
  *
- * Phase 2, work package P2.1. Discovery, pairing and the clock offset
- * follow in P2.2 and P2.3; until then the password is only in config.ini.
+ * Phase 2, work packages P2.1 and P2.2. The measured clock skew is only
+ * reported yet; P2.3 applies it to the time stamps.
  *
  * Host build for the CI tests:
  *   prospero-smbd <share root> <state dir> <smb port>
@@ -44,6 +49,7 @@
 
 #include "backend.h"
 #include "config.h"
+#include "discovery.h"
 #include "log.h"
 #include "service.h"
 
@@ -76,6 +82,12 @@ static unsigned g_connections;
 static unsigned g_restarts;
 static int g_quit;
 static int g_announced;
+static const char *g_state_dir;
+static int g_udp_fd = -1;
+static discovery_info_t g_disc;
+static time_t g_pairing_until;
+static int64_t g_skew_ms;
+static unsigned g_skew_samples;
 
 
 /* PS5 notification and log line. Notifications vanish and do not stay in
@@ -99,6 +111,64 @@ notify(const char *fmt, ...) {
 }
 
 
+static void
+ip_text(uint32_t ip, char out[48]) {
+  snprintf(out, 48, "%u.%u.%u.%u", (unsigned)(ip >> 24), (unsigned)(ip >> 16 & 255),
+           (unsigned)(ip >> 8 & 255), (unsigned)(ip & 255));
+}
+
+
+static int
+pairing_is_open(void) {
+  return g_cfg.npaired == 0 || time(NULL) < g_pairing_until;
+}
+
+
+/* Stored before the password goes out, so a PC that got it is always on
+ * the list. */
+static int
+on_paired(const char *pc, uint32_t peer) {
+  config_t next = g_cfg;
+  char ip[48];
+  int rc;
+
+  config_add_paired(&next, pc);
+  if((rc=config_save(g_state_dir, &next)) != 0) {
+    log_msg("pairing %s failed, config.ini not written: %s", pc, strerror(-rc));
+    return rc;
+  }
+  g_cfg = next;
+  g_pairing_until = 0;
+  ip_text(peer, ip);
+  notify(NAME ": gekoppelt mit %s (%s)", pc, ip);
+  return 0;
+}
+
+
+static void
+on_open_pairing(uint32_t peer) {
+  char ip[48];
+
+  g_pairing_until = time(NULL) + PAIRING_SECONDS;
+  ip_text(peer, ip);
+  notify(NAME ": Koppeln fuer %d Minuten offen (angefordert von %s)",
+         PAIRING_SECONDS / 60, ip);
+}
+
+
+/* P2.2 only records the measurement; changes of 2 s or more are logged. */
+static void
+on_clock(int64_t skew_ms) {
+  int64_t diff = skew_ms - g_skew_ms;
+
+  if(!g_skew_samples || diff >= 2000 || diff <= -2000) {
+    log_msg("clock: console runs %lld ms ahead of the PC", (long long)skew_ms);
+  }
+  g_skew_ms = skew_ms;
+  g_skew_samples++;
+}
+
+
 static int
 status(char *buf, size_t size) {
   time_t now = time(NULL);
@@ -112,10 +182,16 @@ status(char *buf, size_t size) {
   n = snprintf(buf, size,
                "PROSPERO-SMBD OK\nversion=%s\nserver_id=%s\nname=%s\n"
                "share=%s\nroot=%s\nuser=%s\nsmb_port=%u\nuptime_s=%ld\n"
-               "connections=%u\nrestarts=%u\nnow_utc=%s\n",
+               "connections=%u\nrestarts=%u\nnow_utc=%s\npaired_pcs=%d\n"
+               "pairing=%s\nskew_ms=%lld\nskew_samples=%u\n",
                PROSPERO_VERSION, g_cfg.server_id, g_cfg.name, SHARE_NAME,
                g_root, g_cfg.user, (unsigned)g_server.port,
-               (long)(now - g_start), g_connections, g_restarts, now_utc);
+               (long)(now - g_start), g_connections, g_restarts, now_utc,
+               g_cfg.npaired, pairing_is_open() ? "open" : "closed",
+               (long long)g_skew_ms, g_skew_samples);
+  if(n > 0 && (size_t)n < size) {
+    n += discovery_status(buf + n, size - n);
+  }
   if(n > 0 && (size_t)n < size) {
     n += backend_status(buf + n, size - n);
   }
@@ -129,6 +205,12 @@ extra_fdset(struct smb2_server *srv, fd_set *rfds, fd_set *wfds, int *maxfd) {
   (void)wfds;
   backend_listener(srv->fd);
   service_fdset(rfds, maxfd);
+  if(g_udp_fd >= 0) {
+    FD_SET(g_udp_fd, rfds);
+    if(g_udp_fd > *maxfd) {
+      *maxfd = g_udp_fd;
+    }
+  }
 }
 
 
@@ -141,6 +223,9 @@ extra_service(struct smb2_server *srv, fd_set *rfds, fd_set *wfds) {
     notify(NAME " laeuft: Freigabe %s auf Port %u", SHARE_NAME, (unsigned)srv->port);
   }
   backend_flush();
+  if(g_udp_fd >= 0 && FD_ISSET(g_udp_fd, rfds)) {
+    discovery_serve(g_udp_fd, &g_disc);
+  }
   switch(service_run(rfds)) {
   case SERVICE_QUIT:
     log_msg("quit requested on the service channel");
@@ -203,6 +288,7 @@ main(int argc, char **argv) {
   (void)argv;
   g_root = "/";
 #endif
+  g_state_dir = state_dir;
 
   signal(SIGPIPE, SIG_IGN);
   g_start = time(NULL);
@@ -236,8 +322,18 @@ main(int argc, char **argv) {
   g_info.server_id = g_cfg.server_id;
   g_info.name = g_cfg.name;
   g_info.share = SHARE_NAME;
+  g_info.user = g_cfg.user;
+  g_info.password = g_cfg.password;
   g_info.smb_port = port;
   g_info.status = status;
+  g_info.pairing_is_open = pairing_is_open;
+  g_info.paired = on_paired;
+  g_info.open_pairing = on_open_pairing;
+  g_info.clock = on_clock;
+  g_disc.server_id = g_cfg.server_id;
+  g_disc.name = g_cfg.name;
+  g_disc.service_port = SERVICE_PORT;
+  g_disc.smb_port = port;
 
   snprintf(g_server.hostname, sizeof g_server.hostname, "%s", g_cfg.name);
   g_server.port = port;
@@ -256,9 +352,17 @@ main(int argc, char **argv) {
     if((rc=open_service(g_restarts ? 1 : 10)) != 0) {
       log_msg("service port %d not available: %s", SERVICE_PORT, strerror(-rc));
     } else {
+      /* Without discovery the agent still finds a known address. */
+      if((g_udp_fd=discovery_open(DISCOVERY_PORT)) < 0) {
+        log_msg("UDP port %d not available: %s", DISCOVERY_PORT, strerror(-g_udp_fd));
+      }
       g_server.stop_requested = 0;
       rc = smb2_serve_port(&g_server, MAX_CONNS, on_new_client, NULL);
       service_close();
+      if(g_udp_fd >= 0) {
+        close(g_udp_fd);
+        g_udp_fd = -1;
+      }
       if(g_quit) {
         break;
       }

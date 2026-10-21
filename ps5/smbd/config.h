@@ -14,12 +14,20 @@
 
 #define CONFIG_ID_LEN       16  /* hex digits */
 #define CONFIG_PASSWORD_LEN 24
+#define CONFIG_MAX_PAIRED   16
+#define CONFIG_PC_NAME_SIZE 64
+
+/* Characters allowed in a PC name (paired=, PAIR pc=). */
+#define CONFIG_PC_NAME_CHARS \
+  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-"
 
 typedef struct config {
   char server_id[CONFIG_ID_LEN + 1];
   char user[32];
   char password[CONFIG_PASSWORD_LEN + 1];
   char name[64];
+  int npaired;                          /* PCs that got the password */
+  char paired[CONFIG_MAX_PAIRED][CONFIG_PC_NAME_SIZE];
 } config_t;
 
 enum config_result {
@@ -31,3 +39,10 @@ enum config_result {
 /* Loads <dir>/config.ini, or creates it with a new server ID and password.
  * Creates dir if needed. Returns a config_result or -errno. */
 int config_load(const char *dir, config_t *cfg);
+
+/* Writes cfg back to <dir>/config.ini (atomically). Returns 0 or -errno. */
+int config_save(const char *dir, const config_t *cfg);
+
+/* Adds a paired PC unless it is already listed; the oldest entry goes
+ * when the list is full. Does not save. */
+void config_add_paired(config_t *cfg, const char *pc);

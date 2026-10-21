@@ -15,15 +15,28 @@
 
 #include <sys/select.h>
 
-#define SERVICE_PORT 4445
+#define SERVICE_PORT    4445
+#define PAIRING_SECONDS 600   /* "Weiteren PC koppeln" keeps pairing open */
 
 typedef struct service_info {
   const char *server_id;
   const char *name;
   const char *share;
+  const char *user;
+  const char *password;                 /* also the key of every mac= */
   uint16_t smb_port;
   /* Appends "key=value" status lines, returns the characters written. */
   int (*status)(char *buf, size_t size);
+  /* 1 while PAIR is accepted. */
+  int (*pairing_is_open)(void);
+  /* PAIR was accepted for pc from peer (IPv4, host byte order): record it.
+   * Returns 0, or -errno if it could not be stored (then no password is
+   * handed out). */
+  int (*paired)(const char *pc, uint32_t peer);
+  /* A paired PC asked to let another PC pair. */
+  void (*open_pairing)(uint32_t peer);
+  /* A PING with a valid mac measured server time minus PC time. */
+  void (*clock)(int64_t skew_ms);
 } service_info_t;
 
 enum service_result {
