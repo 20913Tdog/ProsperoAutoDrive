@@ -63,7 +63,7 @@ Go für natives SMB, wenn S1, S2, S3, S6 und S7 bestanden sind und S4 mindestens
 **Stand:**
 
 - **P2.1** Grundgerüst: bestanden (E1, E2).
-- **P2.2** Suche, Kopplung, Lebenszeichen: bestanden (E3, Build `8e56644`, 22.10.2026). Unicast und Broadcast antworten, der PC koppelt beim ersten Versuch, die Zugangsdaten liegen in der Anmeldeinformationsverwaltung. Alle drei `PING` mit Prüfsumme wurden anerkannt, Abweichung 3596,3 s. Die Testdatei in `/data/_ProsperoAutoDrive_Test_…` wurde geschrieben und gleich zurückgelesen.
+- **P2.2** Suche, Kopplung, Lebenszeichen: bestanden (E3, Build `8e56644`, 22.10.2026). Unicast und Broadcast antworten, der PC koppelt beim ersten Versuch, die Zugangsdaten liegen in der Anmeldeinformationsverwaltung. Alle drei `PING` mit Prüfsumme wurden anerkannt, Abweichung 3596,3 s. Die Testdatei in `/data/_ProsperoAutoDrive_Test_…` wurde geschrieben und gleich zurückgelesen. Kein Firewall-Fenster. Die Benachrichtigungen wurden nicht beobachtet, „läuft“ wird beim Test zu P2.3 mitgeprüft.
 - **Als Nächstes:** P2.3 Uhrausgleich.
 
 **Umfang:**
