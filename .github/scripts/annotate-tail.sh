@@ -4,7 +4,8 @@
 # read from the anonymous API as well.
 # Usage: annotate-tail.sh <log file> [error|notice] [title]
 #   error (default): error lines first, then the end of the log
-#   notice: the whole log, for results that are already short
+#   notice: the whole log, for results that are already short; if it is
+#           too long, its end (where the verdict is)
 set -euo pipefail
 
 log="${1:?usage: $0 <log file> [error|notice] [title]}"
@@ -18,7 +19,7 @@ title="${3:-log tail}"
 set +o pipefail
 filtered=$(grep -v -e '^[[:space:]]*$' -e '^\[[0-9]*/[0-9]*\] ' "$log" || true)
 if [ "$level" = notice ]; then
-  body=$(cut -c1-300 <<<"$filtered" | head -c 3800)
+  body=$(cut -c1-300 <<<"$filtered" | tail -c 3800)
 else
   body=$({
     grep -E -i 'error|fail|warning:|expected|undefined|falsch|fehler' <<<"$filtered" | head -n 25 || true
