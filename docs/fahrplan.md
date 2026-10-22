@@ -72,6 +72,21 @@ Go für natives SMB, wenn S1, S2, S3, S6 und S7 bestanden sind und S4 mindestens
   - Schreiben: Im Server wartet nichts. Die Wartezeit entsteht vor dem Server, beim PC oder auf dem Weg dorthin.
   - Durchsatz wie in S4: Schreiben 5,3–5,5 MB/s, Lesen 3,9 MB/s.
   - Noch nicht gemessen: ungelesene Anfragen im Empfangspuffer der PS5, Anfragen je kleiner Datei, Kredite des PCs.
+  - Einschränkung: Messung 1 kopierte mit `ReadFile`/`WriteFile` zu je 1 MiB, also mit nur einer Anfrage zur Zeit. Der Explorer hat mehrere offen.
+- **P2.4** Messung 2 (E3, Build `e2516f4`, 22.10.2026, 5 Varianten × 2 Runden je 128 MiB, Kopie mit `CopyFileEx` wie der Explorer):
+
+  | Variante | Schreiben MB/s | klein ms | Lesen MB/s | klein ms |
+  |---|---|---|---|---|
+  | Puffer Standard (512 KiB), Kredite frei | 8,69 | 7969 | 4,69 | 24000 |
+  | Puffer 128 KiB, Kredite frei | 8,96 | 9766 | 3,68 | 32062 |
+  | Puffer 64 KiB, Kredite frei | 9,13 | 12140 | 2,96 | 41828 |
+  | Puffer 128 KiB, Kredite 64 | 9,09 | 4078 | 3,32 | 23562 |
+  | Puffer 128 KiB, Kredite 32 | 7,60 | 3047 | 2,65 | 26875 |
+
+  - ftpsrv im selben Lauf: Schreiben 8,3 und 9,0 MB/s, Lesen 4,7 und 2,9 MB/s. SMB liegt damit beim Durchsatz gleichauf. Das Lesen schwankt im WLAN bei beiden Verfahren stark.
+  - Wie der Explorer hält der PC bis zu 11 Lese-Antworten zu je 1 MiB offen, bis 8 MiB stehen in der Sendeschlange von libsmb2. Eine kleine Datei wartet daher beim Lesen 24–44 s und beim Schreiben 8–12 s, ohne Last 78 ms. Kleinere Sendepuffer helfen nicht, die Antworten stauen sich dann in der Sendeschlange.
+  - Die Kreditgrenze verkürzt die Wartezeit beim Schreiben auf 3–4 s, beim Lesen kaum. Den Durchsatz kostet sie bei 64 nicht.
+  - Fehler: In Runde 1 brach das Schreiben mit Kreditgrenze 64 nach 7 s ab (Windows-Fehler 59, der PC hat die Verbindung zurückgesetzt). Davor lief eine Variante ohne Grenze, der PC hielt bis zu 222 Kredite. Mit derselben Grenze in Runde 2 trat der Fehler nicht auf. Vermutung: Die Grenze wurde mitten in der Verbindung von 222 auf 64 gesenkt. Noch nicht nachgewiesen.
 
 **Umfang:**
 
