@@ -31,6 +31,10 @@ int backend_init(const char *root, const char *share_name,
  * time reported to the client, added to every time the client sets. */
 void backend_set_clock_skew(int64_t seconds);
 
+/* Send buffer of every connection, now and for new ones; 0 returns to
+ * the profile's size (P2.4 measurement). */
+void backend_set_sndbuf(int bytes);
+
 /* Call for every accepted connection, before it is served. */
 void backend_attach(struct smb2_context *smb2);
 

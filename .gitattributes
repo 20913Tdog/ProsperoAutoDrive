@@ -18,3 +18,4 @@ Makefile            text eol=lf
 # Binary assets (sources only; build outputs never go into git).
 *.png               binary
 *.ico               binary
+*.patch             text eol=lf

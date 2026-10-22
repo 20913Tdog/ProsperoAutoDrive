@@ -260,6 +260,35 @@ smb -c 'ls' > "$WORK/ls.txt"
 need grep -q "$TEST" "$WORK/ls.txt"
 echo "case 3 passed"
 
+echo "== case 3a: TUNE sets send buffer and credit limit"
+rep=$(svc 127.0.0.1 "HELLO 1" "TUNE 1 seq=1 sndbuf=131072 credits=16 mac=0000" \
+  "TUNE 1 seq=2 sndbuf=-1 credits=16 mac=@MAC" "TUNE 1 seq=3 sndbuf=0 credits=9000 mac=@MAC" \
+  "TUNE 1 seq=4 sndbuf=131072 credits=16 mac=@MAC")
+echo "$rep"
+mapfile -t r <<<"$rep"
+expect "${r[1]}" '^ERROR 1 reason=bad-mac$'
+expect "${r[2]}" '^ERROR 1 reason=bad-value$'
+expect "${r[3]}" '^ERROR 1 reason=bad-value$'
+expect "${r[4]}" '^TUNED 1 sndbuf=131072 credits=16$'
+out=$(status)
+expect "$out" '^tune_sndbuf=131072$'
+expect "$out" '^tune_credits=16$'
+svc 127.0.0.1 "RESET-STATS 1" >/dev/null
+head -c $((8 << 20)) /dev/urandom > "$WORK/big.bin"
+smb -c "cd $TEST; put $WORK/big.bin big.bin; get big.bin $WORK/big-back.bin" >/dev/null
+need cmp "$WORK/big.bin" "$WORK/big-back.bin"
+out=$(status)
+echo "$out" | grep '^diag_credits='
+cmax=$(sed -n 's/^diag_credits=[0-9]* (max \([0-9]*\),.*/\1/p' <<<"$out")
+need [ -n "$cmax" ]
+need [ "$cmax" -ge 1 ]
+need [ "$cmax" -le 16 ]
+rep=$(svc 127.0.0.1 "HELLO 1" "TUNE 1 seq=1 sndbuf=0 credits=0 mac=@MAC")
+expect "$rep" '^TUNED 1 sndbuf=0 credits=0$'
+expect "$(status)" '^tune_credits=0$'
+need grep -q "tune: send buffer 131072, credit limit 16" "$STATE/log.txt"
+echo "case 3a passed"
+
 echo "== case 4: a FIFO is refused and does not block the server"
 mkfifo "$ROOT/$TEST/fifo"
 smb -c "get $TEST/fifo $WORK/fifo.out" > "$WORK/fifo.txt" 2>&1 || true

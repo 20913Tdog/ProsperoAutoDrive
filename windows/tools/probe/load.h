@@ -11,7 +11,10 @@
 
 // Creates <folder>\<test_dir> in the share, then per round writes and reads
 // a big file of mib MiB while sampling small-file time and server queues.
-// Prints a table per phase and a summary. Returns the number of failures.
+// Prints a table per phase and a summary. variants is "sndbuf:credits,..."
+// set on the server with TUNE before each (empty: no TUNE); every round
+// runs all of them, every other round backwards. Returns the number of
+// failures.
 int LoadTest(const std::string &ip, const std::string &unc_host, unsigned short port, const prospero::Hello &hello,
              const prospero::Credential &cred, const std::string &folder, std::string *test_dir,
-             unsigned mib, int rounds);
+             unsigned mib, int rounds, const std::string &variants);

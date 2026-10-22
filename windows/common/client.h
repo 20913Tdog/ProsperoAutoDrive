@@ -116,6 +116,10 @@ class Channel {
   // RESET-STATS: restarts the server's counters (measurements).
   bool ResetStats(std::string *err);
 
+  // TUNE: send buffer in bytes and credit limit on the server, 0 for its
+  // default (measurements). Needs the key of a paired PC.
+  bool Tune(const std::string &key, int sndbuf, int credits, std::string *err);
+
  private:
   // "<command> 1 seq=<n> <rest> mac=<hmac>"
   std::string Signed(const std::string &command, const std::string &rest, const std::string &key);

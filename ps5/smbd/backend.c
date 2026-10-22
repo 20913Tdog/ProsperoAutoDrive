@@ -963,6 +963,24 @@ unlink_handle(conn_t *c, handle_t *h) {
 }
 
 
+/* Send buffer chosen at run time (P2.4 measurement), 0 = the profile's. */
+static int g_sndbuf;
+
+
+void
+backend_set_sndbuf(int bytes) {
+  g_sndbuf = bytes;
+  for(conn_t *c = g.conns; c; c = c->next) {
+    int fd = smb2_get_fd(c->smb2);
+    int v = bytes ? bytes : g.profile->sockbuf;
+
+    if(fd >= 0 && v) {
+      setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &v, sizeof v);
+    }
+  }
+}
+
+
 void
 backend_attach(struct smb2_context *smb2) {
   const profile_t *p = g.profile;
@@ -979,6 +997,9 @@ backend_attach(struct smb2_context *smb2) {
   }
   if(p->nodelay >= 0) {
     setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &p->nodelay, sizeof p->nodelay);
+  }
+  if(g_sndbuf) {
+    setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &g_sndbuf, sizeof g_sndbuf);
   }
   if(c) {
     c->smb2 = smb2;

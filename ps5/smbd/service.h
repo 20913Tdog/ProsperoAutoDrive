@@ -39,6 +39,9 @@ typedef struct service_info {
   void (*clock)(int64_t skew_ms);
   /* RESET-STATS: restart the counters shown by STATUS. */
   void (*reset_stats)(void);
+  /* TUNE from a paired PC: send buffer in bytes and credit limit, each
+   * 0 for the default (P2.4 measurement). */
+  void (*tune)(int sndbuf, int credits);
 } service_info_t;
 
 enum service_result {

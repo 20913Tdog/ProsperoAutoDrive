@@ -416,6 +416,17 @@ bool Channel::ResetStats(std::string *err) {
   return true;
 }
 
+bool Channel::Tune(const std::string &key, int sndbuf, int credits, std::string *err) {
+  std::string rep;
+  std::string rest = "sndbuf=" + std::to_string(sndbuf) + " credits=" + std::to_string(credits);
+  if (!Request(Signed("TUNE", rest, key), &rep, err)) return false;
+  if (rep.rfind("TUNED 1 ", 0) != 0) {
+    *err = "abgelehnt: " + rep;
+    return false;
+  }
+  return true;
+}
+
 // Credentials ------------------------------------------------------------
 
 bool LoadCredential(const std::string &server_id, Credential *out) {

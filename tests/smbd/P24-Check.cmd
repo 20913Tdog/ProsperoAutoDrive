@@ -1,10 +1,14 @@
 @echo off
-rem P2.4 live measurement (E3): where does a reply wait under load? The
-rem probe from the dev build writes a 256 MiB file into a new folder
-rem /data/_ProsperoAutoDrive_Test_<time>-<random> and reads it back, twice.
-rem Meanwhile it times a small file every 2 s and fetches the server's queue
-rem counters over the service channel. Only measures, changes no settings.
-rem Nothing outside the new test folder is written, nothing is deleted.
+rem P2.4 live measurement (E3): response time under load and throughput,
+rem for several settings of the server, plus ftpsrv as the reference.
+rem The probe from the dev build sets send buffer and credit limit on the
+rem server (TUNE) and per setting copies a 128 MiB file to the share and
+rem back, as the Explorer does, while it times a small file every 2 s and
+rem fetches the server's queue counters. Two rounds, the second one in
+rem reverse order. Afterwards ftpsrv reads and writes the same file twice.
+rem Everything on the console goes into one new folder
+rem /data/_ProsperoAutoDrive_Test_<time>-<random>; nothing is deleted there.
+rem The local copies in %TEMP% are deleted.
 rem   P24-Check.cmd <PS5-IP>
 rem Windows built-ins only (curl.exe).
 setlocal EnableExtensions EnableDelayedExpansion
@@ -18,6 +22,10 @@ set "PS5=%~1"
 set "CTL=http://%PS5%:4445"
 set "EXE=%~dp0..\..\dist\dev\prospero-probe.exe"
 set "STATUS=%TEMP%\prospero-p24-status.txt"
+set "LOCAL=%TEMP%\prospero-p24-ftp.bin"
+if not defined FTPPORT set "FTPPORT=2121"
+set "MIB=128"
+set "VARIANTS=0:0,131072:0,65536:0,131072:64,131072:32"
 
 echo ===== 0. Server-Status =====
 curl.exe -s --connect-timeout 3 --max-time 5 -o "%STATUS%" "%CTL%/"
@@ -26,22 +34,42 @@ if errorlevel 1 (
   echo FEHLER: prospero-smbd antwortet nicht auf Port 4445. Laeuft es?
   exit /b 1
 )
-findstr /b /c:"version=" /c:"paired_pcs=" /c:"clock_skew_s=" /c:"profile=" /c:"diag_sndbuf=" "%STATUS%"
+findstr /b /c:"version=" /c:"paired_pcs=" /c:"clock_skew_s=" /c:"profile=" /c:"tune_" "%STATUS%"
 if not exist "%EXE%" (
   echo FEHLER: %EXE% fehlt. Bitte tools\Get-DevBuild.cmd ausfuehren.
   exit /b 1
 )
+rem Folder name from the console's own clock, as the payloads name theirs.
+set "U="
+for /f "usebackq tokens=1,* delims==" %%A in ("%STATUS%") do if "%%A"=="now_utc" set "U=%%B"
+set "NAME=_ProsperoAutoDrive_Test_!U:~0,4!!U:~5,2!!U:~8,2!-!U:~11,2!!U:~14,2!!U:~17,2!-p24!RANDOM!"
+echo Testordner: /data/!NAME!
+echo Varianten ^(Sendepuffer in Bytes : Kreditgrenze, 0 = Standard^): %VARIANTS%
 
 echo.
-echo ===== 1. Messung =====
-"%EXE%" %PS5% --no-broadcast --load-test data 256 --rounds 2
+echo ===== 1. SMB: Varianten =====
+"%EXE%" %PS5% --no-broadcast --load-test data %MIB% --rounds 2 --variants "%VARIANTS%" --test-name !NAME!
 set "RC=%errorlevel%"
 echo Exitcode %RC%
 
 echo.
-echo ===== 2. Server-Status nachher =====
+echo ===== 2. Referenz: ftpsrv auf Port %FTPPORT% =====
+set "FTP=ftp://%PS5%:%FTPPORT%/data/!NAME!"
+del /q "%LOCAL%" 2>nul
+for %%R in (1 2) do (
+  curl.exe -sS --connect-timeout 5 --max-time 1800 -o "%LOCAL%" -w "FTP lesen     %%R: %%{size_download} Bytes, %%{speed_download} Bytes/s\n" "!FTP!/big-1-1.bin"
+  if exist "%LOCAL%" (
+    curl.exe -sS --connect-timeout 5 --max-time 1800 -T "%LOCAL%" -w "FTP schreiben %%R: %%{size_upload} Bytes, %%{speed_upload} Bytes/s\n" "!FTP!/ftp-%%R.bin"
+  ) else (
+    echo FTP lesen %%R fehlgeschlagen, ohne Referenz weiter.
+  )
+)
+del /q "%LOCAL%" 2>nul
+
+echo.
+echo ===== 3. Server-Status nachher =====
 curl.exe -s --connect-timeout 3 --max-time 5 -o "%STATUS%" "%CTL%/"
-findstr /b /c:"diag_" /c:"cpu_" /c:"since_reset_ms=" /c:"bytes_read=" /c:"bytes_written=" /c:"lost_replies=" "%STATUS%"
+findstr /b /c:"tune_" /c:"diag_" /c:"cpu_" /c:"since_reset_ms=" /c:"lost_replies=" "%STATUS%"
 
 echo.
 if "%RC%"=="0" (

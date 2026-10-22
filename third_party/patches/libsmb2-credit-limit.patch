@@ -1,0 +1,75 @@
+diff --git a/include/libsmb2-private.h b/include/libsmb2-private.h
+index 5991114..ad66aa5 100644
+--- a/include/libsmb2-private.h
++++ b/include/libsmb2-private.h
+@@ -205,6 +205,11 @@ struct smb2_context {
+         struct sync_cb_data connect_cb_data;
+ 
+         int credits;
++        /* Server side: credits granted minus credits charged by the
++         * requests answered so far. With the one credit a client starts
++         * with, the client holds 1 + this, plus the charge of its
++         * requests still in flight. */
++        int64_t srv_credits_net;
+ 
+         char client_guid[16];
+         char server_guid[16];
+diff --git a/include/smb2/libsmb2.h b/include/smb2/libsmb2.h
+index 21b5286..216d8c5 100644
+--- a/include/smb2/libsmb2.h
++++ b/include/smb2/libsmb2.h
+@@ -1646,6 +1646,14 @@ struct smb2_server {
+          * instead of having to sleep and hope.
+          */
+         volatile int listener_ready;
++        /*
++         * Upper limit for the credits a client may hold, i.e. for the
++         * work it may have outstanding (one credit per 64 KiB of a READ
++         * or WRITE). 0 grants whatever the client asks for. A low limit
++         * keeps a big transfer from queueing seconds of data ahead of a
++         * small request on the same connection.
++         */
++        uint16_t credit_limit;
+ };
+ 
+ int smb2_bind_and_listen(const uint16_t port, const int max_connections, int *out_fd);
+diff --git a/lib/pdu.c b/lib/pdu.c
+index 059630d..1e0b48c 100644
+--- a/lib/pdu.c
++++ b/lib/pdu.c
+@@ -666,6 +666,35 @@ smb2_correlate_reply(struct smb2_context *smb2, struct smb2_pdu *pdu)
+                         pdu->header.credit_charge = req_pdu->header.credit_charge;
+                 }
+ 
++                /* Optional credit limit: grant no more than keeps the
++                 * client's credits plus the charge of its requests in
++                 * flight at credit_limit, but always enough that it is
++                 * not left with none.
++                 */
++                {
++                        struct smb2_server *srv = smb2->owning_server;
++                        int64_t charge = req_pdu->header.credit_charge ?
++                                req_pdu->header.credit_charge : 1;
++                        int64_t held = 1 + smb2->srv_credits_net - charge;
++
++                        if (srv && srv->credit_limit) {
++                                int64_t room = (int64_t)srv->credit_limit - held;
++                                int64_t grant = pdu->header.credit_request_response;
++
++                                if (grant > room) {
++                                        grant = room;
++                                }
++                                if (held + grant < 1) {
++                                        grant = 1 - held;
++                                }
++                                if (grant < 0) {
++                                        grant = 0;
++                                }
++                                pdu->header.credit_request_response = (uint16_t)grant;
++                        }
++                        smb2->srv_credits_net += (int64_t)pdu->header.credit_request_response - charge;
++                }
++
+                 /* replies always have to have the same message-id and tree-id as
+                  * the request we sent, so use the request from the wait queue
+                  * to make sure that is the case. (exception is tree-connect where

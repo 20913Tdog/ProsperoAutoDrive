@@ -192,6 +192,20 @@ on_clock(int64_t skew_ms) {
 }
 
 
+static int g_tune_sndbuf;
+static int g_tune_credits;
+
+
+static void
+tune(int sndbuf, int credits) {
+  g_tune_sndbuf = sndbuf;
+  g_tune_credits = credits;
+  backend_set_sndbuf(sndbuf);
+  g_server.credit_limit = (uint16_t)credits;
+  log_msg("tune: send buffer %d, credit limit %d (0 = default)", sndbuf, credits);
+}
+
+
 static void
 reset_stats(void) {
   backend_reset_stats();
@@ -222,6 +236,10 @@ status(char *buf, size_t size) {
                g_cfg.has_skew ? "" : " (unmeasured)");
   if(n > 0 && (size_t)n < size) {
     n += discovery_status(buf + n, size - n);
+  }
+  if(n > 0 && (size_t)n < size) {
+    n += snprintf(buf + n, size - n, "tune_sndbuf=%d\ntune_credits=%d\n",
+                  g_tune_sndbuf, g_tune_credits);
   }
   if(n > 0 && (size_t)n < size) {
     n += diag_status(buf + n, size - n);
@@ -381,6 +399,7 @@ main(int argc, char **argv) {
   g_info.open_pairing = on_open_pairing;
   g_info.clock = on_clock;
   g_info.reset_stats = reset_stats;
+  g_info.tune = tune;
   g_disc.server_id = g_cfg.server_id;
   g_disc.name = g_cfg.name;
   g_disc.service_port = SERVICE_PORT;

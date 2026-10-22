@@ -10,9 +10,11 @@
 // connection (service fast, small file slow) from the network or a busy
 // server (both slow).
 //
-// Big files go through without the client cache (FILE_FLAG_NO_BUFFERING),
-// so every byte crosses the network, as with a big Explorer copy.
-// Everything is created in a new test folder; nothing is deleted.
+// Big files are copied with CopyFileEx without buffering, as the Explorer
+// does, so every byte crosses the network with several requests in flight.
+// The source for writing is a local file in %TEMP%, deleted at the end, as
+// is the local copy of each read. On the share everything is created in a
+// new test folder; nothing there is deleted.
 
 #include "load.h"
 
@@ -86,7 +88,30 @@ struct PhaseResult {
 };
 
 // Runs the big transfer in a thread and samples until it ends.
-PhaseResult Phase(const char *title, bool write, const std::wstring &big, unsigned mib,
+DWORD CALLBACK Progress(LARGE_INTEGER, LARGE_INTEGER done, LARGE_INTEGER, LARGE_INTEGER, DWORD,
+                        DWORD, HANDLE, HANDLE, LPVOID data) {
+  static_cast<std::atomic<long long> *>(data)->store(done.QuadPart);
+  return PROGRESS_CONTINUE;
+}
+
+// A local file of mib MiB in %TEMP%, the source for writing to the share.
+bool MakeLocal(const std::wstring &path, unsigned mib) {
+  HANDLE h = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
+                         FILE_ATTRIBUTE_TEMPORARY, nullptr);
+  if (h == INVALID_HANDLE_VALUE) return false;
+  std::vector<unsigned char> buf(kChunk);
+  bool ok = true;
+  for (unsigned i = 0; ok && i < mib; i++) {
+    for (DWORD j = 0; j < kChunk; j++) buf[j] = static_cast<unsigned char>(j * 7 + i * 13 + 3);
+    DWORD done = 0;
+    ok = WriteFile(h, buf.data(), kChunk, &done, nullptr) && done == kChunk;
+  }
+  CloseHandle(h);
+  return ok;
+}
+
+PhaseResult Phase(const char *title, bool write, const std::wstring &big, const std::wstring &local,
+                  unsigned mib,
                   const std::wstring &dir, int *small_n, prospero::Channel &ch) {
   PhaseResult r;
   std::string err;
@@ -98,25 +123,16 @@ PhaseResult Phase(const char *title, bool write, const std::wstring &big, unsign
   std::atomic<long long> moved{0};
   int64_t t0 = NowMs();
   std::thread worker([&] {
-    DWORD access = write ? GENERIC_WRITE : GENERIC_READ;
-    DWORD disp = write ? CREATE_NEW : OPEN_EXISTING;
-    HANDLE h = CreateFileW(big.c_str(), access, 0, nullptr, disp,
-                           FILE_FLAG_NO_BUFFERING | FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
-    void *buf = VirtualAlloc(nullptr, kChunk, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
-    bool ok = h != INVALID_HANDLE_VALUE && buf;
-    if (ok && write) {
-      auto *p = static_cast<unsigned char *>(buf);
-      for (DWORD i = 0; i < kChunk; i++) p[i] = static_cast<unsigned char>(i * 7 + 3);
-    }
-    for (unsigned i = 0; ok && i < mib; i++) {
-      DWORD done = 0;
-      ok = write ? WriteFile(h, buf, kChunk, &done, nullptr) : ReadFile(h, buf, kChunk, &done, nullptr);
-      ok = ok && done == kChunk;
-      if (ok) moved += done;
-    }
-    if (h != INVALID_HANDLE_VALUE) CloseHandle(h);
-    if (buf) VirtualFree(buf, 0, MEM_RELEASE);
-    big_ok = ok;
+    // CopyFileEx without buffering, as the Explorer copies big files: it
+    // keeps several requests in flight, unlike a loop of ReadFile calls.
+    std::wstring from = write ? local : big;
+    std::wstring to = write ? big : local + L".back";
+    BOOL cancel = FALSE;
+    bool ok = CopyFileExW(from.c_str(), to.c_str(), Progress, &moved, &cancel,
+                          COPY_FILE_NO_BUFFERING | COPY_FILE_FAIL_IF_EXISTS) != 0;
+    if (!ok) std::printf("  CopyFileEx: Windows-Fehler %lu\n", GetLastError());
+    if (!write) DeleteFileW(to.c_str());          // local copy on the PC only
+    big_ok = ok && moved == static_cast<long long>(mib) * kChunk;
     running = false;
   });
 
@@ -172,9 +188,59 @@ void Report(const char *title, const PhaseResult &r, int64_t idle, int *failures
 
 }  // namespace
 
-int LoadTest(const std::string &ip, const std::string &unc_host, unsigned short port, const prospero::Hello &hello,
-             const prospero::Credential &cred, const std::string &folder, std::string *test_dir,
-             unsigned mib, int rounds) {
+
+
+namespace {
+
+struct Variant {
+  int sndbuf = 0;      // bytes, 0 = server default
+  int credits = 0;     // 0 = no limit
+  std::string Name() const {
+    std::string s = sndbuf ? std::to_string(sndbuf / 1024) + " KiB" : "Standard";
+    return "Puffer " + s + ", Kredite " + (credits ? std::to_string(credits) : "frei");
+  }
+  std::vector<PhaseResult> writes, reads;
+};
+
+// "sndbuf:credits,..." -> variants; empty or invalid -> one default variant.
+std::vector<Variant> ParseVariants(const std::string &spec) {
+  std::vector<Variant> out;
+  size_t pos = 0;
+  while (pos < spec.size()) {
+    size_t end = spec.find(',', pos);
+    std::string item = spec.substr(pos, end == std::string::npos ? std::string::npos : end - pos);
+    size_t colon = item.find(':');
+    if (colon != std::string::npos) {
+      Variant v;
+      v.sndbuf = std::atoi(item.substr(0, colon).c_str());
+      v.credits = std::atoi(item.substr(colon + 1).c_str());
+      out.push_back(v);
+    }
+    if (end == std::string::npos) break;
+    pos = end + 1;
+  }
+  if (out.empty()) out.emplace_back();
+  return out;
+}
+
+int64_t MedianOf(const std::vector<PhaseResult> &v, bool small) {
+  std::vector<int64_t> all;
+  for (const auto &r : v) {
+    if (small) {
+      all.insert(all.end(), r.small_ms.begin(), r.small_ms.end());
+    } else {
+      all.push_back(static_cast<int64_t>(r.mb_s * 100));
+    }
+  }
+  return Median(all);
+}
+
+}  // namespace
+
+int LoadTest(const std::string &ip, const std::string &unc_host, unsigned short port,
+             const prospero::Hello &hello, const prospero::Credential &cred,
+             const std::string &folder, std::string *test_dir, unsigned mib, int rounds,
+             const std::string &variants) {
   int failures = 0;
   std::wstring share = L"\\\\" + Wide(unc_host) + L"\\" + Wide(hello.share);
   std::wstring user = Wide(cred.user);
@@ -214,15 +280,58 @@ int LoadTest(const std::string &ip, const std::string &unc_host, unsigned short 
   std::printf("OK      kleine Datei ohne Last: Median %lld ms aus %zu Versuchen\n",
               static_cast<long long>(idle), idle_v.size());
 
-  for (int r = 1; r <= rounds; r++) {
-    std::printf("\n  ===== Runde %d von %d =====\n", r, rounds);
-    std::wstring big = dir + L"\\big-" + std::to_wstring(r) + L".bin";
-    PhaseResult w = Phase("Schreiben", true, big, mib, dir, &small_n, ch);
-    PhaseResult rd = Phase("Lesen", false, big, mib, dir, &small_n, ch);
-    std::printf("\n");
-    Report("Schreiben", w, idle, &failures);
-    Report("Lesen", rd, idle, &failures);
+  wchar_t tmp[MAX_PATH];
+  GetTempPathW(MAX_PATH, tmp);
+  std::wstring local = std::wstring(tmp) + L"prospero-probe-" +
+                       Wide(prospero::RandomHex(4)) + L".bin";
+  if (!MakeLocal(local, mib)) {
+    std::printf("FALSCH  lokale Quelldatei in %%TEMP%% anlegen, Windows-Fehler %lu\n", GetLastError());
+    ch.Close();
+    WNetCancelConnection2W(share.c_str(), 0, TRUE);
+    return 1;
   }
+
+  std::vector<Variant> vs = ParseVariants(variants);
+  bool tuning = !variants.empty();
+  for (int r = 1; r <= rounds; r++) {
+    // Every other round runs the variants backwards, so that a slow drift of
+    // the network does not favour one of them.
+    for (size_t k = 0; k < vs.size(); k++) {
+      size_t i = (r % 2) ? k : vs.size() - 1 - k;
+      Variant &v = vs[i];
+      std::printf("\n  ===== Runde %d von %d, Variante %zu: %s =====\n", r, rounds, i + 1,
+                  v.Name().c_str());
+      if (tuning && !ch.Tune(cred.password, v.sndbuf, v.credits, &err)) {
+        std::printf("FALSCH  TUNE: %s\n", err.c_str());
+        failures++;
+        continue;
+      }
+      std::wstring big = dir + L"\\big-" + std::to_wstring(r) + L"-" + std::to_wstring(i + 1) + L".bin";
+      PhaseResult w = Phase("Schreiben", true, big, local, mib, dir, &small_n, ch);
+      PhaseResult rd = Phase("Lesen", false, big, local, mib, dir, &small_n, ch);
+      std::printf("\n");
+      Report("Schreiben", w, idle, &failures);
+      Report("Lesen", rd, idle, &failures);
+      v.writes.push_back(w);
+      v.reads.push_back(rd);
+    }
+  }
+  if (tuning && !ch.Tune(cred.password, 0, 0, &err)) {
+    std::printf("FALSCH  TUNE zurueck auf Standard: %s\n", err.c_str());
+    failures++;
+  }
+
+  std::printf("\n  ===== Zusammenfassung (Median ueber alle Runden), ohne Last %lld ms =====\n",
+              static_cast<long long>(idle));
+  std::printf("  %-32s %12s %14s %12s %14s\n", "Variante", "Schr. MB/s", "Schr. klein ms",
+              "Lesen MB/s", "Lesen klein ms");
+  for (size_t i = 0; i < vs.size(); i++) {
+    const Variant &v = vs[i];
+    std::printf("  %zu %-30s %12.2f %14lld %12.2f %14lld\n", i + 1, v.Name().c_str(),
+                MedianOf(v.writes, false) / 100.0, static_cast<long long>(MedianOf(v.writes, true)),
+                MedianOf(v.reads, false) / 100.0, static_cast<long long>(MedianOf(v.reads, true)));
+  }
+  DeleteFileW(local.c_str());                        // on the PC only
   ch.Close();
   WNetCancelConnection2W(share.c_str(), 0, TRUE);
   return failures;

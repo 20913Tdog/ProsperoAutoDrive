@@ -25,6 +25,11 @@
  *       -> STATUS 1, then "key=value" lines, then END 1
  *   RESET-STATS 1   restarts the counters of STATUS (measurements, P2.4)
  *       -> RESET-STATS 1
+ *   TUNE 1 seq=<n> sndbuf=<bytes> credits=<n> mac=<hex>
+ *       sets the send buffer and the credit limit, 0 = default, until the
+ *       server ends (measurements, P2.4)
+ *       -> TUNED 1 sndbuf=<bytes> credits=<n>, or ERROR 1 reason=bad-mac
+ *          or reason=bad-value (sndbuf up to 16 MiB, credits up to 8192)
  *   QUIT 1          only from 127.0.0.1, i.e. a new instance on the console
  *       -> BYE 1, then the server ends
  *   anything else   -> ERROR 1 reason=<word>
@@ -307,6 +312,18 @@ handle_line(client_t *c, const char *line) {
       n = snprintf(out, sizeof out, "PAIRING-OPEN 1 seconds=%d\n", PAIRING_SECONDS);
     } else {
       n = snprintf(out, sizeof out, "ERROR 1 reason=bad-mac\n");
+    }
+  } else if(is_cmd(line, "TUNE")) {
+    int64_t sb = num_field(line, "sndbuf");
+    int64_t cr = num_field(line, "credits");
+
+    if(sb < 0 || sb > (16 << 20) || cr < 0 || cr > 8192) {
+      n = snprintf(out, sizeof out, "ERROR 1 reason=bad-value\n");
+    } else if(!mac_ok(c, line)) {
+      n = snprintf(out, sizeof out, "ERROR 1 reason=bad-mac\n");
+    } else {
+      in->tune((int)sb, (int)cr);
+      n = snprintf(out, sizeof out, "TUNED 1 sndbuf=%d credits=%d\n", (int)sb, (int)cr);
     }
   } else if(is_cmd(line, "RESET-STATS")) {
     in->reset_stats();

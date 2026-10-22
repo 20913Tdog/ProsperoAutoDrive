@@ -19,7 +19,8 @@
 //   prospero-probe.exe <IPv4 address> [--port N] [--no-broadcast]
 //                      [--open-pairing] [--write-test <folder in the share>]
 //                      [--connect] [--load-test <folder> <MiB> [--rounds N]]
-//                      [--share-host <name>]
+//                      [--share-host <name>] [--variants <sndbuf:credits,...>]
+//                      [--test-name <_ProsperoAutoDrive_Test_...>]
 //
 // --share-host names the server in \\<name>\<share> when that is not the
 // address itself (CI: a hosts alias with an alternate SMB port).
@@ -162,12 +163,18 @@ int main(int argc, char **argv) {
   unsigned load_mib = 0;
   int rounds = 1;
   std::string share_host;      // name in \\host\share; default: the address
+  std::string variants;        // --variants for the load test
+  std::string test_name;       // --test-name: folder name for the load test
   for (int i = 1; i < argc; i++) {
     if (!std::strcmp(argv[i], "--connect")) {
       connect = true;
     } else if (!std::strcmp(argv[i], "--load-test") && i + 2 < argc) {
       load_folder = argv[++i];
       load_mib = static_cast<unsigned>(std::atoi(argv[++i]));
+    } else if (!std::strcmp(argv[i], "--variants") && i + 1 < argc) {
+      variants = argv[++i];
+    } else if (!std::strcmp(argv[i], "--test-name") && i + 1 < argc) {
+      test_name = argv[++i];
     } else if (!std::strcmp(argv[i], "--share-host") && i + 1 < argc) {
       share_host = argv[++i];
     } else if (!std::strcmp(argv[i], "--rounds") && i + 1 < argc) {
@@ -337,7 +344,8 @@ int main(int argc, char **argv) {
       Fail("--load-test braucht eine Groesse ab 1 MiB und --rounds ab 1");
     } else {
       std::string name = TestFolderName();
-      int f = LoadTest(ip, unc, port, hello, cred, load_folder, &name, load_mib, rounds);
+      if (!test_name.empty()) name = test_name;
+      int f = LoadTest(ip, unc, port, hello, cred, load_folder, &name, load_mib, rounds, variants);
       if (f) {
         Fail("Lasttest: " + std::to_string(f) + " Uebertragung(en) fehlgeschlagen");
       } else {
