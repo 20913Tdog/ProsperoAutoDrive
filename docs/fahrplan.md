@@ -65,7 +65,13 @@ Go für natives SMB, wenn S1, S2, S3, S6 und S7 bestanden sind und S4 mindestens
 - **P2.1** Grundgerüst: bestanden (E1, E2).
 - **P2.2** Suche, Kopplung, Lebenszeichen: bestanden (E3, Build `8e56644`, 22.10.2026). Unicast und Broadcast antworten, der PC koppelt beim ersten Versuch, die Zugangsdaten liegen in der Anmeldeinformationsverwaltung. Alle drei `PING` mit Prüfsumme wurden anerkannt, Abweichung 3596,3 s. Die Testdatei in `/data/_ProsperoAutoDrive_Test_…` wurde geschrieben und gleich zurückgelesen. Kein Firewall-Fenster. Die Benachrichtigungen wurden nicht beobachtet, „läuft“ wird beim Test zu P2.3 mitgeprüft.
 - **P2.3** Uhrausgleich: bestanden (E3, Build `aed080a`, 22.10.2026). Nach dem Neustart galt sofort der gespeicherte Wert 3596 s, die neue Testdatei wich 0 s von der PC-Uhr ab. Die Benachrichtigung „läuft“ kam. Mit `tools\Connect-Share.cmd` öffnet der Explorer die Freigabe ohne Passwortabfrage, die Testordner zeigen die richtige Uhrzeit (E3).
-- **Als Nächstes:** P2.4 Antwortzeit unter Last, zuerst messen.
+- **P2.4** Antwortzeit unter Last, Messung 1 (E3, Build `a35fdce`, 22.10.2026, 2 Runden je 256 MiB):
+  - Kleine Datei ohne Last 63 ms. Während des Schreibens Median 1,8–1,9 s, während des Lesens 3,0–3,2 s (max 5,9 s).
+  - Der Dienstkanal auf eigener TCP-Verbindung blieb schnell: Median 16 ms beim Schreiben, 62 ms beim Lesen. Das WLAN selbst staut also kaum.
+  - Lesen: Im Server warten höchstens etwa 1 MiB, je zur Hälfte in der Sendeschlange von libsmb2 und im Sendepuffer des Sockets. Der ist 512 KiB groß, nicht 1 MiB wie angefordert. Bei 3,9 MB/s sind das etwa 0,27 s je Anfrage. Eine kleine Datei braucht mehrere SMB-Anfragen nacheinander, jede wartet erneut.
+  - Schreiben: Im Server wartet nichts. Die Wartezeit entsteht vor dem Server, beim PC oder auf dem Weg dorthin.
+  - Durchsatz wie in S4: Schreiben 5,3–5,5 MB/s, Lesen 3,9 MB/s.
+  - Noch nicht gemessen: ungelesene Anfragen im Empfangspuffer der PS5, Anfragen je kleiner Datei, Kredite des PCs.
 
 **Umfang:**
 
