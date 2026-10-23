@@ -8,7 +8,14 @@ set "BASE=https://github.com/20913Tdog/ProsperoAutoDrive/releases/download/dev-b
 set "ROOT=%~dp0.."
 set "OUT=%ROOT%\dist\dev"
 
-if exist "%OUT%" rmdir /s /q "%OUT%"
+if exist "%OUT%" rmdir /s /q "%OUT%" 2>nul
+if exist "%OUT%" (
+  echo FEHLER: %OUT% laesst sich nicht leeren, eine Datei darin ist noch in Benutzung.
+  echo Meist haengt ein altes Testprogramm an einer Verbindung zur PS5. Abhilfe:
+  echo   net use \\^<PS5-IP^>\prospero /delete /y
+  echo danach 20 s warten und dieses Skript erneut starten.
+  exit /b 1
+)
 mkdir "%OUT%" || exit /b 1
 
 curl.exe -fsSL -o "%OUT%\SHA256SUMS" "%BASE%/SHA256SUMS"
@@ -18,7 +25,13 @@ if errorlevel 1 (
 )
 
 set "FAIL=0"
+set "TOTAL=0"
+for /f "usebackq" %%H in ("%OUT%\SHA256SUMS") do set /a TOTAL+=1
+set "N=0"
 for /f "usebackq tokens=1,2" %%H in ("%OUT%\SHA256SUMS") do (
+  set /a N+=1
+  rem Progress on the console only, so that the list below stays clean.
+  >con echo   [!N!/%TOTAL%] %%I
   curl.exe -fsSL -o "%OUT%\%%I" "%BASE%/%%I"
   if errorlevel 1 (
     echo FEHLER  %%I  Download fehlgeschlagen

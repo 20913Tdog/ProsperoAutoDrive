@@ -52,6 +52,7 @@ echo Einstellungen: Standard des Servers, %ROUNDS% Runden je %MIB% MiB
 
 echo.
 echo ===== 1. SMB: Varianten =====
+>con echo   SMB: %ROUNDS% Runden je %MIB% MiB schreiben und lesen, Fortschritt unten
 "%EXE%" %PS5% --no-broadcast --load-test data %MIB% --rounds %ROUNDS% --variants "%VARIANTS%" --test-name !NAME!
 set "RC=%errorlevel%"
 echo Exitcode %RC%
@@ -60,10 +61,14 @@ echo.
 echo ===== 2. Referenz: ftpsrv auf Port %FTPPORT% =====
 set "FTP=ftp://%PS5%:%FTPPORT%/data/!NAME!"
 del /q "%LOCAL%" 2>nul
+rem The progress bar of curl goes to the console (CON), not into the log of
+rem Run-Test.cmd; the -w line with the result goes into the log.
 for %%R in (1 2 3) do (
-  curl.exe -sS --connect-timeout 5 --max-time 1800 -o "%LOCAL%" -w "FTP lesen     %%R: %%{size_download} Bytes, %%{speed_download} Bytes/s\n" "!FTP!/big-1-1.bin"
+  >con echo   FTP lesen %%R von 3
+  curl.exe -S --progress-bar --stderr CON --connect-timeout 5 --max-time 1800 -o "%LOCAL%" -w "FTP lesen     %%R: %%{size_download} Bytes, %%{speed_download} Bytes/s\n" "!FTP!/big-1-1.bin"
   if exist "%LOCAL%" (
-    curl.exe -sS --connect-timeout 5 --max-time 1800 -T "%LOCAL%" -w "FTP schreiben %%R: %%{size_upload} Bytes, %%{speed_upload} Bytes/s\n" "!FTP!/ftp-%%R.bin"
+    >con echo   FTP schreiben %%R von 3
+    curl.exe -S --progress-bar --stderr CON --connect-timeout 5 --max-time 1800 -T "%LOCAL%" -w "FTP schreiben %%R: %%{size_upload} Bytes, %%{speed_upload} Bytes/s\n" "!FTP!/ftp-%%R.bin"
   ) else (
     echo FTP lesen %%R fehlgeschlagen, ohne Referenz weiter.
   )

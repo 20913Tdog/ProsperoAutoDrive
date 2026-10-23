@@ -40,6 +40,59 @@ std::wstring Wide(const std::string &s) { return std::wstring(s.begin(), s.end()
 
 int64_t NowMs() { return static_cast<int64_t>(GetTickCount64()); }
 
+// Progress bar on the console window itself (CONOUT$), so it shows while
+// Run-Test.cmd collects stdout in a log, and never ends up in that log.
+// Without a console (CI) it does nothing.
+class Bar {
+ public:
+  Bar() {
+    h_ = CreateFileW(L"CONOUT$", GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                     nullptr, OPEN_EXISTING, 0, nullptr);
+  }
+  ~Bar() {
+    Clear();
+    if (h_ != INVALID_HANDLE_VALUE) CloseHandle(h_);
+  }
+  void Show(const std::string &line) {
+    if (h_ == INVALID_HANDLE_VALUE) return;
+    std::string out = "\r" + line;
+    if (line.size() < shown_) out += std::string(shown_ - line.size(), ' ');
+    Write(out);
+    shown_ = line.size();
+  }
+  // Before other output to the same console.
+  void Clear() {
+    if (h_ == INVALID_HANDLE_VALUE || !shown_) return;
+    Write("\r" + std::string(shown_, ' ') + "\r");
+    shown_ = 0;
+  }
+
+ private:
+  void Write(const std::string &s) {
+    DWORD n = 0;
+    WriteConsoleA(h_, s.data(), static_cast<DWORD>(s.size()), &n, nullptr);
+  }
+  HANDLE h_ = INVALID_HANDLE_VALUE;
+  size_t shown_ = 0;
+};
+
+Bar g_bar;
+std::string g_bar_label;      // e.g. "Runde 2/3"
+
+void ShowProgress(const char *title, long long done, long long want, int64_t elapsed_ms) {
+  constexpr int kWidth = 30;
+  int pct = want > 0 ? static_cast<int>(done * 100 / want) : 0;
+  int fill = want > 0 ? static_cast<int>(done * kWidth / want) : 0;
+  double mb_s = elapsed_ms > 0 ? done / 1e3 / elapsed_ms : 0;
+  long long left = mb_s > 0 ? static_cast<long long>((want - done) / 1e6 / mb_s) : -1;
+  char buf[200];
+  std::snprintf(buf, sizeof buf, "  %s %-9s [%s%s] %3d %%  %5lld/%lld MiB  %6.1f MB/s  %s",
+                g_bar_label.c_str(), title, std::string(fill, '#').c_str(),
+                std::string(kWidth - fill, '-').c_str(), pct, done >> 20, want >> 20, mb_s,
+                left >= 0 ? ("noch " + std::to_string(left) + " s").c_str() : "");
+  g_bar.Show(buf);
+}
+
 // Writes and reads back one small file; returns the time in ms, -1 on error.
 int64_t SmallOp(const std::wstring &dir, int n) {
   std::wstring path = dir + L"\\small-" + std::to_wstring(n) + L".txt";
@@ -161,7 +214,10 @@ PhaseResult Phase(const char *title, bool write, const std::wstring &big, const 
               "outq", "outq [MiB]", "sock [MiB]", "waitq", "gap");
   while (running) {
     int64_t next = NowMs() + kSampleMs;
-    while (running && NowMs() < next) Sleep(50);
+    while (running && NowMs() < next) {
+      ShowProgress(title, job->moved, job->want, NowMs() - t0);
+      Sleep(250);
+    }
     if (!running) break;
     if (job->moved != last_moved) {
       last_moved = job->moved;
@@ -191,6 +247,7 @@ PhaseResult Phase(const char *title, bool write, const std::wstring &big, const 
       r.last = st;
     }
     long long sock = Cur(st, "diag_sock_unsent_bytes");
+    g_bar.Clear();
     std::printf("  %6.0f %10lld %10lld %8lld %12.1f %12s %7lld %7lld\n", (NowMs() - t0) / 1000.0,
                 static_cast<long long>(small), got ? static_cast<long long>(service) : -1LL,
                 Cur(st, "diag_outq_pdus"), Mib(Cur(st, "diag_outq_bytes")),
@@ -198,6 +255,7 @@ PhaseResult Phase(const char *title, bool write, const std::wstring &big, const 
                 Cur(st, "diag_waitq_pdus"), Cur(st, "diag_loop_gap_ms"));
   }
   bool done = WaitForSingleObject(worker, r.hung ? 30000 : INFINITE) == WAIT_OBJECT_0;
+  g_bar.Clear();
   CloseHandle(worker);
   double secs = (NowMs() - t0) / 1000.0;
   long long moved = job->moved;
@@ -359,6 +417,8 @@ int LoadTest(const std::string &ip, const std::string &unc_host, unsigned short 
       Variant &v = vs[i];
       std::printf("\n  ===== Runde %d von %d, Variante %zu: %s =====\n", r, rounds, i + 1,
                   v.Name().c_str());
+      g_bar_label = "Runde " + std::to_string(r) + "/" + std::to_string(rounds);
+      if (vs.size() > 1) g_bar_label += " V" + std::to_string(i + 1);
       if (tuning && !ch.Tune(cred.password, v.sndbuf, v.credits, &err)) {
         std::printf("FALSCH  TUNE: %s\n", err.c_str());
         failures++;
