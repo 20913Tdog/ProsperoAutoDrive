@@ -37,6 +37,7 @@
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <pthread.h>
 #include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -49,6 +50,7 @@
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <sys/resource.h>
+#include <sys/select.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/statvfs.h>
@@ -256,7 +258,40 @@ static struct {
   unsigned long long bytes_written;
   uint64_t write_ns;                    /* time spent in pwrite() */
   uint64_t fsync_ns;                    /* time spent in fsync() */
+  unsigned long long writes_async;      /* of those, in the write thread */
+  uint64_t write_wait_ns;               /* main loop waiting for that thread */
 } g;
+
+
+/* A big WRITE runs pwrite() in a thread, while the main loop already
+ * receives the next request: on the console pwrite() takes about 6 ms per
+ * MiB and receiving the next MiB about 9 ms, one after the other the
+ * share wrote about 79 MB/s against 89 MB/s of ftpsrv. The reply still
+ * goes out only once the data is written, as before. One write at a time:
+ * every other request (lookup(), create) first waits for it, so it sees
+ * the data, and the replies keep their order. */
+typedef struct {
+  int active;
+  pthread_t thread;
+  struct smb2_context *smb2;      /* NULL once the connection is gone */
+  uint64_t message_id;
+  int fd;
+  uint8_t *buf;
+  size_t len;
+  uint64_t offset;
+  /* Set by the thread. */
+  size_t done;
+  uint32_t status;
+  uint64_t ns;
+  int finished;
+} pending_write_t;
+
+static pending_write_t g_pw;
+static int g_write_thread_ok = 1;     /* off after pthread_create() failed */
+
+#define ASYNC_WRITE_MIN (64 * 1024)
+
+static void write_poll(void);
 
 
 /* ---------------------------------------------------------------- helpers */
@@ -364,6 +399,7 @@ defer_status(struct smb2_context *smb2, uint8_t command, uint32_t status) {
 
 void
 backend_flush(void) {
+  write_poll();
   for(int i=0; i<g.ndeferred; i++) {
     deferred_t *d = &g.deferred[i];
     struct smb2_error_reply err;
@@ -931,10 +967,111 @@ finish_delete(handle_t *h) {
 }
 
 
+static uint32_t errno_status(int err);
+static uint64_t now_ns(void);
+
+static void *
+write_thread(void *arg) {
+  pending_write_t *w = arg;
+  uint64_t t0 = now_ns();
+
+  w->done = 0;
+  w->status = 0;
+  while(w->done < w->len) {
+    ssize_t n = pwrite(w->fd, w->buf + w->done, w->len - w->done, (off_t)(w->offset + w->done));
+    if(n < 0 && errno == EINTR) {
+      continue;
+    }
+    if(n <= 0) {
+      w->status = n < 0 ? errno_status(errno) : SMB2_STATUS_DISK_FULL;
+      break;
+    }
+    w->done += (size_t)n;
+  }
+  w->ns = now_ns() - t0;
+  __atomic_store_n(&w->finished, 1, __ATOMIC_RELEASE);
+  return NULL;
+}
+
+
+/* Waits for the write in the thread, if any, and sends its reply. */
+static void
+write_finish(void) {
+  struct smb2_pdu *pdu = NULL;
+  uint64_t t0;
+
+  if(!g_pw.active) {
+    return;
+  }
+  t0 = now_ns();
+  pthread_join(g_pw.thread, NULL);
+  g.write_wait_ns += now_ns() - t0;
+  g_pw.active = 0;
+  g.write_ns += g_pw.ns;
+  free(g_pw.buf);
+  g_pw.buf = NULL;
+  if(!g_pw.smb2) {
+    return;
+  }
+  if(g_pw.done) {
+    struct smb2_write_reply rep;
+
+    g.writes++;
+    g.writes_async++;
+    g.bytes_written += g_pw.done;
+    memset(&rep, 0, sizeof rep);
+    rep.count = (uint32_t)g_pw.done;    /* a short count tells the client the rest failed */
+    pdu = smb2_cmd_write_reply_async(g_pw.smb2, &rep, NULL, NULL);
+  } else {
+    struct smb2_error_reply err;
+
+    memset(&err, 0, sizeof err);
+    pdu = smb2_cmd_error_reply_async(g_pw.smb2, &err, SMB2_WRITE, (int)g_pw.status, NULL, NULL);
+  }
+  if(!pdu) {
+    g.lost_replies++;
+    return;
+  }
+  smb2_set_pdu_message_id(g_pw.smb2, pdu, g_pw.message_id);
+  smb2_queue_pdu(g_pw.smb2, pdu);
+}
+
+
+/* From the main loop: sends the reply as soon as the write is done, or
+ * waits for it when no request is waiting to be read anyway. */
+static void
+write_poll(void) {
+  fd_set rfds;
+  struct timeval tv = {0, 0};
+  int maxfd = -1;
+
+  if(!g_pw.active) {
+    return;
+  }
+  if(!__atomic_load_n(&g_pw.finished, __ATOMIC_ACQUIRE)) {
+    FD_ZERO(&rfds);
+    for(conn_t *c=g.conns; c; c=c->next) {
+      int fd = smb2_get_fd(c->smb2);
+      if(fd >= 0) {
+        FD_SET(fd, &rfds);
+        if(fd > maxfd) {
+          maxfd = fd;
+        }
+      }
+    }
+    if(maxfd >= 0 && select(maxfd + 1, &rfds, NULL, NULL, &tv) > 0) {
+      return;     /* receive first, the thread keeps writing */
+    }
+  }
+  write_finish();
+}
+
+
 /* Related compound operations carry the all-0xFF id and refer to the last
  * CREATE; if that failed, they fail with its status. */
 static handle_t *
 lookup(conn_t *c, const uint8_t *fid, uint32_t *status) {
+  write_finish();
   if(!memcmp(fid, compound_file_id, SMB2_FD_SIZE)) {
     if(c->last_create_status) {
       *status = c->last_create_status;
@@ -1073,6 +1210,8 @@ backend_reset_stats(void) {
   g.write_ns = 0;
   g.fsyncs = 0;
   g.fsync_ns = 0;
+  g.writes_async = 0;
+  g.write_wait_ns = 0;
   getrusage(RUSAGE_SELF, &g.ru_start);
   g.stats_start_ns = now_ns();
 }
@@ -1085,6 +1224,10 @@ destruction_event(struct smb2_server *srv, struct smb2_context *smb2) {
   int j = 0;
 
   (void)srv;
+  if(g_pw.active && g_pw.smb2 == smb2) {
+    g_pw.smb2 = NULL;     /* no reply, but the file stays open until written */
+  }
+  write_finish();
   if(err && *err) {
     snprintf(g.last_errors[g.nerrors++ % MAX_ERRORS], sizeof g.last_errors[0],
              "%s", err);
@@ -1520,6 +1663,7 @@ create_cmd(struct smb2_server *srv, struct smb2_context *smb2,
   uint32_t status;
 
   (void)srv;
+  write_finish();
   g.creates++;
   status = c ? do_create(c, req, rep) : SMB2_STATUS_INSUFFICIENT_RESOURCES;
 
@@ -2132,6 +2276,31 @@ write_cmd(struct smb2_server *srv, struct smb2_context *smb2,
     offset = (uint64_t)st.st_size;
   }
 
+  if(g_write_thread_ok && req->length >= ASYNC_WRITE_MIN && !h->write_through &&
+     !(req->flags & SMB2_WRITEFLAG_WRITE_THROUGH)) {
+    /* The request buffer is reused for the next request, so a copy. */
+    uint8_t *copy = malloc(req->length);
+
+    if(copy) {
+      memcpy(copy, req->buf, req->length);
+      memset(&g_pw, 0, sizeof g_pw);
+      g_pw.smb2 = smb2;
+      g_pw.message_id = smb2_get_last_request_message_id(smb2);
+      g_pw.fd = h->fd;
+      g_pw.buf = copy;
+      g_pw.len = req->length;
+      g_pw.offset = offset;
+      if(pthread_create(&g_pw.thread, NULL, write_thread, &g_pw) == 0) {
+        g_pw.active = 1;
+        return 1;         /* replied by write_finish() */
+      }
+      free(copy);
+      g_pw.buf = NULL;
+      g_write_thread_ok = 0;
+      note("write thread not available");
+    }
+  }
+
   t0 = now_ns();
   while(done < req->length) {
     ssize_t n = pwrite(h->fd, req->buf + done, req->length - done,
@@ -2587,13 +2756,15 @@ backend_status(char *buf, size_t size) {
 
     n += snprintf(buf + n, size - n,
                   "writes=%llu\nbytes_written=%llu\npwrite_ms=%llu\n"
+                  "writes_async=%llu\nwrite_wait_ms=%llu\n"
                   "fsyncs=%llu\nfsync_ms=%llu\n"
                   "files_created=%u\ndirs_created=%u\nrenames=%u\ndeletes=%u\n"
                   "delete_failures=%u\ntruncates=%u\ntimes_set=%u\n"
                   "creation_times_ignored=%u\nattributes_ignored=%u\n"
                   "last_created=%s uid=%u gid=%u mode=%04o\n",
                   g.writes, g.bytes_written,
-                  (unsigned long long)(g.write_ns / 1000000), g.fsyncs,
+                  (unsigned long long)(g.write_ns / 1000000),
+                  g.writes_async, (unsigned long long)(g.write_wait_ns / 1000000), g.fsyncs,
                   (unsigned long long)(g.fsync_ns / 1000000),
                   g.files_created, g.dirs_created, g.renames, g.deletes,
                   g.delete_failures, g.truncates, g.times_set,

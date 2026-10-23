@@ -99,6 +99,17 @@ Go für natives SMB, wenn S1, S2, S3, S6 und S7 bestanden sind und S4 mindestens
   - Standard: Lesen 115 MB/s (ftpsrv in Messung 3: 114 MB/s), Schreiben 62 MB/s (ftpsrv: 89 MB/s, also etwa 70 %). Kleine Datei unter Last etwa 1 s.
   - Mit Kreditgrenze 32 (per `TUNE` mitten in der Verbindung) brauchte das Schreiben 63 s, danach hing das Lesen über 18 min ohne Fortschritt, während kleine Dateien auf derselben Verbindung in 16 ms gingen. Vermutlich wartete Windows auf genug Kredite für eine große Leseanfrage. Kreditgrenzen werden deshalb nicht weiter gemessen, P24 misst nur noch die Voreinstellung. Das Testprogramm bricht eine Kopie nach 60 s ohne Fortschritt ab.
   - Offen: warum das Schreiben bei 70 % bleibt. Das Testprogramm zeigt dafür jetzt je Phase die Rechenzeit des Servers und die Zeit in `pread`/`pwrite`.
+- **P2.4** Messung 5, **Kabel** (E3, Build `80f38a9`, 23.10.2026, 3 × 1 GiB, nur Voreinstellung):
+
+  | | Runde 1 | 2 | 3 | Median | ftpsrv (3 Läufe) | Anteil |
+  |---|---|---|---|---|---|---|
+  | Schreiben MB/s | 57,2 | 80,1 | 78,7 | 78,7 | 89,5–90,0 | 88 % |
+  | Lesen MB/s | 89,7 | 79,5 | 103,5 | 89,7 | 115,6–117,1 | 77 % |
+
+  - Schreiben: Der Server verbrachte 6,5 s von 13,4 s je GiB in `pwrite` (etwa 6 ms je MiB), Rechenzeit 37 %. Empfangen und Schreiben liefen nacheinander.
+  - Lesen: Rechenzeit nur 22–29 %, `pread` 1,4 s je GiB. Die Sendeschlange war voll (7 MiB), der Socket aber zeitweise leer: libsmb2 schreibt neue Antworten erst beim nächsten Durchlauf in den Socket, wenn schon welche warten.
+  - Kleine Datei unter Last: beim Schreiben etwa 1 s, beim Lesen 0,05–0,9 s.
+  - Maßnahmen: `pwrite` großer Schreibanfragen in einem eigenen Thread, die Antwort geht weiter erst nach dem Schreiben raus (eine Anfrage zur Zeit, alle anderen Anfragen warten auf sie). Patch `libsmb2-server-flush`: Der Server schreibt jede neue Antwort sofort in den Socket.
   - Ziel des nächsten Schritts: ≥ 95 % von ftpsrv am Kabel, siehe [Entscheidungen](entscheidungen.md#ziele-nach-messung-2-am-kabel-23102026).
 
 **Umfang:**

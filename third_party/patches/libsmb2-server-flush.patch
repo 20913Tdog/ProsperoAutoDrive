@@ -1,0 +1,20 @@
+diff --git a/lib/pdu.c b/lib/pdu.c
+index 059630d..5b6e0b3 100644
+--- a/lib/pdu.c
++++ b/lib/pdu.c
+@@ -620,8 +620,13 @@ smb2_add_to_outqueue(struct smb2_context *smb2, struct smb2_pdu *pdu)
+ {
+         SMB2_LIST_ADD_END(&smb2->outqueue, pdu);
+ 
+-        /* opportunistically try to write it to the socket right away */
+-        if (smb2->outqueue == pdu) {
++        /* opportunistically try to write it to the socket right away.
++         * A server also writes when other replies wait: it answers a
++         * batch of requests in one go, and without this the socket only
++         * gets data again on the next poll, so it runs dry while the
++         * batch is answered.
++         */
++        if (smb2->outqueue == pdu || smb2_is_server(smb2)) {
+                 smb2_write_to_socket(smb2);
+         }
+ 

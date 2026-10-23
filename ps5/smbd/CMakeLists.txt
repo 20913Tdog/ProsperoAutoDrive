@@ -5,5 +5,9 @@ target_compile_definitions(prospero-smbd PRIVATE
   PROSPERO_VERSION="${PROJECT_VERSION}")
 target_link_libraries(prospero-smbd PRIVATE smb2)
 if(PS5)
+  # pthread_* come from libkernel, which is always linked.
   set_target_properties(prospero-smbd PROPERTIES SUFFIX .elf)
+else()
+  find_package(Threads REQUIRED)
+  target_link_libraries(prospero-smbd PRIVATE Threads::Threads)
 endif()

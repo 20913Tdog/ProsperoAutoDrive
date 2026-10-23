@@ -294,9 +294,10 @@ void Report(const char *title, const PhaseResult &r, int64_t idle, int *failures
   long long cpu = num("cpu_user_ms") + num("cpu_sys_ms");
   if (span > 0) {
     std::printf("  %s, Server: Rechenzeit %lld ms (davon System %lld) in %lld ms, also %lld %%; "
-                "pread %lld ms, pwrite %lld ms\n",
+                "pread %lld ms, pwrite %lld ms (%lld von %lld im Schreib-Thread, "
+                "darauf gewartet %lld ms)\n",
                 title, cpu, num("cpu_sys_ms"), span, cpu * 100 / span, num("pread_ms"),
-                num("pwrite_ms"));
+                num("pwrite_ms"), num("writes_async"), num("writes"), num("write_wait_ms"));
   }
   if (!r.ok) (*failures)++;
 }

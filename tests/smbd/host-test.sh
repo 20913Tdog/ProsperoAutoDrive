@@ -283,6 +283,9 @@ smb -c "cd $TEST; put $WORK/big.bin big.bin; get big.bin $WORK/big-back.bin" >/d
 need cmp "$WORK/big.bin" "$WORK/big-back.bin"
 out=$(status)
 echo "$out" | grep '^diag_credits='
+# The big writes went through the write thread and came back unchanged.
+echo "$out" | grep -E '^(writes|writes_async|write_wait_ms|pwrite_ms)='
+need [ "$(sed -n 's/^writes_async=//p' <<<"$out")" -ge 1 ]
 cmax=$(sed -n 's/^diag_credits=[0-9]* (max \([0-9]*\),.*/\1/p' <<<"$out")
 need [ -n "$cmax" ]
 need [ "$cmax" -ge 1 ]
