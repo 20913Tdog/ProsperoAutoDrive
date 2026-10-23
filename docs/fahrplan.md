@@ -83,6 +83,7 @@ Go für natives SMB, wenn S1, S2, S3, S6 und S7 bestanden sind und S4 mindestens
   | Puffer 128 KiB, Kredite 64 | 9,09 | 4078 | 3,32 | 23562 |
   | Puffer 128 KiB, Kredite 32 | 7,60 | 3047 | 2,65 | 26875 |
 
+  - Einschränkung: Das Testprogramm kopiert mit `CopyFileEx` ohne Puffer. Dass der Explorer große Dateien genauso kopiert, ist angenommen, nicht gemessen. Gegenprobe mit dem echten Explorer und mit einem anderen SMB-Server im selben WLAN steht aus.
   - ftpsrv im selben Lauf: Schreiben 8,3 und 9,0 MB/s, Lesen 4,7 und 2,9 MB/s. SMB liegt damit beim Durchsatz gleichauf. Das Lesen schwankt im WLAN bei beiden Verfahren stark.
   - Wie der Explorer hält der PC bis zu 11 Lese-Antworten zu je 1 MiB offen, bis 8 MiB stehen in der Sendeschlange von libsmb2. Eine kleine Datei wartet daher beim Lesen 24–44 s und beim Schreiben 8–12 s, ohne Last 78 ms. Kleinere Sendepuffer helfen nicht, die Antworten stauen sich dann in der Sendeschlange.
   - Die Kreditgrenze verkürzt die Wartezeit beim Schreiben auf 3–4 s, beim Lesen kaum. Den Durchsatz kostet sie bei 64 nicht.

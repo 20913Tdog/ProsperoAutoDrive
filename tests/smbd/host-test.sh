@@ -289,6 +289,25 @@ expect "$(status)" '^tune_credits=0$'
 need grep -q "tune: send buffer 131072, credit limit 16" "$STATE/log.txt"
 echo "case 3a passed"
 
+echo "== case 3b: free space is that of the folder's file system"
+# As /data on the console, a folder on another file system than the share
+# root: /dev/shm (tmpfs) through a link in the test folder. Only read.
+if [ "$(stat -f -c %i /dev/shm)" != "$(stat -f -c %i "$ROOT")" ]; then
+  ln -s /dev/shm "$ROOT/$TEST/other-fs"
+  du_out=$(smb -c "cd $TEST/other-fs; du" | grep 'blocks available')
+  echo "smbclient du: $du_out"
+  avail=$(sed -n 's/.* blocks of size \([0-9]*\)\. \([0-9]*\) blocks available.*/\1 \2/p' <<<"$du_out" |
+          awk '{ printf "%.0f", $1 * $2 }')
+  want=$(df -B1 --output=avail /dev/shm | tail -1 | tr -d ' ')
+  root_avail=$(df -B1 --output=avail "$ROOT" | tail -1 | tr -d ' ')
+  echo "reported $avail, /dev/shm $want, share root $root_avail"
+  # within 5 %: tmpfs usage moves a little between the two reads
+  need python3 -c "import sys; a,w=int('$avail'),int('$want'); sys.exit(0 if abs(a-w) <= w*0.05 else 1)"
+  echo "case 3b passed"
+else
+  echo "case 3b skipped: /dev/shm is on the same file system"
+fi
+
 echo "== case 4: a FIFO is refused and does not block the server"
 mkfifo "$ROOT/$TEST/fifo"
 smb -c "get $TEST/fifo $WORK/fifo.out" > "$WORK/fifo.txt" 2>&1 || true

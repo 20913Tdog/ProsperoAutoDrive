@@ -95,6 +95,14 @@ bool WriteTest(const std::string &ip, const prospero::Hello &hello,
     Fail("Testordner anlegen " + dir_text + ", Windows-Fehler " + std::to_string(GetLastError()));
   } else {
     Ok("Testordner angelegt: " + dir_text);
+    // What the Explorer checks before it copies into this folder.
+    ULARGE_INTEGER free_bytes{}, total_bytes{};
+    if (GetDiskFreeSpaceExW((dir + L"\\").c_str(), &free_bytes, &total_bytes, nullptr)) {
+      std::printf("  freier Speicher laut Windows: %.1f GB von %.1f GB\n",
+                  free_bytes.QuadPart / 1e9, total_bytes.QuadPart / 1e9);
+    } else {
+      Fail("freien Speicher abfragen, Windows-Fehler " + std::to_string(GetLastError()));
+    }
     std::wstring file = dir + L"\\hello.txt";
     std::string text = "Prospero AutoDrive probe " + prospero::RandomHex(8) + "\r\n";
     HANDLE h = CreateFileW(file.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW,

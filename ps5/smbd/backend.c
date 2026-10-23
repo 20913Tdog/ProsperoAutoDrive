@@ -1931,13 +1931,18 @@ file_info(uint8_t cls, const handle_t *h, const struct stat *st,
 }
 
 
+/* Sizes come from the file system of the open handle, not of the share
+ * root: on the console "/" is a small system partition while /data holds
+ * the free space, and Windows checks the free space of the target folder
+ * before it copies. The volume identity stays that of the root, one
+ * volume per share as Windows expects. */
 static size_t
-fs_info(uint8_t cls, uint8_t *buf, size_t size, uint32_t *status) {
+fs_info(uint8_t cls, const char *path, uint8_t *buf, size_t size, uint32_t *status) {
   struct statvfs vfs;
   uint64_t unit;
 
   memset(buf, 0, size);
-  if(statvfs(g.root, &vfs) != 0) {
+  if(statvfs(path, &vfs) != 0 && statvfs(g.root, &vfs) != 0) {
     *status = errno_status(errno);
     return 0;
   }
@@ -2035,7 +2040,7 @@ query_info_cmd(struct smb2_server *srv, struct smb2_context *smb2,
     len = file_info(req->file_info_class, h, &st, buf, sizeof buf, &status);
     break;
   case SMB2_0_INFO_FILESYSTEM:
-    len = fs_info(req->file_info_class, buf, sizeof buf, &status);
+    len = fs_info(req->file_info_class, h->path, buf, sizeof buf, &status);
     break;
   default:
     note("QUERY_INFO type %u", req->info_type);
