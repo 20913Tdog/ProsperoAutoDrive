@@ -94,6 +94,11 @@ Go für natives SMB, wenn S1, S2, S3, S6 und S7 bestanden sind und S4 mindestens
   - Ursache: Rechenzeit. Beim Lesen rechnete der Server 4,1 s in 4,7 s. libsmb2 signiert mit einer Referenz-AES, die je 16-Byte-Block den Schlüssel neu berechnet. Lokal gemessen: 75 MB/s für AES-CMAC mit dieser Referenz, 1942 MB/s mit AES-NI, gleiche Ergebnisse und alle Prüfwerte aus RFC 4493 richtig.
   - Wartezeit: kleine Datei ohne Last 16 ms, unter Last 2,7–3,4 s, mit Kreditgrenze 32 beim Schreiben etwa 1 s. Das passt zu 8 MiB Schlange bei 28 MB/s.
   - Fehler 59 wieder genau in Runde 1, Variante 4, beim ersten Absenken der Kreditgrenze mitten in der Verbindung. Der Patch vergibt jetzt nie 0 Kredite, wenn der PC welche anfordert (MS-SMB2 3.3.1.2).
+- **P2.4** Messung 4, **Kabel** (E3, Build `a4c9e7b`, 23.10.2026, 1 GiB; die Ausgabe kam nur bis Runde 1, Variante 2 an):
+  - Signatur auf der PS5: AES-NI aktiv, 1189 MB/s, Referenz 36 MB/s.
+  - Standard: Lesen 115 MB/s (ftpsrv in Messung 3: 114 MB/s), Schreiben 62 MB/s (ftpsrv: 89 MB/s, also etwa 70 %). Kleine Datei unter Last etwa 1 s.
+  - Mit Kreditgrenze 32 (per `TUNE` mitten in der Verbindung) brauchte das Schreiben 63 s, danach hing das Lesen über 18 min ohne Fortschritt, während kleine Dateien auf derselben Verbindung in 16 ms gingen. Vermutlich wartete Windows auf genug Kredite für eine große Leseanfrage. Kreditgrenzen werden deshalb nicht weiter gemessen, P24 misst nur noch die Voreinstellung. Das Testprogramm bricht eine Kopie nach 60 s ohne Fortschritt ab.
+  - Offen: warum das Schreiben bei 70 % bleibt. Das Testprogramm zeigt dafür jetzt je Phase die Rechenzeit des Servers und die Zeit in `pread`/`pwrite`.
   - Ziel des nächsten Schritts: ≥ 95 % von ftpsrv am Kabel, siehe [Entscheidungen](entscheidungen.md#ziele-nach-messung-2-am-kabel-23102026).
 
 **Umfang:**

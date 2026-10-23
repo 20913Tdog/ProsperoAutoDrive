@@ -27,7 +27,9 @@ set "LOCAL=%TEMP%\prospero-p24-ftp.bin"
 if not defined FTPPORT set "FTPPORT=2121"
 set "MIB=1024"
 set "ROUNDS=3"
-set "VARIANTS=0:0,131072:32"
+rem No TUNE: changing the credit limit within a connection made Windows
+rem reset it (twice) or hang (once). Only the server defaults are measured.
+set "VARIANTS="
 
 echo ===== 0. Server-Status =====
 curl.exe -s --connect-timeout 3 --max-time 5 -o "%STATUS%" "%CTL%/"
@@ -46,7 +48,7 @@ set "U="
 for /f "usebackq tokens=1,* delims==" %%A in ("%STATUS%") do if "%%A"=="now_utc" set "U=%%B"
 set "NAME=_ProsperoAutoDrive_Test_!U:~0,4!!U:~5,2!!U:~8,2!-!U:~11,2!!U:~14,2!!U:~17,2!-p24!RANDOM!"
 echo Testordner: /data/!NAME!
-echo Varianten ^(Sendepuffer in Bytes : Kreditgrenze, 0 = Standard^): %VARIANTS%
+echo Einstellungen: Standard des Servers, %ROUNDS% Runden je %MIB% MiB
 
 echo.
 echo ===== 1. SMB: Varianten =====

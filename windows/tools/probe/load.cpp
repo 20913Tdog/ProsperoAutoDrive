@@ -32,6 +32,9 @@ namespace {
 constexpr DWORD kChunk = 1024 * 1024;
 constexpr DWORD kSmall = 4096;
 constexpr int kSampleMs = 2000;
+// A copy that moves no byte for this long counts as hung: it is cancelled
+// and the load test ends, instead of waiting forever.
+constexpr int64_t kStallMs = 60000;
 
 std::wstring Wide(const std::string &s) { return std::wstring(s.begin(), s.end()); }
 
@@ -81,7 +84,9 @@ int64_t Median(std::vector<int64_t> v) {
 
 struct PhaseResult {
   bool ok = false;
+  bool hung = false;
   double mb_s = 0;
+  double secs = 0;
   std::vector<int64_t> small_ms;
   std::vector<int64_t> service_ms;
   std::map<std::string, std::string> last;
@@ -111,30 +116,45 @@ bool MakeLocal(const std::wstring &path, unsigned mib) {
 }
 
 PhaseResult Phase(const char *title, bool write, const std::wstring &big, const std::wstring &local,
-                  unsigned mib,
-                  const std::wstring &dir, int *small_n, prospero::Channel &ch) {
+                  unsigned mib, const std::wstring &dir, int *small_n, prospero::Channel &ch,
+                  const std::string &ch_ip, unsigned short ch_port) {
   PhaseResult r;
   std::string err;
   if (!ch.ResetStats(&err)) {
     std::printf("  RESET-STATS: %s\n", err.c_str());
   }
-  std::atomic<bool> running{true};
-  std::atomic<bool> big_ok{false};
-  std::atomic<long long> moved{0};
+  struct Job {
+    std::wstring from, to;
+    bool write;
+    long long want;
+    volatile BOOL cancel = FALSE;
+    std::atomic<bool> running{true};
+    std::atomic<bool> ok{false};
+    std::atomic<long long> moved{0};
+  };
+  // Shared with the thread; leaked on purpose if the thread never returns.
+  Job *job = new Job;
+  job->from = write ? local : big;
+  job->to = write ? big : local + L".back";
+  job->write = write;
+  job->want = static_cast<long long>(mib) * kChunk;
   int64_t t0 = NowMs();
-  std::thread worker([&] {
-    // CopyFileEx without buffering, as the Explorer copies big files: it
-    // keeps several requests in flight, unlike a loop of ReadFile calls.
-    std::wstring from = write ? local : big;
-    std::wstring to = write ? big : local + L".back";
-    BOOL cancel = FALSE;
-    bool ok = CopyFileExW(from.c_str(), to.c_str(), Progress, &moved, &cancel,
+  // CopyFileEx without buffering, as the Explorer copies big files: it
+  // keeps several requests in flight, unlike a loop of ReadFile calls.
+  HANDLE worker = CreateThread(nullptr, 0, [](LPVOID arg) -> DWORD {
+    Job *j = static_cast<Job *>(arg);
+    bool ok = CopyFileExW(j->from.c_str(), j->to.c_str(), Progress, &j->moved,
+                          const_cast<BOOL *>(&j->cancel),
                           COPY_FILE_NO_BUFFERING | COPY_FILE_FAIL_IF_EXISTS) != 0;
     if (!ok) std::printf("  CopyFileEx: Windows-Fehler %lu\n", GetLastError());
-    if (!write) DeleteFileW(to.c_str());          // local copy on the PC only
-    big_ok = ok && moved == static_cast<long long>(mib) * kChunk;
-    running = false;
-  });
+    if (!j->write) DeleteFileW(j->to.c_str());    // local copy on the PC only
+    j->ok = ok && j->moved == j->want;
+    j->running = false;
+    return 0;
+  }, job, 0, nullptr);
+  std::atomic<bool> &running = job->running;
+  long long last_moved = 0;
+  int64_t last_progress = t0;
 
   std::printf("  --- %s, %u MiB\n", title, mib);
   std::printf("  %6s %10s %10s %8s %12s %12s %7s %7s\n", "t [s]", "klein [ms]", "dienst [ms]",
@@ -143,10 +163,27 @@ PhaseResult Phase(const char *title, bool write, const std::wstring &big, const 
     int64_t next = NowMs() + kSampleMs;
     while (running && NowMs() < next) Sleep(50);
     if (!running) break;
+    if (job->moved != last_moved) {
+      last_moved = job->moved;
+      last_progress = NowMs();
+    } else if (NowMs() - last_progress > kStallMs) {
+      std::printf("  HAENGT: seit %lld s kein Byte bewegt (%.0f von %u MiB), Kopie wird abgebrochen\n",
+                  static_cast<long long>(kStallMs / 1000), Mib(last_moved), mib);
+      r.hung = true;
+      job->cancel = TRUE;
+      CancelSynchronousIo(worker);
+      break;
+    }
     int64_t small = SmallOp(dir, (*small_n)++);
     int64_t s0 = NowMs();
     std::map<std::string, std::string> st;
     bool got = ch.Status(&st, &err);
+    if (!got) {
+      // The channel times out after 5 s; a new one keeps the samples coming.
+      std::string e2;
+      prospero::Hello h;
+      got = ch.Connect(ch_ip, ch_port, 3000, &e2) && ch.SayHello(&h, &e2) && ch.Status(&st, &e2);
+    }
     int64_t service = NowMs() - s0;
     if (small >= 0) r.small_ms.push_back(small);
     if (got) {
@@ -160,10 +197,18 @@ PhaseResult Phase(const char *title, bool write, const std::wstring &big, const 
                 sock < 0 ? "?" : std::to_string(Mib(sock)).substr(0, 5).c_str(),
                 Cur(st, "diag_waitq_pdus"), Cur(st, "diag_loop_gap_ms"));
   }
-  worker.join();
+  bool done = WaitForSingleObject(worker, r.hung ? 30000 : INFINITE) == WAIT_OBJECT_0;
+  CloseHandle(worker);
   double secs = (NowMs() - t0) / 1000.0;
-  r.ok = big_ok;
+  long long moved = job->moved;
+  r.ok = done && !r.hung && job->ok;
+  r.secs = secs;
   r.mb_s = secs > 0 ? moved / 1e6 / secs : 0;
+  if (done) {
+    delete job;
+  } else {
+    std::printf("  Die Kopie reagiert nicht auf den Abbruch, sie bleibt im Hintergrund.\n");
+  }
   std::map<std::string, std::string> st;
   if (ch.Status(&st, &err)) r.last = st;
   return r;
@@ -183,6 +228,18 @@ void Report(const char *title, const PhaseResult &r, int64_t idle, int *failures
               Max(r.last, "diag_sock_unsent_bytes").c_str(), Max(r.last, "diag_waitq_pdus").c_str(),
               Max(r.last, "diag_loop_gap_ms").c_str(),
               r.last.count("diag_sndbuf") ? r.last.at("diag_sndbuf").c_str() : "?");
+  // Where the server spent the phase: computing (CPU) or in the disk calls.
+  auto num = [&](const char *k) {
+    return r.last.count(k) ? std::atoll(r.last.at(k).c_str()) : -1LL;
+  };
+  long long span = num("since_reset_ms");
+  long long cpu = num("cpu_user_ms") + num("cpu_sys_ms");
+  if (span > 0) {
+    std::printf("  %s, Server: Rechenzeit %lld ms (davon System %lld) in %lld ms, also %lld %%; "
+                "pread %lld ms, pwrite %lld ms\n",
+                title, cpu, num("cpu_sys_ms"), span, cpu * 100 / span, num("pread_ms"),
+                num("pwrite_ms"));
+  }
   if (!r.ok) (*failures)++;
 }
 
@@ -293,6 +350,7 @@ int LoadTest(const std::string &ip, const std::string &unc_host, unsigned short 
 
   std::vector<Variant> vs = ParseVariants(variants);
   bool tuning = !variants.empty();
+  bool hung = false;
   for (int r = 1; r <= rounds; r++) {
     // Every other round runs the variants backwards, so that a slow drift of
     // the network does not favour one of them.
@@ -307,14 +365,21 @@ int LoadTest(const std::string &ip, const std::string &unc_host, unsigned short 
         continue;
       }
       std::wstring big = dir + L"\\big-" + std::to_wstring(r) + L"-" + std::to_wstring(i + 1) + L".bin";
-      PhaseResult w = Phase("Schreiben", true, big, local, mib, dir, &small_n, ch);
-      PhaseResult rd = Phase("Lesen", false, big, local, mib, dir, &small_n, ch);
+      PhaseResult w = Phase("Schreiben", true, big, local, mib, dir, &small_n, ch, ip, port);
+      PhaseResult rd;
+      if (!w.hung) rd = Phase("Lesen", false, big, local, mib, dir, &small_n, ch, ip, port);
       std::printf("\n");
       Report("Schreiben", w, idle, &failures);
-      Report("Lesen", rd, idle, &failures);
+      if (!w.hung) Report("Lesen", rd, idle, &failures);
       v.writes.push_back(w);
       v.reads.push_back(rd);
+      if (w.hung || rd.hung) {
+        std::printf("FALSCH  Eine Kopie hing, der Lasttest endet hier.\n");
+        hung = true;
+        break;
+      }
     }
+    if (hung) break;
   }
   if (tuning && !ch.Tune(cred.password, 0, 0, &err)) {
     std::printf("FALSCH  TUNE zurueck auf Standard: %s\n", err.c_str());
