@@ -57,6 +57,7 @@
 #include "discovery.h"
 #include "log.h"
 #include "service.h"
+#include "signing.h"
 
 #define NAME        "Prospero AutoDrive"
 #define SHARE_NAME  "prospero"
@@ -242,6 +243,9 @@ status(char *buf, size_t size) {
                   g_tune_sndbuf, g_tune_credits);
   }
   if(n > 0 && (size_t)n < size) {
+    n += signing_status(buf + n, size - n);
+  }
+  if(n > 0 && (size_t)n < size) {
     n += diag_status(buf + n, size - n);
   }
   if(n > 0 && (size_t)n < size) {
@@ -373,6 +377,8 @@ main(int argc, char **argv) {
     notify(NAME ": config.ini war fehlerhaft und wurde neu angelegt "
            "(die alte liegt als config.ini.bad daneben)");
   }
+
+  signing_check();
 
   if(service_stop_previous(SERVICE_PORT)) {
     log_msg("asked the running instance to quit");

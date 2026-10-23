@@ -114,7 +114,7 @@ if /i "%TEST%"=="P24" (
   set "TAG=PROSPERO-SMBD"
   set "PRODUCT=1"
   set "KEY=instance"
-  set "DURATION=etwa 15 bis 20 Minuten"
+  set "DURATION=etwa 10 bis 20 Minuten"
 )
 if not defined ELF (
   echo FEHLER: Unbekannter Test "%TEST%". Bekannt sind S2, S2b, S3, S4, S7, P22 und P24.

@@ -87,7 +87,14 @@ Go für natives SMB, wenn S1, S2, S3, S6 und S7 bestanden sind und S4 mindestens
   - ftpsrv im selben Lauf: Schreiben 8,3 und 9,0 MB/s, Lesen 4,7 und 2,9 MB/s. SMB liegt damit beim Durchsatz gleichauf. Das Lesen schwankt im WLAN bei beiden Verfahren stark.
   - Wie der Explorer hält der PC bis zu 11 Lese-Antworten zu je 1 MiB offen, bis 8 MiB stehen in der Sendeschlange von libsmb2. Eine kleine Datei wartet daher beim Lesen 24–44 s und beim Schreiben 8–12 s, ohne Last 78 ms. Kleinere Sendepuffer helfen nicht, die Antworten stauen sich dann in der Sendeschlange.
   - Die Kreditgrenze verkürzt die Wartezeit beim Schreiben auf 3–4 s, beim Lesen kaum. Den Durchsatz kostet sie bei 64 nicht.
+  - Messung 2 war WLAN.
   - Fehler: In Runde 1 brach das Schreiben mit Kreditgrenze 64 nach 7 s ab (Windows-Fehler 59, der PC hat die Verbindung zurückgesetzt). Davor lief eine Variante ohne Grenze, der PC hielt bis zu 222 Kredite. Mit derselben Grenze in Runde 2 trat der Fehler nicht auf. Vermutung: Die Grenze wurde mitten in der Verbindung von 222 auf 64 gesenkt. Noch nicht nachgewiesen.
+- **P2.4** Messung 3, **Kabel** (E3, Build `379f98c`, 23.10.2026, dieselben Varianten, 128 MiB):
+  - Durchsatz: SMB liest 26–28 MB/s, schreibt 25 MB/s. ftpsrv liest 114 MB/s, schreibt 89 MB/s. Das sind etwa 24 % und 28 %.
+  - Ursache: Rechenzeit. Beim Lesen rechnete der Server 4,1 s in 4,7 s. libsmb2 signiert mit einer Referenz-AES, die je 16-Byte-Block den Schlüssel neu berechnet. Lokal gemessen: 75 MB/s für AES-CMAC mit dieser Referenz, 1942 MB/s mit AES-NI, gleiche Ergebnisse und alle Prüfwerte aus RFC 4493 richtig.
+  - Wartezeit: kleine Datei ohne Last 16 ms, unter Last 2,7–3,4 s, mit Kreditgrenze 32 beim Schreiben etwa 1 s. Das passt zu 8 MiB Schlange bei 28 MB/s.
+  - Fehler 59 wieder genau in Runde 1, Variante 4, beim ersten Absenken der Kreditgrenze mitten in der Verbindung. Der Patch vergibt jetzt nie 0 Kredite, wenn der PC welche anfordert (MS-SMB2 3.3.1.2).
+  - Ziel des nächsten Schritts: ≥ 95 % von ftpsrv am Kabel, siehe [Entscheidungen](entscheidungen.md#ziele-nach-messung-2-am-kabel-23102026).
 
 **Umfang:**
 

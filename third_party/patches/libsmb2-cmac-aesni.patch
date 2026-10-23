@@ -1,0 +1,167 @@
+diff --git a/lib/smb2-signing.c b/lib/smb2-signing.c
+index a6e6cbb..30b67d8 100644
+--- a/lib/smb2-signing.c
++++ b/lib/smb2-signing.c
+@@ -123,12 +123,136 @@ void aes_cmac_sub_keys(
+         }
+ }
+ 
++#if (defined(__x86_64__) || defined(__i386__)) && \
++    (defined(__GNUC__) || defined(__clang__))
++/*
++ * AES-CMAC with the AES-NI instructions of x86 CPUs. The reference AES
++ * works byte by byte and expands the key again for every 16-byte block,
++ * which limits a signed connection to some 30 MB/s on a fast CPU. Here the
++ * key is expanded once per message and each block is ten instructions.
++ * Used only if the CPU reports AES-NI.
++ */
++#include <cpuid.h>
++#include <wmmintrin.h>
++#include <emmintrin.h>
++#define SMB2_HAVE_AESNI 1
++
++__attribute__((target("aes,sse2")))
++static __m128i aesni_expand(__m128i key, __m128i assist)
++{
++        assist = _mm_shuffle_epi32(assist, 0xff);
++        key = _mm_xor_si128(key, _mm_slli_si128(key, 4));
++        key = _mm_xor_si128(key, _mm_slli_si128(key, 4));
++        key = _mm_xor_si128(key, _mm_slli_si128(key, 4));
++        return _mm_xor_si128(key, assist);
++}
++
++#define AESNI_ROUND_KEY(i, rcon) \
++        rk[i] = aesni_expand(rk[i - 1], _mm_aeskeygenassist_si128(rk[i - 1], rcon))
++
++__attribute__((target("aes,sse2")))
++static __m128i aesni_encrypt(const __m128i rk[11], __m128i v)
++{
++        int r;
++
++        v = _mm_xor_si128(v, rk[0]);
++        for (r = 1; r < 10; r++) {
++                v = _mm_aesenc_si128(v, rk[r]);
++        }
++        return _mm_aesenclast_si128(v, rk[10]);
++}
++
++__attribute__((target("aes,sse2")))
++static void aesni_cmac_128(const uint8_t key[AES128_KEY_LEN],
++                           const uint8_t *msg, uint64_t msg_len,
++                           uint8_t mac[AES128_KEY_LEN])
++{
++        static const uint8_t rb[AES128_KEY_LEN] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0x87};
++        __m128i rk[11], x;
++        uint8_t sub_key1[AES128_KEY_LEN], sub_key2[AES128_KEY_LEN];
++        uint8_t last[AES128_KEY_LEN];
++        uint64_t n = (msg_len + AES128_KEY_LEN - 1) / AES128_KEY_LEN;
++        uint64_t rem = msg_len % AES128_KEY_LEN;
++        uint64_t i;
++        int is_last_block_complete = n != 0 && rem == 0;
++
++        rk[0] = _mm_loadu_si128((const __m128i *)key);
++        AESNI_ROUND_KEY(1, 0x01);
++        AESNI_ROUND_KEY(2, 0x02);
++        AESNI_ROUND_KEY(3, 0x04);
++        AESNI_ROUND_KEY(4, 0x08);
++        AESNI_ROUND_KEY(5, 0x10);
++        AESNI_ROUND_KEY(6, 0x20);
++        AESNI_ROUND_KEY(7, 0x40);
++        AESNI_ROUND_KEY(8, 0x80);
++        AESNI_ROUND_KEY(9, 0x1b);
++        AESNI_ROUND_KEY(10, 0x36);
++
++        _mm_storeu_si128((__m128i *)sub_key1, aesni_encrypt(rk, _mm_setzero_si128()));
++        if (aes_cmac_shift_left(sub_key1)) {
++                aes_cmac_xor(sub_key1, rb);
++        }
++        memcpy(sub_key2, sub_key1, AES128_KEY_LEN);
++        if (aes_cmac_shift_left(sub_key2)) {
++                aes_cmac_xor(sub_key2, rb);
++        }
++
++        if (n == 0) {
++                n = 1;
++        }
++        x = _mm_setzero_si128();
++        for (i = 0; i < n - 1; i++) {
++                x = _mm_xor_si128(x, _mm_loadu_si128((const __m128i *)&msg[i * AES128_KEY_LEN]));
++                x = aesni_encrypt(rk, x);
++        }
++        if (is_last_block_complete) {
++                memcpy(last, &msg[i * AES128_KEY_LEN], AES128_KEY_LEN);
++                aes_cmac_xor(last, sub_key1);
++        } else {
++                if (rem) {
++                        memcpy(last, &msg[i * AES128_KEY_LEN], (size_t)rem);
++                }
++                last[rem] = 0x80;
++                memset(&last[rem + 1], 0, AES128_KEY_LEN - ((size_t)rem + 1));
++                aes_cmac_xor(last, sub_key2);
++        }
++        x = _mm_xor_si128(x, _mm_loadu_si128((const __m128i *)last));
++        _mm_storeu_si128((__m128i *)mac, aesni_encrypt(rk, x));
++}
++#endif
++
++static int cmac_fast = -1;      /* not decided yet */
++
++int smb3_cmac_fast(int enable)
++{
++#ifdef SMB2_HAVE_AESNI
++        if (enable >= 0 || cmac_fast < 0) {
++                unsigned int a, b, c, d;
++                int have = __get_cpuid(1, &a, &b, &c, &d) && (c & bit_AES);
++
++                cmac_fast = enable != 0 && have;
++        }
++        return cmac_fast;
++#else
++        (void)enable;
++        cmac_fast = 0;
++        return 0;
++#endif
++}
++
+ void smb3_aes_cmac_128(uint8_t key[AES128_KEY_LEN],
+                    uint8_t * msg,
+                    uint64_t msg_len,
+                    uint8_t mac[AES128_KEY_LEN]
+                   )
+ {
++#ifdef SMB2_HAVE_AESNI
++        if (smb3_cmac_fast(-1)) {
++                aesni_cmac_128(key, msg, msg_len, mac);
++                return;
++        }
++#endif
++        {
+         uint8_t sub_key1[AES128_KEY_LEN] = {0};
+         uint8_t sub_key2[AES128_KEY_LEN] = {0};
+         uint8_t scratch[AES128_KEY_LEN] = {0};
+@@ -164,6 +288,7 @@ void smb3_aes_cmac_128(uint8_t key[AES128_KEY_LEN],
+         aes_cmac_xor(mac, scratch);
+         AES128_ECB_encrypt(mac, key, scratch);
+         memcpy(mac, scratch, AES128_KEY_LEN);
++        }
+ }
+ 
+ int
+diff --git a/lib/smb2-signing.h b/lib/smb2-signing.h
+index a6f6aff..6dd64b8 100644
+--- a/lib/smb2-signing.h
++++ b/lib/smb2-signing.h
+@@ -44,6 +44,13 @@ int
+ smb2_pdu_check_signature(struct smb2_context *smb2,
+                          struct smb2_pdu *pdu);
+ 
++void smb3_aes_cmac_128(uint8_t key[16], uint8_t *msg, uint64_t msg_len,
++                       uint8_t mac[16]);
++
++/* AES-CMAC with AES-NI: 1 switches it on if the CPU has it, 0 off, -1
++ * only asks. Returns 1 while it is used. */
++int smb3_cmac_fast(int enable);
++
+ #ifdef __cplusplus
+ }
+ #endif

@@ -126,6 +126,10 @@ expect "$out" "^server_id=$ID$"
 expect "$out" '^share=prospero$'
 expect "$out" "^smb_port=$PORT$"
 need grep -q "config.ini created (first start)" "$STATE/log.txt"
+# Signing: AES-NI CMAC passed RFC 4493 and matches the reference code (the
+# CI runners have AES-NI, as the console's Zen 2 has).
+expect "$out" '^signing_cmac=aes-ni$'
+grep "signing: AES-CMAC" "$STATE/log.txt"
 if { echo "$out"; cat "$STATE/log.txt" "$WORK/server.log"; } | grep -q "$PASS"; then
   echo "the password must not be in the status or the log" >&2
   exit 1

@@ -235,6 +235,16 @@ Das SDK enthält in `libc.a` für jede FreeBSD-Systemaufrufnummer einen nackten 
 - **Regel:** Auf der PS5 nur Funktionen benutzen, die libkernel exportiert. Die CI prüft das (`.github/scripts/check-raw-syscalls.sh`).
 - **Ebenso:** Neue Bibliotheksfunktionen gelten erst als sicher, wenn sie auf der PS5 gelaufen sind. Nach `localtime_r()` blieb das Payload stumm.
 
+## Ziele nach Messung 2 am Kabel (23.10.2026)
+
+Der Projektverantwortliche hat die PS5 per Kabel angeschlossen (feste IP 192.168.188.163), um zuerst unter den besten Bedingungen zu arbeiten und später für das WLAN zu optimieren.
+
+- **Vorrangiges Ziel des nächsten Schritts:** am Kabel **≥ 95 % der Geschwindigkeit von ftpsrv**, lesend und schreibend.
+- **Danach:** Die Verbindung wird sofort auf- und abgebaut, wenn sich der Zustand der PS5 ändert (Phase 3). Bisher gilt aus dem Entwurf Phase 2: Lebenszeichen alle 5 s, weg nach 15 s ohne Antwort und fehlgeschlagenem Test auf TCP 445. Was „sofort“ in Sekunden heißt, wird dort festgelegt.
+- **Stand am Kabel (E3, Build `379f98c`):** SMB liest 26–28 MB/s und schreibt 25 MB/s, ftpsrv 114 und 89 MB/s, also etwa 24 % und 28 %. Der Server rechnete beim Lesen 87 % der Zeit. libsmb2 signiert mit einer Referenz-AES, die den Schlüssel für jeden 16-Byte-Block neu berechnet. Im WLAN fiel das nicht auf, weil die Funkstrecke langsamer war als diese Grenze; G1 wurde im WLAN gemessen.
+- **Maßnahme:** AES-CMAC mit AES-NI (Patch `libsmb2-cmac-aesni`), Signieren bleibt immer an. Der Server prüft beim Start die Prüfwerte aus RFC 4493 und vergleicht mit der Referenz, sonst nimmt er die Referenz.
+- **Gates G1/G2** bleiben im Text als WLAN-Messung definiert, bis der Projektverantwortliche das ändert. Jede Messung nennt künftig WLAN oder Kabel.
+
 ## Testablauf, 20.10.2026
 
 ### Test mit einem Klick

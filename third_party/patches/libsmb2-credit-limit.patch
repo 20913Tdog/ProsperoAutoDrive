@@ -34,17 +34,21 @@ index 21b5286..216d8c5 100644
  
  int smb2_bind_and_listen(const uint16_t port, const int max_connections, int *out_fd);
 diff --git a/lib/pdu.c b/lib/pdu.c
-index 059630d..1e0b48c 100644
+index 059630d..a01a364 100644
 --- a/lib/pdu.c
 +++ b/lib/pdu.c
-@@ -666,6 +666,35 @@ smb2_correlate_reply(struct smb2_context *smb2, struct smb2_pdu *pdu)
+@@ -666,6 +666,43 @@ smb2_correlate_reply(struct smb2_context *smb2, struct smb2_pdu *pdu)
                          pdu->header.credit_charge = req_pdu->header.credit_charge;
                  }
  
 +                /* Optional credit limit: grant no more than keeps the
 +                 * client's credits plus the charge of its requests in
 +                 * flight at credit_limit, but always enough that it is
-+                 * not left with none.
++                 * not left with none, and at least one when the client
++                 * asked for credits (MS-SMB2 3.3.1.2). Above the limit
++                 * the client's credits then go down by the charge minus
++                 * one per reply. (Granting none there, a Windows client
++                 * reset the connection twice after the limit dropped.)
 +                 */
 +                {
 +                        struct smb2_server *srv = smb2->owning_server;
@@ -54,13 +58,17 @@ index 059630d..1e0b48c 100644
 +
 +                        if (srv && srv->credit_limit) {
 +                                int64_t room = (int64_t)srv->credit_limit - held;
-+                                int64_t grant = pdu->header.credit_request_response;
++                                int64_t asked = pdu->header.credit_request_response;
++                                int64_t grant = asked;
 +
 +                                if (grant > room) {
 +                                        grant = room;
 +                                }
 +                                if (held + grant < 1) {
 +                                        grant = 1 - held;
++                                }
++                                if (grant < 1 && asked > 0) {
++                                        grant = 1;
 +                                }
 +                                if (grant < 0) {
 +                                        grant = 0;
