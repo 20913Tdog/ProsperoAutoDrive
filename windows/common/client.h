@@ -93,6 +93,7 @@ class Channel {
 
   bool Connect(const std::string &ip, unsigned short port, DWORD timeout_ms, std::string *err);
   void Close();
+  bool open() const { return s_ != INVALID_SOCKET; }
 
   // Sends one line and reads one reply line.
   bool Request(const std::string &line, std::string *reply, std::string *err);
@@ -121,6 +122,15 @@ class Channel {
   // default (measurements). Needs the key of a paired PC.
   bool Tune(const std::string &key, int sndbuf, int credits, std::string *err);
 
+  // Heartbeat without waiting (ProsperoAutoDrive.exe): SendPing() only sends,
+  // `event` is signalled when data or the close arrives, Poll() then reads
+  // what is there. After the first SendPing() the blocking requests above
+  // no longer work on this connection.
+  bool SendPing(const std::string &key, HANDLE event, std::string *err);
+  // Returns the number of PONG lines read; closed is set when the server
+  // closed the connection or it failed.
+  int Poll(bool *closed);
+
  private:
   // "<command> 1 seq=<n> <rest> mac=<hmac>"
   std::string Signed(const std::string &command, const std::string &rest, const std::string &key);
@@ -130,6 +140,7 @@ class Channel {
   std::string buf_;
   std::string nonce_;
   uint64_t seq_ = 0;           // grows with every signed line
+  bool watched_ = false;       // WSAEventSelect is on, the socket is non-blocking
 };
 
 // Credentials, in the Windows Credential Manager -------------------------

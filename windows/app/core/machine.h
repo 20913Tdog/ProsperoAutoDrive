@@ -69,7 +69,8 @@ struct Action {
 struct Event {
   enum Kind {
     kTick,              // NextWakeMs() reached
-    kChannelUp,         // server_id, link ("wired", "wifi", "unknown")
+    kChannelUp,         // server_id, link ("wired", "wifi", "unknown"); ok:
+                        // credentials for this server are stored already
     kChannelFailed,
     kChannelClosed,     // the server closed an open channel
     kPaired,            // ok
@@ -94,7 +95,8 @@ struct Event {
 
 class Machine {
  public:
-  // saved_server_id empty: the first server that answers is taken (setup).
+  // saved_server_id empty: the first server that answers is taken (setup);
+  // have_credentials: for that saved server.
   Machine(const Timing &t, std::string saved_server_id, bool have_credentials);
 
   std::vector<Action> Start(int64_t now);

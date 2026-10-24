@@ -335,6 +335,47 @@ jobs:
             $idle
             if (-not ($idle -match 'Lebenszeichen jede Sekunde: 4 s, PING 4 beantwortet, 0 ohne Antwort')) { throw "probe idle test did not run" }
             curl.exe -fsS --max-time 3 http://127.0.0.1:4445/net
+            # P3.2: ProsperoAutoDrive.exe maps the share while the server
+            # runs. P: is taken by a subst drive, which must stay untouched,
+            # so the drive is O:. Times: up, gone on an orderly end, up again.
+            # The mapping rides on the net use above (alternate port).
+            $pad = Join-Path $env:RUNNER_TEMP 'pad-state'
+            $p_dir = Join-Path $env:RUNNER_TEMP 'subst-p'
+            New-Item -ItemType Directory -Force -Path $p_dir | Out-Null
+            subst P: $p_dir
+            function Wait-Drive([string]$d, [bool]$want, [int]$ms) {
+              $sw = [Diagnostics.Stopwatch]::StartNew()
+              while ($sw.ElapsedMilliseconds -lt $ms) {
+                if ((Test-Path "$d\") -eq $want) { return $sw.ElapsedMilliseconds }
+                Start-Sleep -Milliseconds 50
+              }
+              return -1
+            }
+            Start-Process -FilePath .\binaries\ProsperoAutoDrive.exe -WindowStyle Hidden `
+              -ArgumentList '--ip','127.0.0.1','--share-host','prosperotest','--state-dir',$pad
+            $up = Wait-Drive 'O:' $true 10000
+            "P3.2 drive up after $up ms"
+            $listed_o = Test-Path 'O:\data'
+            curl.exe -fsS --max-time 3 http://127.0.0.1:4445/quit
+            $gone = Wait-Drive 'O:' $false 10000
+            "P3.2 drive gone after $gone ms (orderly end)"
+            Start-Process -FilePath wsl.exe -WindowStyle Hidden `
+              -ArgumentList '-d','ci','-u','root','--','/root/prospero-smbd','/root/smbroot/','/root/smbd-state',$env:SMB_PORT `
+              -RedirectStandardOutput smbd2.log -RedirectStandardError smbd2.err
+            $again = Wait-Drive 'O:' $true 20000
+            "P3.2 drive up again after $again ms (includes the server start)"
+            .\binaries\ProsperoAutoDrive.exe --stop
+            $stopped = -not (Test-Path 'O:\')
+            $p_kept = Test-Path 'P:\'
+            subst P: /d
+            Get-Content (Join-Path $pad 'log.txt')
+            if ($up -lt 0) { throw "P3.2: drive did not come" }
+            if (-not $listed_o) { throw "P3.2: O:\data not visible" }
+            if ($gone -lt 0) { throw "P3.2: drive did not go" }
+            if ($again -lt 0) { throw "P3.2: drive did not come back" }
+            if (-not $stopped) { throw "P3.2: drive still there after --stop" }
+            if (-not $p_kept) { throw "P3.2: the foreign P: was touched" }
+            'P3.2: OK'
             net use $share /delete /y
             curl.exe -fsS --max-time 3 http://127.0.0.1:4445/ | Select-String '^(PROSPERO-SMBD|share|connections|files_created|dirs_created)'
             curl.exe -fsS --max-time 3 http://127.0.0.1:4445/quit

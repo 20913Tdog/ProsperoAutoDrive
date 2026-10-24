@@ -6,6 +6,7 @@
 #include "client.h"
 
 #include <iphlpapi.h>
+#include <mstcpip.h>
 #include <bcrypt.h>
 #include <wincred.h>
 
@@ -235,6 +236,7 @@ void Channel::Close() {
   buf_.clear();
   nonce_.clear();
   seq_ = 0;
+  watched_ = false;
 }
 
 bool Channel::Connect(const std::string &ip, unsigned short port, DWORD timeout_ms,
@@ -251,6 +253,14 @@ bool Channel::Connect(const std::string &ip, unsigned short port, DWORD timeout_
   if (s_ == INVALID_SOCKET) {
     *err = WsaError("socket");
     return false;
+  }
+  // Windows answers a refused connect (RST) with two more SYNs, so a closed
+  // port took 2 s; without them it is reported at once. Within the timeout
+  // of a second there is only one SYN anyway (initial RTO 1 s).
+  TCP_INITIAL_RTO_PARAMETERS rto{TCP_INITIAL_RTO_UNSPECIFIED_RTT, TCP_INITIAL_RTO_NO_SYN_RETRANSMISSIONS};
+  DWORD got = 0;
+  if (timeout_ms <= 1000) {
+    WSAIoctl(s_, SIO_TCP_INITIAL_RTO, &rto, sizeof rto, nullptr, 0, &got, nullptr, nullptr);
   }
   // Non-blocking connect with a timeout, then blocking with timeouts.
   u_long nb = 1;
@@ -426,6 +436,56 @@ bool Channel::Tune(const std::string &key, int sndbuf, int credits, std::string 
     return false;
   }
   return true;
+}
+
+bool Channel::SendPing(const std::string &key, HANDLE event, std::string *err) {
+  if (s_ == INVALID_SOCKET) {
+    *err = "nicht verbunden";
+    return false;
+  }
+  if (!watched_) {
+    if (WSAEventSelect(s_, event, FD_READ | FD_CLOSE) != 0) {
+      *err = WsaError("WSAEventSelect");
+      return false;
+    }
+    watched_ = true;
+  }
+  std::string out = Signed("PING", "utc_ms=" + std::to_string(UtcMs()), key) + "\n";
+  // A line of about 150 bytes fits into the empty send buffer at once.
+  if (send(s_, out.data(), static_cast<int>(out.size()), 0) != static_cast<int>(out.size())) {
+    *err = WsaError("send");
+    return false;
+  }
+  return true;
+}
+
+int Channel::Poll(bool *closed) {
+  *closed = false;
+  if (s_ == INVALID_SOCKET) {
+    *closed = true;
+    return 0;
+  }
+  for (;;) {
+    char tmp[1024];
+    int n = recv(s_, tmp, sizeof tmp, 0);
+    if (n > 0) {
+      buf_.append(tmp, static_cast<size_t>(n));
+      if (buf_.size() > 64 * 1024) {
+        *closed = true;
+        break;
+      }
+      continue;
+    }
+    if (n == 0 || WSAGetLastError() != WSAEWOULDBLOCK) *closed = true;
+    break;
+  }
+  int pongs = 0;
+  size_t nl;
+  while ((nl = buf_.find('\n')) != std::string::npos) {
+    if (buf_.rfind("PONG 1 ", 0) == 0) pongs++;
+    buf_.erase(0, nl + 1);
+  }
+  return pongs;
 }
 
 // Credentials ------------------------------------------------------------

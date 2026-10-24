@@ -126,6 +126,7 @@ std::vector<Action> Machine::Handle(const Event &e, int64_t now) {
         }
         server_id_ = e.server_id;
         link_ = e.link.empty() ? "unknown" : e.link;
+        if (e.ok) have_credentials_ = true;
         if (state_ == State::kReconnecting) {
           in_flight_ = false;
           retried_ = false;
