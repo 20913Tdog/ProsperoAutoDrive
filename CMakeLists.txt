@@ -68,9 +68,11 @@ if(NOT WIN32)
   add_subdirectory(ps5/spikes/smbserver)
   add_subdirectory(ps5/smbd)
   # The state machine of the Windows program has no Win32 calls; its unit
-  # test runs here too.
-  enable_language(CXX)
-  add_subdirectory(windows/app/core)
+  # test runs in the host build too (not on the console).
+  if(NOT PS5)
+    enable_language(CXX)
+    add_subdirectory(windows/app/core)
+  endif()
 else()
   add_subdirectory(windows)
 endif()
