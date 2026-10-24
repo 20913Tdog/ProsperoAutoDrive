@@ -141,6 +141,8 @@ netinfo_text(int fd, char *buf, size_t size) {
       i->type = dl->sdl_type == IFT_ETHER ? "ether" :
                 dl->sdl_type == IFT_IEEE80211 ? "wifi" : "other";
     }
+#else
+    (void)i;      /* Linux: no AF_LINK, the name is still listed */
 #endif
   }
   s = socket(AF_INET, SOCK_DGRAM, 0);
