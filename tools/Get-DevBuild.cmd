@@ -11,9 +11,21 @@ set "OUT=%ROOT%\dist\dev"
 if exist "%OUT%" rmdir /s /q "%OUT%" 2>nul
 if exist "%OUT%" (
   echo FEHLER: %OUT% laesst sich nicht leeren, eine Datei darin ist noch in Benutzung.
-  echo Meist haengt ein altes Testprogramm an einer Verbindung zur PS5. Abhilfe:
-  echo   net use \\^<PS5-IP^>\prospero /delete /y
-  echo danach 20 s warten und dieses Skript erneut starten.
+  echo Diese Programme aus dem Build laufen noch:
+  set "SEEN=0"
+  for %%P in (ProsperoAutoDrive.exe prospero-probe.exe s7-discover.exe) do (
+    tasklist /fi "imagename eq %%P" /nh 2>nul | findstr /i /b "%%P" >nul && (
+      echo   %%P
+      set "SEEN=1"
+    )
+  )
+  if "!SEEN!"=="0" echo   keines
+  echo Abhilfe:
+  echo   - ProsperoAutoDrive.exe: Tray-Symbol, Rechtsklick, Beenden.
+  echo   - Sonst im Task-Manager, Reiter Details, den Prozess beenden.
+  echo   - Ein Explorer- oder cmd-Fenster, das in dist\dev steht, schliessen.
+  echo   - Eine haengende Verbindung zur PS5: net use \\^<PS5-IP^>\prospero /delete /y
+  echo Danach dieses Skript erneut starten.
   exit /b 1
 )
 mkdir "%OUT%" || exit /b 1
