@@ -356,7 +356,7 @@ int64_t MedianOf(const std::vector<PhaseResult> &v, bool small) {
 int LoadTest(const std::string &ip, const std::string &unc_host, unsigned short port,
              const prospero::Hello &hello, const prospero::Credential &cred,
              const std::string &folder, std::string *test_dir, unsigned mib, int rounds,
-             const std::string &variants) {
+             const std::string &variants, const std::string &round_cmd) {
   int failures = 0;
   std::wstring share = L"\\\\" + Wide(unc_host) + L"\\" + Wide(hello.share);
   std::wstring user = Wide(cred.user);
@@ -441,6 +441,13 @@ int LoadTest(const std::string &ip, const std::string &unc_host, unsigned short 
       }
     }
     if (hung) break;
+    if (!round_cmd.empty()) {
+      // cmd /c strips the outer quotes and keeps those around the path. The
+      // script inherits stdout, so its lines land in the same log.
+      std::string cmd = "\"\"" + round_cmd + "\" --round " + std::to_string(r) + "\"";
+      int rc = std::system(cmd.c_str());
+      if (rc != 0) std::printf("  Rundenbefehl: Exitcode %d\n", rc);
+    }
   }
   if (tuning && !ch.Tune(cred.password, 0, 0, &err)) {
     std::printf("FALSCH  TUNE zurueck auf Standard: %s\n", err.c_str());

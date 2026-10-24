@@ -21,12 +21,14 @@
 //                      [--connect] [--load-test <folder> <MiB> [--rounds N]]
 //                      [--share-host <name>] [--variants <sndbuf:credits,...>]
 //                      [--test-name <_ProsperoAutoDrive_Test_...>]
+//                      [--round-cmd <file.cmd>]
 //
 // --share-host names the server in \\<name>\<share> when that is not the
 // address itself (CI: a hosts alias with an alternate SMB port).
 //
 // --load-test measures the response time under load (load.cpp), in its own
-// new test folder below <folder>.
+// new test folder below <folder>. --round-cmd runs a script after each
+// round with "--round <n>" (P24: ftpsrv as the reference, alternately).
 //
 // --write-test creates <folder>\_ProsperoAutoDrive_Test_<UTC time>-<random>
 // in the share, writes a file into it and reads it back. Nothing that
@@ -173,6 +175,7 @@ int main(int argc, char **argv) {
   std::string share_host;      // name in \\host\share; default: the address
   std::string variants;        // --variants for the load test
   std::string test_name;       // --test-name: folder name for the load test
+  std::string round_cmd;       // --round-cmd: script after each load round
   for (int i = 1; i < argc; i++) {
     if (!std::strcmp(argv[i], "--connect")) {
       connect = true;
@@ -183,6 +186,8 @@ int main(int argc, char **argv) {
       variants = argv[++i];
     } else if (!std::strcmp(argv[i], "--test-name") && i + 1 < argc) {
       test_name = argv[++i];
+    } else if (!std::strcmp(argv[i], "--round-cmd") && i + 1 < argc) {
+      round_cmd = argv[++i];
     } else if (!std::strcmp(argv[i], "--share-host") && i + 1 < argc) {
       share_host = argv[++i];
     } else if (!std::strcmp(argv[i], "--rounds") && i + 1 < argc) {
@@ -353,7 +358,8 @@ int main(int argc, char **argv) {
     } else {
       std::string name = TestFolderName();
       if (!test_name.empty()) name = test_name;
-      int f = LoadTest(ip, unc, port, hello, cred, load_folder, &name, load_mib, rounds, variants);
+      int f = LoadTest(ip, unc, port, hello, cred, load_folder, &name, load_mib, rounds, variants,
+                       round_cmd);
       if (f) {
         Fail("Lasttest: " + std::to_string(f) + " Uebertragung(en) fehlgeschlagen");
       } else {

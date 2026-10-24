@@ -120,6 +120,16 @@ Go für natives SMB, wenn S1, S2, S3, S6 und S7 bestanden sind und S4 mindestens
   - ftpsrv schrieb an diesem Tag nur 74 MB/s (Messung 5: 89 MB/s), `pwrite` brauchte 8,2 s je GiB statt 6,5 s. Die SSD der PS5 war langsamer.
   - Schreiben: Der Schreib-Thread übernahm 1024 von 1028 Anfragen, aber die Hauptschleife wartete 7,5 s von 8,2 s auf ihn. Ursache: Sie wartete, sobald gerade keine Daten lesbar waren, also auch mitten im Empfang der nächsten Anfrage. Jetzt wartet sie dort nie, der Thread weckt sie über eine Pipe.
   - Lesen: von 77 % auf 94 %, die Sendeschlange und der Socket waren durchgehend voll.
+- **P2.4** Messung 7, **Kabel** (E3, Build `79bf749`, 24.10.2026, 3 × 1 GiB):
+
+  | | Runde 1 | 2 | 3 | Median | ftpsrv (3 Läufe) | Anteil |
+  |---|---|---|---|---|---|---|
+  | Schreiben MB/s | 88,9 | 96,9 | 97,6 | 96,9 | 73,4–73,9 | 131 % |
+  | Lesen MB/s | 110,7 | 106,7 | 106,4 | 106,7 | 112,3–113,1 | 95,0 % (genau 94,98 %) |
+
+  - Schreiben: Die Wartezeit auf den Schreib-Thread sank von 7,5 s auf 1,6 s je GiB. Jetzt begrenzt `pwrite` selbst (8,7 s je GiB, fast nur Systemzeit), die Rechenzeit liegt bei 83–92 %.
+  - Lesen: unverändert gegenüber Messung 6. Sendeschlange und Socket voll, Rechenzeit 50 %, der Server wartet also nicht. In Messung 6 und 7 war Runde 1 je etwa 4 % schneller als Runde 2 und 3.
+  - Bewertung: Lesen liegt genau auf der Grenze. Mit 3 Runden ist das nicht von 94 % oder 96 % zu unterscheiden, und ftpsrv lief erst nach allen SMB-Runden. P24 misst deshalb jetzt wie für G2 vorgesehen: 7 Runden, SMB und ftpsrv im Wechsel, ftpsrv liest die Datei der jeweiligen Runde.
   - Ziel des nächsten Schritts: ≥ 95 % von ftpsrv am Kabel, siehe [Entscheidungen](entscheidungen.md#ziele-nach-messung-2-am-kabel-23102026).
 
 **Umfang:**
