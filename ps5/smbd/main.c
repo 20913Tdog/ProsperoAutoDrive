@@ -260,6 +260,7 @@ static void
 extra_fdset(struct smb2_server *srv, fd_set *rfds, fd_set *wfds, int *maxfd) {
   (void)wfds;
   backend_listener(srv->fd);
+  backend_fdset(rfds, maxfd);
   service_fdset(rfds, maxfd);
   if(g_udp_fd >= 0) {
     FD_SET(g_udp_fd, rfds);

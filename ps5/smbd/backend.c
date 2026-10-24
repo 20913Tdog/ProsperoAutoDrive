@@ -288,6 +288,9 @@ typedef struct {
 
 static pending_write_t g_pw;
 static int g_write_thread_ok = 1;     /* off after pthread_create() failed */
+/* The thread writes one byte here when it is done; the read end is in the
+ * main loop's select(), so the reply goes out right away. */
+static int g_wake[2] = {-1, -1};
 
 #define ASYNC_WRITE_MIN (64 * 1024)
 
@@ -990,6 +993,7 @@ write_thread(void *arg) {
   }
   w->ns = now_ns() - t0;
   __atomic_store_n(&w->finished, 1, __ATOMIC_RELEASE);
+  (void)!write(g_wake[1], "w", 1);
   return NULL;
 }
 
@@ -1007,6 +1011,10 @@ write_finish(void) {
   pthread_join(g_pw.thread, NULL);
   g.write_wait_ns += now_ns() - t0;
   g_pw.active = 0;
+  {
+    char b;
+    (void)!read(g_wake[0], &b, 1);      /* written before the thread ended */
+  }
   g.write_ns += g_pw.ns;
   free(g_pw.buf);
   g_pw.buf = NULL;
@@ -1037,33 +1045,25 @@ write_finish(void) {
 }
 
 
-/* From the main loop: sends the reply as soon as the write is done, or
- * waits for it when no request is waiting to be read anyway. */
+/* From the main loop: sends the reply once the write is done. Never
+ * waits: waiting here stopped the receiving between two parts of the
+ * next request, and the writes ran one after the other again. */
 static void
 write_poll(void) {
-  fd_set rfds;
-  struct timeval tv = {0, 0};
-  int maxfd = -1;
+  if(g_pw.active && __atomic_load_n(&g_pw.finished, __ATOMIC_ACQUIRE)) {
+    write_finish();
+  }
+}
 
-  if(!g_pw.active) {
-    return;
-  }
-  if(!__atomic_load_n(&g_pw.finished, __ATOMIC_ACQUIRE)) {
-    FD_ZERO(&rfds);
-    for(conn_t *c=g.conns; c; c=c->next) {
-      int fd = smb2_get_fd(c->smb2);
-      if(fd >= 0) {
-        FD_SET(fd, &rfds);
-        if(fd > maxfd) {
-          maxfd = fd;
-        }
-      }
-    }
-    if(maxfd >= 0 && select(maxfd + 1, &rfds, NULL, NULL, &tv) > 0) {
-      return;     /* receive first, the thread keeps writing */
+
+void
+backend_fdset(fd_set *rfds, int *maxfd) {
+  if(g_pw.active && g_wake[0] >= 0) {
+    FD_SET(g_wake[0], rfds);
+    if(g_wake[0] > *maxfd) {
+      *maxfd = g_wake[0];
     }
   }
-  write_finish();
 }
 
 
@@ -2276,6 +2276,11 @@ write_cmd(struct smb2_server *srv, struct smb2_context *smb2,
     offset = (uint64_t)st.st_size;
   }
 
+  if(g_write_thread_ok && g_wake[0] < 0 && pipe(g_wake) != 0) {
+    g_wake[0] = g_wake[1] = -1;
+    g_write_thread_ok = 0;
+    note("write thread: no pipe");
+  }
   if(g_write_thread_ok && req->length >= ASYNC_WRITE_MIN && !h->write_through &&
      !(req->flags & SMB2_WRITEFLAG_WRITE_THROUGH)) {
     /* The request buffer is reused for the next request, so a copy. */

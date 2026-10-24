@@ -110,6 +110,16 @@ Go für natives SMB, wenn S1, S2, S3, S6 und S7 bestanden sind und S4 mindestens
   - Lesen: Rechenzeit nur 22–29 %, `pread` 1,4 s je GiB. Die Sendeschlange war voll (7 MiB), der Socket aber zeitweise leer: libsmb2 schreibt neue Antworten erst beim nächsten Durchlauf in den Socket, wenn schon welche warten.
   - Kleine Datei unter Last: beim Schreiben etwa 1 s, beim Lesen 0,05–0,9 s.
   - Maßnahmen: `pwrite` großer Schreibanfragen in einem eigenen Thread, die Antwort geht weiter erst nach dem Schreiben raus (eine Anfrage zur Zeit, alle anderen Anfragen warten auf sie). Patch `libsmb2-server-flush`: Der Server schreibt jede neue Antwort sofort in den Socket.
+- **P2.4** Messung 6, **Kabel** (E3, Build `43aa8f1`, 24.10.2026, 3 × 1 GiB):
+
+  | | Runde 1 | 2 | 3 | Median | ftpsrv (3 Läufe) | Anteil |
+  |---|---|---|---|---|---|---|
+  | Schreiben MB/s | 65,7 | 76,1 | 77,8 | 76,1 | 73,8 | 103 % |
+  | Lesen MB/s | 111,9 | 107,6 | 107,5 | 107,5 | 114,1–114,9 | 94 % |
+
+  - ftpsrv schrieb an diesem Tag nur 74 MB/s (Messung 5: 89 MB/s), `pwrite` brauchte 8,2 s je GiB statt 6,5 s. Die SSD der PS5 war langsamer.
+  - Schreiben: Der Schreib-Thread übernahm 1024 von 1028 Anfragen, aber die Hauptschleife wartete 7,5 s von 8,2 s auf ihn. Ursache: Sie wartete, sobald gerade keine Daten lesbar waren, also auch mitten im Empfang der nächsten Anfrage. Jetzt wartet sie dort nie, der Thread weckt sie über eine Pipe.
+  - Lesen: von 77 % auf 94 %, die Sendeschlange und der Socket waren durchgehend voll.
   - Ziel des nächsten Schritts: ≥ 95 % von ftpsrv am Kabel, siehe [Entscheidungen](entscheidungen.md#ziele-nach-messung-2-am-kabel-23102026).
 
 **Umfang:**

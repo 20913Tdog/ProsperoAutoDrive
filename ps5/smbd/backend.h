@@ -13,6 +13,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <sys/select.h>
+
 #include <smb2/smb2.h>
 #include <smb2/libsmb2.h>
 
@@ -51,6 +53,10 @@ void backend_reset_stats(void);
 /* Call once per server loop pass: sends replies that had to wait until the
  * library was done with their request. */
 void backend_flush(void);
+
+/* Adds the backend's own descriptor (end of a write in its thread) to the
+ * server loop's select(). */
+void backend_fdset(fd_set *rfds, int *maxfd);
 
 /* Appends counters and the requests the backend did not support, as
  * "key=value" lines. Returns the number of characters written. */
