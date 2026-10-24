@@ -130,7 +130,19 @@ Go für natives SMB, wenn S1, S2, S3, S6 und S7 bestanden sind und S4 mindestens
   - Schreiben: Die Wartezeit auf den Schreib-Thread sank von 7,5 s auf 1,6 s je GiB. Jetzt begrenzt `pwrite` selbst (8,7 s je GiB, fast nur Systemzeit), die Rechenzeit liegt bei 83–92 %.
   - Lesen: unverändert gegenüber Messung 6. Sendeschlange und Socket voll, Rechenzeit 50 %, der Server wartet also nicht. In Messung 6 und 7 war Runde 1 je etwa 4 % schneller als Runde 2 und 3.
   - Bewertung: Lesen liegt genau auf der Grenze. Mit 3 Runden ist das nicht von 94 % oder 96 % zu unterscheiden, und ftpsrv lief erst nach allen SMB-Runden. P24 misst deshalb jetzt wie für G2 vorgesehen: 7 Runden, SMB und ftpsrv im Wechsel, ftpsrv liest die Datei der jeweiligen Runde.
-  - Ziel des nächsten Schritts: ≥ 95 % von ftpsrv am Kabel, siehe [Entscheidungen](entscheidungen.md#ziele-nach-messung-2-am-kabel-23102026).
+- **P2.4** Messung 8, **Kabel** (E3, Build `86e62c1`, 24.10.2026, 7 × 1 GiB, SMB und ftpsrv im Wechsel, wie für G2 vorgesehen):
+
+  | Runde | 1 | 2 | 3 | 4 | 5 | 6 | 7 | Median |
+  |---|---|---|---|---|---|---|---|---|
+  | SMB schreiben MB/s | 86,1 | 100,0 | 100,0 | 99,9 | 99,9 | 99,9 | 100,3 | 99,9 |
+  | ftpsrv schreiben MB/s | 73,5 | 74,1 | 73,9 | 73,5 | 73,9 | 73,5 | 73,7 | 73,7 |
+  | SMB lesen MB/s | 107,0 | 101,5 | 103,3 | 108,4 | 108,9 | 108,7 | 108,7 | 108,4 |
+  | ftpsrv lesen MB/s | 107,7 | 106,8 | 106,0 | 106,8 | 111,0 | 109,6 | 110,2 | 107,7 |
+
+  - **Ziel am Kabel erreicht:** Schreiben 136 %, Lesen 101 % von ftpsrv (Median). Lesen je Runde 95,0–101,5 %, keine Runde unter 95 %.
+  - ftpsrv las diesmal nur 106–111 MB/s (Messung 5–7: 112–117 MB/s). SMB las wie in Messung 6 und 7 (107–108 MB/s). Gegen den besten ftpsrv-Wert der Vortage wären es etwa 93 %.
+  - Kleine Datei unter Last: etwa 1,0–1,2 s, ohne Last 15 ms. Das bleibt für später offen.
+  - Ziel des nächsten Schritts war: ≥ 95 % von ftpsrv am Kabel, siehe [Entscheidungen](entscheidungen.md#ziele-nach-messung-2-am-kabel-23102026).
 
 **Umfang:**
 
