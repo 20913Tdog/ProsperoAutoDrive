@@ -155,6 +155,14 @@ expect "$rep" '^ERROR 1 reason=not-local$'
 need curl -fsS --max-time 3 --interface 127.0.0.2 http://127.0.0.1:4445/quit -o "$WORK/quit.txt"
 expect "$(cat "$WORK/quit.txt")" 'QUIT REFUSED not-local'
 need kill -0 "$server"
+# Network interfaces: loopback carries this request; Linux has no
+# SIOCGIFMEDIA, so the link type stays unknown here.
+net=$(curl -fsS --max-time 3 http://127.0.0.1:4445/net)
+echo "$net"
+expect "$net" '^PROSPERO-NET OK$'
+expect "$net" '^local=127.0.0.1$'
+expect "$net" '^if=lo inet=127.0.0.1 flags=0x[0-9a-f]* media=? type=? media_active=?$'
+expect "$net" '^link=unknown basis=none if=lo$'
 echo "case 2 passed"
 
 echo "== case 2a: discovery on UDP 4445"

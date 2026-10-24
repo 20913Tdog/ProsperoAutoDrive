@@ -20,3 +20,10 @@
 int LoadTest(const std::string &ip, const std::string &unc_host, unsigned short port, const prospero::Hello &hello,
              const prospero::Credential &cred, const std::string &folder, std::string *test_dir,
              unsigned mib, int rounds, const std::string &variants, const std::string &round_cmd);
+
+// Idle cost (decision of 24.10.2026): with the share connected, first up to
+// 30 s without, then `seconds` with a PING every second; per phase prints
+// the CPU time of the server and of this process against the elapsed time.
+// Returns the number of phases that missed 0.1 % of a core.
+int IdleTest(const std::string &ip, const std::string &unc_host, unsigned short port,
+             const prospero::Hello &hello, const prospero::Credential &cred, int seconds);

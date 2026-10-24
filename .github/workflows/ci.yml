@@ -321,6 +321,16 @@ jobs:
             New-Item -ItemType Directory -Force -Path "$share\data" | Out-Null
             .\binaries\prospero-probe.exe 127.0.0.1 --no-broadcast --share-host prosperotest --load-test data 16
             if ($LASTEXITCODE) { throw "probe load test failed: $LASTEXITCODE" }
+            # Idle cost: only that it runs and every PING is answered; the
+            # 0.1 % goal is judged live (a shared runner is not idle). The
+            # load test ended the connection, and only net use knows the
+            # alternate port.
+            net use $share $spw /user:prospero /TCPPORT:$env:SMB_PORT
+            if ($LASTEXITCODE) { throw "net use (again) failed: $LASTEXITCODE" }
+            $idle = .\binaries\prospero-probe.exe 127.0.0.1 --no-broadcast --share-host prosperotest --idle-test 4
+            $idle
+            if (-not ($idle -match 'Lebenszeichen jede Sekunde: 4 s, PING 4 beantwortet, 0 ohne Antwort')) { throw "probe idle test did not run" }
+            curl.exe -fsS --max-time 3 http://127.0.0.1:4445/net
             net use $share /delete /y
             curl.exe -fsS --max-time 3 http://127.0.0.1:4445/ | Select-String '^(PROSPERO-SMBD|share|connections|files_created|dirs_created)'
             curl.exe -fsS --max-time 3 http://127.0.0.1:4445/quit

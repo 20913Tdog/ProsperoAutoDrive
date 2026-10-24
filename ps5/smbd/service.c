@@ -45,7 +45,8 @@
  * IDLE_SECONDS is closed.
  *
  * For curl.exe in the test scripts, an HTTP request is understood as well:
- * GET / answers the status, GET /quit (127.0.0.1 only) quits. The spike
+ * GET / answers the status, GET /net the network interfaces and the link
+ * type (netinfo.c), GET /quit (127.0.0.1 only) quits. The spike
  * payloads quit an earlier instance with GET /quit, and this server quits
  * them the same way, so all of them replace each other.
  */
@@ -65,6 +66,7 @@
 
 #include "config.h"
 #include "hmac.h"
+#include "netinfo.h"
 #include "service.h"
 
 #define MAX_CLIENTS     8
@@ -75,7 +77,7 @@ typedef struct client {
   int fd;
   uint32_t peer;                /* IPv4, host byte order */
   time_t last;
-  int http;                     /* 0, or the HTTP request seen: 'S' or 'Q' */
+  int http;                     /* 0, or the HTTP request seen: 'S', 'N' or 'Q' */
   char nonce[17];               /* sent with HELLO, keys every mac= */
   int64_t last_seq;             /* of the last line with a valid mac */
   size_t len;
@@ -251,6 +253,8 @@ answer_http(client_t *c) {
     } else {
       n = snprintf(body, sizeof body, "PROSPERO-SMBD QUIT REFUSED not-local\n");
     }
+  } else if(c->http == 'N') {
+    n = netinfo_text(c->fd, body, sizeof body);
   } else {
     n = status_text(body, sizeof body);
   }
@@ -278,7 +282,13 @@ handle_line(client_t *c, const char *line) {
     return line[0] ? SERVICE_OK : answer_http(c);
   }
   if(!strncmp(line, "GET /", 5)) {
-    c->http = (!strncmp(line + 5, "quit", 4) && (line[9] == ' ' || !line[9])) ? 'Q' : 'S';
+    if(!strncmp(line + 5, "quit", 4) && (line[9] == ' ' || !line[9])) {
+      c->http = 'Q';
+    } else if(!strncmp(line + 5, "net", 3) && (line[8] == ' ' || !line[8])) {
+      c->http = 'N';
+    } else {
+      c->http = 'S';
+    }
     return SERVICE_OK;
   }
 

@@ -21,7 +21,7 @@
 //                      [--connect] [--load-test <folder> <MiB> [--rounds N]]
 //                      [--share-host <name>] [--variants <sndbuf:credits,...>]
 //                      [--test-name <_ProsperoAutoDrive_Test_...>]
-//                      [--round-cmd <file.cmd>]
+//                      [--round-cmd <file.cmd>] [--idle-test <seconds>]
 //
 // --share-host names the server in \\<name>\<share> when that is not the
 // address itself (CI: a hosts alias with an alternate SMB port).
@@ -29,6 +29,9 @@
 // --load-test measures the response time under load (load.cpp), in its own
 // new test folder below <folder>. --round-cmd runs a script after each
 // round with "--round <n>" (P24: ftpsrv as the reference, alternately).
+//
+// --idle-test measures the CPU time of server and PC while the share is
+// connected and idle, with and without a PING every second (load.cpp).
 //
 // --write-test creates <folder>\_ProsperoAutoDrive_Test_<UTC time>-<random>
 // in the share, writes a file into it and reads it back. Nothing that
@@ -176,6 +179,7 @@ int main(int argc, char **argv) {
   std::string variants;        // --variants for the load test
   std::string test_name;       // --test-name: folder name for the load test
   std::string round_cmd;       // --round-cmd: script after each load round
+  int idle_seconds = 0;        // --idle-test
   for (int i = 1; i < argc; i++) {
     if (!std::strcmp(argv[i], "--connect")) {
       connect = true;
@@ -186,6 +190,8 @@ int main(int argc, char **argv) {
       variants = argv[++i];
     } else if (!std::strcmp(argv[i], "--test-name") && i + 1 < argc) {
       test_name = argv[++i];
+    } else if (!std::strcmp(argv[i], "--idle-test") && i + 1 < argc) {
+      idle_seconds = std::atoi(argv[++i]);
     } else if (!std::strcmp(argv[i], "--round-cmd") && i + 1 < argc) {
       round_cmd = argv[++i];
     } else if (!std::strcmp(argv[i], "--share-host") && i + 1 < argc) {
@@ -364,6 +370,20 @@ int main(int argc, char **argv) {
         Fail("Lasttest: " + std::to_string(f) + " Uebertragung(en) fehlgeschlagen");
       } else {
         Ok("Lasttest durchgelaufen");
+      }
+    }
+  }
+
+  if (idle_seconds > 0) {
+    std::printf("\n===== 9. Leerlauf: Rechenzeit =====\n");
+    if (!have) {
+      Fail("ohne Zugangsdaten kein Leerlauftest");
+    } else {
+      int f = IdleTest(ip, unc, port, hello, cred, idle_seconds);
+      if (f) {
+        Fail("Leerlauf: " + std::to_string(f) + " Phase(n) ueber 0,1 % oder ohne Antwort");
+      } else {
+        Ok("Leerlauf unter 0,1 % auf Server und PC");
       }
     }
   }

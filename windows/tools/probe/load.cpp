@@ -469,3 +469,104 @@ int LoadTest(const std::string &ip, const std::string &unc_host, unsigned short 
   WNetCancelConnection2W(share.c_str(), 0, TRUE);
   return failures;
 }
+
+namespace {
+
+int64_t ProcessCpuMs() {
+  FILETIME c, e, k, u;
+  if (!GetProcessTimes(GetCurrentProcess(), &c, &e, &k, &u)) return 0;
+  auto ms = [](const FILETIME &f) {
+    return static_cast<int64_t>((static_cast<uint64_t>(f.dwHighDateTime) << 32 | f.dwLowDateTime) / 10000);
+  };
+  return ms(k) + ms(u);
+}
+
+// One idle phase: waits `seconds`, with a PING every second if ping is set,
+// then compares the CPU time of the server and of this process with the
+// elapsed time. Returns false if the 0.1 % goal is missed or the channel
+// failed.
+bool IdlePhase(const char *title, bool ping, int seconds, prospero::Channel &ch,
+               const std::string &key) {
+  std::string err;
+  if (!ch.ResetStats(&err)) {
+    std::printf("FALSCH  %s: RESET-STATS: %s\n", title, err.c_str());
+    return false;
+  }
+  int64_t t0 = NowMs();
+  int64_t cpu0 = ProcessCpuMs();
+  int pings = 0, lost = 0;
+  for (int s = 1; s <= seconds; s++) {
+    // The next full second after the start, so a slow PING does not add up.
+    int64_t wait = t0 + s * 1000LL - NowMs();
+    if (wait > 0) Sleep(static_cast<DWORD>(wait));
+    if (ping) {
+      prospero::Pong p;
+      if (ch.Ping(key, &p, &err)) {
+        pings++;
+      } else {
+        lost++;
+      }
+    }
+    char line[120];
+    std::snprintf(line, sizeof line, "  %s: %d von %d s", title, s, seconds);
+    g_bar.Show(line);
+  }
+  int64_t wall = NowMs() - t0;
+  int64_t pc_cpu = ProcessCpuMs() - cpu0;
+  g_bar.Clear();
+  std::map<std::string, std::string> st;
+  if (!ch.Status(&st, &err)) {
+    std::printf("FALSCH  %s: STATUS: %s\n", title, err.c_str());
+    return false;
+  }
+  auto num = [&](const char *k) { return st.count(k) ? std::atoll(st.at(k).c_str()) : -1LL; };
+  long long span = num("since_reset_ms");
+  long long srv_cpu = num("cpu_user_ms") + num("cpu_sys_ms");
+  double srv_pct = span > 0 ? srv_cpu * 100.0 / span : -1;
+  double pc_pct = wall > 0 ? pc_cpu * 100.0 / wall : -1;
+  bool ok = srv_pct >= 0 && srv_pct < 0.1 && pc_pct >= 0 && pc_pct < 0.1 && lost == 0;
+  std::printf("%s %s: %lld s, PING %d beantwortet, %d ohne Antwort\n", ok ? "OK     " : "FALSCH ",
+              title, static_cast<long long>(wall / 1000), pings, lost);
+  std::printf("          Server: %lld ms Rechenzeit (System %lld) in %lld ms, also %.3f %% eines Kerns\n",
+              srv_cpu, num("cpu_sys_ms"), span, srv_pct);
+  std::printf("          PC (dieses Programm): %lld ms in %lld ms, also %.3f %% eines Kerns\n",
+              static_cast<long long>(pc_cpu), static_cast<long long>(wall), pc_pct);
+  std::printf("          Ziel: unter 0,1 %% auf beiden Seiten\n");
+  return ok;
+}
+
+}  // namespace
+
+int IdleTest(const std::string &ip, const std::string &unc_host, unsigned short port,
+             const prospero::Hello &hello, const prospero::Credential &cred, int seconds) {
+  int failures = 0;
+  // The share stays connected like P: in normal use; nothing is read.
+  std::wstring share = L"\\\\" + Wide(unc_host) + L"\\" + Wide(hello.share);
+  std::wstring user = Wide(cred.user);
+  std::wstring password = Wide(cred.password);
+  NETRESOURCEW nr{};
+  nr.dwType = RESOURCETYPE_DISK;
+  nr.lpRemoteName = share.data();
+  DWORD rc = WNetAddConnection2W(&nr, password.c_str(), user.c_str(), CONNECT_TEMPORARY);
+  if (rc != NO_ERROR) {
+    std::printf("FALSCH  Verbindung zur Freigabe, Windows-Fehler %lu\n", rc);
+    return 1;
+  }
+  std::printf("OK      Freigabe verbunden, es wird nichts gelesen oder geschrieben\n");
+  prospero::Channel ch;
+  prospero::Hello h2;
+  std::string err;
+  if (!ch.Connect(ip, port, 3000, &err) || !ch.SayHello(&h2, &err)) {
+    std::printf("FALSCH  Dienstkanal: %s\n", err.c_str());
+    WNetCancelConnection2W(share.c_str(), 0, TRUE);
+    return 1;
+  }
+  // The server closes a silent channel after 60 s, so the quiet phase is
+  // shorter than that.
+  int quiet = seconds / 2 < 30 ? seconds / 2 : 30;
+  if (quiet > 0 && !IdlePhase("ohne Lebenszeichen", false, quiet, ch, cred.password)) failures++;
+  if (!IdlePhase("Lebenszeichen jede Sekunde", true, seconds, ch, cred.password)) failures++;
+  ch.Close();
+  WNetCancelConnection2W(share.c_str(), 0, TRUE);
+  return failures;
+}
