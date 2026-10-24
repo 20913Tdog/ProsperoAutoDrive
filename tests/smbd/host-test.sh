@@ -343,6 +343,9 @@ if kill -0 "$first" 2>/dev/null; then
   exit 1
 fi
 need wait "$first"
+# start() may have seen the old instance answer; the new one retries its
+# port once a second until the old one has let go.
+for _ in $(seq 50); do status >/dev/null 2>&1 && break; sleep 0.1; done
 out=$(status)
 expect "$out" "^server_id=$ID$"
 expect "$out" '^paired_pcs=2$'
