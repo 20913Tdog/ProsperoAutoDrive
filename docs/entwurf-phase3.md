@@ -19,13 +19,13 @@ Eine einzelne exe, die einmal eingerichtet wird und danach nie wieder angefasst 
             v                                                      │
  SUCHEN ──TCP 4445 ok, HELLO, Server-ID passt──> KOPPELN? ──> VERBINDEN ──> ONLINE
    ^  alle 2 s Versuch an die gespeicherte IP      (nur einmal)   (P: anlegen)   │ PING jede s
-   │  nach 30 s ohne Erfolg zusätzlich Rundruf                                   │
+   │  Rundruf nur auf Wunsch (Tray-Menü)                                         │
    └──────────── P: entfernt <── PRÜFEN (TCP 445) <── Lebenszeichen fehlt ───────┘
 ```
 
 | Zustand | Was passiert | Weiter |
 |---|---|---|
-| **Suchen** | Alle 2 s ein Verbindungsversuch an die gespeicherte IP, 1 s Zeitlimit. Nach 30 s ohne Erfolg zusätzlich alle 30 s ein UDP-Rundruf, falls die IP gewechselt hat. | Dienstkanal steht und Server-ID passt |
+| **Suchen** | Alle 2 s ein Verbindungsversuch an die gespeicherte IP, 1 s Zeitlimit. **Kein automatischer Rundruf** (Entscheidung vom 24.10.2026): Das Tray-Symbol zeigt „nicht erreichbar, zuletzt gesehen am …“, der Rundruf läuft nur über „PS5 im Netz suchen (30 s)“ im Tray-Menü und einmal bei der Einrichtung. | Dienstkanal steht und Server-ID passt |
 | **Koppeln** | Nur beim ersten Mal, wenn keine Zugangsdaten gespeichert sind: `PAIR`, Zugangsdaten in die Anmeldeinformationsverwaltung | Verbinden |
 | **Verbinden** | `WNetAddConnection2` mit `CONNECT_TEMPORARY` auf `P:` | Online, oder bei Fehler Hinweis und Suchen mit Pause |
 | **Online** | `PING` mit Prüfsumme jede Sekunde, enthält die PC-Uhrzeit | Antwort fehlt: Prüfen |
@@ -54,7 +54,7 @@ Rechnung Kabel: 3 s verpasst + höchstens 1 s Test + Trennen ≈ 4–5 s. Ordent
   1. Das Programm kopiert sich nach `%LOCALAPPDATA%\Programs\ProsperoAutoDrive\` und startet von dort.
   2. Es trägt sich in den Autostart des Benutzers ein (`HKCU\...\Run`), ohne UAC.
   3. Es sucht die PS5: erst Rundruf, dann Eingabe der IP. Danach koppelt es und speichert IP, Server-ID und Zugangsdaten.
-- **Tray-Menü:** Status in der ersten Zeile (z. B. „PS5 verbunden als P:, Kabel“), „Laufwerk öffnen“, „Weiteren PC koppeln“, „Mit Windows starten“ (an/aus), „Deinstallieren“, „Beenden“.
+- **Tray-Menü:** Status in der ersten Zeile (z. B. „PS5 verbunden als P:, Kabel“ oder „PS5 nicht erreichbar, zuletzt gesehen am …“), „Laufwerk öffnen“, „PS5 im Netz suchen (30 s)“, „Weiteren PC koppeln“, „Mit Windows starten“ (an/aus), „Deinstallieren“, „Beenden“.
 - **Deinstallieren** aus dem Tray-Menü: `P:` entfernen, Autostart-Eintrag, Zugangsdaten und Einstellungen löschen, danach den Programmordner. Die laufende exe kann sich nicht selbst löschen. Das übernimmt ein kurzer `cmd.exe`-Aufruf, der wartet, bis das Programm beendet ist (kein PowerShell).
 - **Einstellungen:** `%LOCALAPPDATA%\ProsperoAutoDrive\settings.ini` (IP, Server-ID, Buchstabe), Ringlog daneben. Das Passwort steht nur in der Anmeldeinformationsverwaltung.
 

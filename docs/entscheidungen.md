@@ -269,6 +269,14 @@ Der Projektverantwortliche hat den Vorschlag angenommen:
 - **Messung P30, WLAN** (E3, Build `b56cd09`, 24.10.2026): Die Schnittstelle heißt `wlan0` und meldet ebenfalls Typ Ethernet. Also entscheidet der Name, `eth…` ist Kabel, `wlan…` ist WLAN. Leerlauf: Server 0,037 % ohne und 0,045 % mit Lebenszeichen, PC 0,038 %. Das Lebenszeichen kam nach 4–5 ms zurück (Kabel: 0–1 ms).
 - **Umsetzung:** Das Payload nennt die Verbindungsart im `HELLO` (`link=wired|wifi|unknown`). Das Programm nimmt bei `wired` die Kabelzeit, sonst die WLAN-Zeit.
 
+## Kein automatischer Rundruf (24.10.2026)
+
+Der Projektverantwortliche möchte das Heimnetz nicht mit Rundrufen belasten, wenn die PS5 einfach aus ist. Sein erster Vorschlag war ein Dialog nach 30 s ohne Antwort. Dagegen sprach: Die PS5 ist meist aus, der Dialog käme dann nach jedem PC-Start, und das Programm kann „aus“ nicht von „neue IP“ unterscheiden. Entschieden ist der Weg über das Tray:
+
+- Im Alltag nur Verbindungsversuche an die gespeicherte IP, alle 2 s.
+- Das Tray-Symbol zeigt „nicht erreichbar, zuletzt gesehen am …“.
+- Ein Rundruf läuft nur über „PS5 im Netz suchen (30 s)“ im Tray-Menü und einmal bei der Einrichtung.
+
 ## Testablauf, 20.10.2026
 
 ### Test mit einem Klick
