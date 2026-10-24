@@ -227,7 +227,12 @@ Entwurf: [`entwurf-phase3.md`](entwurf-phase3.md).
 | P33.6 | Neue ELF-Datei über `P:` auf die alte kopieren, Server über „Active Processes“ beenden und aus dem Dashboard neu starten | Kopieren klappt, obwohl der Server läuft; danach läuft die neue Version |
 | P33.7 | Ein zweites Mal starten, per Autoload und per Websend | Die neue Instanz beendet die alte, wie schon bei Websend; danach läuft genau ein Server, und `P:` kommt nach ≤ 3 s wieder |
 
-**Stand:** Kurzprobe (P33.1, P33.4, P33.6) jetzt, vor der weiteren Entwicklung. Alles Weitere wird per Websend entwickelt. Der vollständige Test P33 läuft vor dem Release.
+**Kurzprobe** (E3, Build `bcaa478`, 25.10.2026, Kabel):
+
+- P33.1 teilweise: Im Dashboard steht „prospero smbd“ mit grünem Haken, ohne Version, und `P:` ist verbunden. Unter „Active Processes“ steht der Server aber **nicht**. Ob er ein eigener Prozess ist, ist damit offen.
+- P33.6 bestanden: Die Datei ließ sich über `P:` überschreiben, während der Server lief. Neustart aus dem Dashboard: Die neue Instanz beendete die alte, das Programm meldete das Trennen und verband sofort neu.
+
+**Stand:** Alles Weitere wird per Websend entwickelt. Alles Weitere wird per Websend entwickelt. Der vollständige Test P33 läuft vor dem Release.
 
 ## Phase 4 – Härtung
 
