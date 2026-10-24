@@ -222,9 +222,9 @@ Entwurf: [`entwurf-phase3.md`](entwurf-phase3.md).
 | P33.1 | In „Manage Payloads“ eintragen und im Dashboard starten | eigener Prozess unter „Active Processes“, nicht unter `pldmgr.elf`; `P:` nach ≤ 3 s |
 | P33.2 | Über „Active Processes“ beenden | `P:` weg nach ≤ 5 s am Kabel |
 | P33.3 | Erneut starten | `P:` nach ≤ 3 s wieder da, ohne neue Kopplung |
-| P33.4 | pldmgr beenden | Server läuft weiter, `P:` bleibt |
+| P33.4 | Unter „Active Processes“ ansehen; pldmgr lässt sich nicht beenden, weil es zum Jailbreak gehört | eigener Eintrag mit eigener PID neben `pldmgr.elf`; beim Beenden in P33.2 läuft pldmgr weiter |
 | P33.5 | In „Autoload“ ans Ende setzen, PS5 neu starten | `P:` kommt ohne Zutun |
-| P33.6 | Neue ELF-Datei über `P:` auf die alte kopieren, Server neu starten | Kopieren klappt, obwohl der Server läuft; danach läuft die neue Version |
+| P33.6 | Neue ELF-Datei über `P:` auf die alte kopieren, Server über „Active Processes“ beenden und aus dem Dashboard neu starten | Kopieren klappt, obwohl der Server läuft; danach läuft die neue Version |
 | P33.7 | Ein zweites Mal starten, per Autoload und per Websend | Die neue Instanz beendet die alte, wie schon bei Websend; danach läuft genau ein Server, und `P:` kommt nach ≤ 3 s wieder |
 
 **Stand:** Kurzprobe (P33.1, P33.4, P33.6) jetzt, vor der weiteren Entwicklung. Alles Weitere wird per Websend entwickelt. Der vollständige Test P33 läuft vor dem Release.
