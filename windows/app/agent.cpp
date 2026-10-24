@@ -128,6 +128,7 @@ int Agent::Run(HANDLE stop) {
       if (!ch_.open()) continue;
       bool closed = false;
       int pongs = ch_.Poll(&closed);
+      if (pongs) last_pong_ = Now();
       for (int i = 0; i < pongs; i++) Do(m.Handle(Event(Event::kPong), Now()));
       if (closed) {
         Log("Dienstkanal vom Server geschlossen");
@@ -207,7 +208,10 @@ Agent::Event Agent::Exec(const Action &a, bool *answered) {
       Event e(Event::kPort445);
       unsigned short port = hello_.smb_port ? hello_.smb_port : 445;
       e.ok = Probe(port);
-      Log("Test Port %u: %s", port, e.ok ? "antwortet" : "keine Antwort");
+      // When the last PONG came tells how long the server has been gone.
+      Log("Test Port %u: %s, letzte Antwort auf ein Lebenszeichen vor %lld ms", port,
+          e.ok ? "antwortet" : "keine Antwort",
+          static_cast<long long>(last_pong_ ? Now() - last_pong_ : -1));
       return e;
     }
     case Action::kBroadcast: {

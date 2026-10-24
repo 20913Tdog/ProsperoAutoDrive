@@ -63,6 +63,7 @@ class Agent {
   HANDLE net_notify_ = nullptr;
   std::wstring letter_;          // "P:" while mapped
   DWORD last_map_err_ = 0;       // logged once while it repeats
+  int64_t last_pong_ = 0;        // GetTickCount64 of the last PONG
   core::Machine *m_ = nullptr;
 };
 

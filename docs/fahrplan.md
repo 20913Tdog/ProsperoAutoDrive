@@ -181,6 +181,12 @@ Entwurf: [`entwurf-phase3.md`](entwurf-phase3.md).
 
 - **P3.1** Zustandsautomat (`windows/app/core/`): Unit-Tests mit simulierter Uhr und simuliertem Server (E1, 24.10.2026, lokal). Laufwerk nach höchstens 2,1 s, egal wann die PS5 erscheint. Weg nach 4,1 s am Kabel, 13,1 s im WLAN, 2 ms bei ordentlichem Ende. Aussetzer von 2 s (Kabel) und 9 s (WLAN) trennen nicht. Falsches Passwort: eine Meldung, ein Versuch je Minute. Im Leerlauf ein Aufwachen je Sekunde (online) bzw. je 2 s (suchend).
 - **P3.2** `ProsperoAutoDrive.exe` über die Kommandozeile (E2, 24.10.2026): Laufwerk nach 74 ms, als `O:`, weil ein fremdes `P:` belegt war und unberührt blieb. Ende des Servers sofort erkannt, aber das Entfernen des Laufwerks dauerte 5 s, mit `WNetCancelConnection2` und mit `NetUseDel`. In der CI hängt das Laufwerk an einer `net use`-Verbindung mit anderem Port. Ob das an 445 auch so ist, misst `P32-Check.cmd` live. Das Wiederkommen nach einem Neustart prüft nur der Live-Test, weil Windows den anderen Port der CI mit der alten Verbindung vergisst.
+- **P3.2** live, **Kabel** (E3, Build `7eb440b`, 24.10.2026, `P32-Check.cmd`):
+  - Start: `P:` 0,1 s nach dem Programmstart.
+  - Payload neu gesendet (ordentliches Ende): Ende sofort erkannt, `P:` in 0 ms entfernt. Die 5 s aus der CI gibt es an Port 445 nicht. Wieder da 2,0 s später, sobald die neue Instanz lief.
+  - Kabel gezogen: `P:` weg etwa 3–4 s danach. Der genaue Zeitpunkt des Ziehens ist nicht bekannt, weil der Test erst nach dem Ziehen Enter verlangte. Das Log nennt künftig das Alter der letzten Antwort.
+  - Kabel eingesteckt: `P:` im selben Moment wie der Dienstkanal da. Wie lange die PS5 nach dem Einstecken selbst braucht, ist nicht gemessen.
+  - Alle Ziele erreicht: Erscheinen ≤ 3 s, Verschwinden ≤ 5 s am Kabel, ordentliches Ende < 1 s.
 
 **Umfang:**
 
