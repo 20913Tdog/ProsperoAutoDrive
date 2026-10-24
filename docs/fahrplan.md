@@ -213,6 +213,22 @@ Entwurf: [`entwurf-phase3.md`](entwurf-phase3.md).
 
 **Danach:** erstes Release 0.1.0 per PR von `dev` nach `main`, nach dem Live-Test des Projektverantwortlichen.
 
+### P33 – Payload als eigener Prozess
+
+[Entscheidung](entscheidungen.md#payload-als-eigener-prozess-25102026): Payload Manager startet `prospero-smbd.elf` aus einer Datei als eigenen Prozess, statt es per Websend in `pldmgr.elf` zu laden. Die Datei liegt in einem eigenen Ordner, etwa `/data/prospero/` oder auf dem USB-Stick, nie in `/data/homebrew`. Alle Schritte macht der Projektverantwortliche von Hand (E3).
+
+| Nr. | Schritt | Erwartet |
+|---|---|---|
+| P33.1 | In „Manage Payloads“ eintragen und im Dashboard starten | eigener Prozess unter „Active Processes“, nicht unter `pldmgr.elf`; `P:` nach ≤ 3 s |
+| P33.2 | Über „Active Processes“ beenden | `P:` weg nach ≤ 5 s am Kabel |
+| P33.3 | Erneut starten | `P:` nach ≤ 3 s wieder da, ohne neue Kopplung |
+| P33.4 | pldmgr beenden | Server läuft weiter, `P:` bleibt |
+| P33.5 | In „Autoload“ ans Ende setzen, PS5 neu starten | `P:` kommt ohne Zutun |
+| P33.6 | Neue ELF-Datei über `P:` auf die alte kopieren, Server neu starten | Kopieren klappt, obwohl der Server läuft; danach läuft die neue Version |
+| P33.7 | Ein zweites Mal starten, per Autoload und per Websend | Die neue Instanz beendet die alte, wie schon bei Websend; danach läuft genau ein Server, und `P:` kommt nach ≤ 3 s wieder |
+
+**Stand:** Kurzprobe (P33.1, P33.4, P33.6) jetzt, vor der weiteren Entwicklung. Alles Weitere wird per Websend entwickelt. Der vollständige Test P33 läuft vor dem Release.
+
 ## Phase 4 – Härtung
 
 - **CHANGE_NOTIFY:** Der Explorer aktualisiert sich selbst.

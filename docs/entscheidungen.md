@@ -287,6 +287,13 @@ Der Projektverantwortliche möchte das Heimnetz nicht mit Rundrufen belasten, we
   - Ohne Signatur zeigt der UAC-Dialog „Unbekannter Herausgeber“, bis die Signierung (Phase 4) steht.
 - **Deinstallation:** über Windows (Installierte Apps / „Programm deinstallieren“), per Eintrag für den Benutzer unter `HKCU`.
 
+## Payload als eigener Prozess (25.10.2026)
+
+Live fiel auf: Per Netz an den Payload Manager (pldmgr) gesendet, läuft `prospero-smbd.elf` im Prozess `pldmgr.elf`. Man kann es nicht einzeln beenden, und es stirbt mit pldmgr. Payload Manager startet Payloads, die unter „Manage Payloads“ als Datei eingetragen sind, dagegen als eigene Prozesse und kann sie per „Autoload“ beim Start laden.
+
+- **Weg:** eintragen in Payload Manager plus Autoload, kein eigener Lader und keine eigene Kachel. Die Kachel von ps5-web-file-manager ist nur ein Lesezeichen auf die eigene Weboberfläche, kann den Server also nicht einschalten und löst die Abhängigkeit von pldmgr nicht. Sie ist zurückgestellt.
+- **Ablauf** (Projektverantwortlicher): Jetzt eine Kurzprobe (P33.1, P33.4, P33.6), um Unterschiede des eigenen Prozesses früh zu sehen. Danach weiter per Websend entwickeln, bis alle Funktionen stehen, weil das schneller ist. Der vollständige Test P33 kommt am Ende vor dem Release.
+
 ## Testablauf, 20.10.2026
 
 ### Test mit einem Klick
