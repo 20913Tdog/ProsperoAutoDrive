@@ -261,6 +261,11 @@ Der Projektverantwortliche hat den Vorschlag angenommen:
   - **PC:** Das Programm schläft zwischen den Lebenszeichen in einem Wartezustand, es fragt nicht in einer Schleife ab. Ziel ist eine Rechenzeit unter 0,1 % eines Kerns und kein Aufwachen öfter als einmal je Sekunde.
   - **PS5:** Ein Lebenszeichen ist eine Zeile von etwa 100 Bytes je Sekunde, ohne Signaturrechnung über große Daten. Ziel ist eine Rechenzeit des Payloads unter 0,1 % eines Kerns im Leerlauf mit verbundenem PC. Die Serverschleife wacht heute ohne Last alle 100 ms auf (Vorgabe von libsmb2). Das wird zuerst gemessen und nur verlängert, wenn es messbar Last erzeugt.
 - **Offen:** Woran das Programm erkennt, ob Kabel oder WLAN gilt. Der PC kennt nur seine eigene Verbindung, nicht die der PS5. Vorschlag: Die PS5 meldet ihre Verbindungsart im `HELLO`, falls sie das ermitteln kann. Sonst gilt die vorsichtige WLAN-Zeit.
+- **Messung P30, Kabel** (E3, Build `aef1906`, 24.10.2026, Freigabe verbunden, nichts übertragen):
+  - Ohne Lebenszeichen, 30 s: Server 0,067 % eines Kerns, PC 0,000 %. Das ist die Serverschleife, die alle 100 ms aufwacht.
+  - Lebenszeichen jede Sekunde, 120 s: Server 0,080 %, PC 0,038 % (mit Fortschrittsbalken des Testprogramms). Alle 120 `PING` beantwortet. Das Lebenszeichen selbst kostet auf der PS5 also etwa 0,013 %.
+  - Ziel unter 0,1 % erreicht. Die PS5 hat 8 Kerne, bezogen auf die ganze Konsole sind das etwa 0,01 %.
+  - Verbindungsart: `getifaddrs` läuft auf der PS5. Am Kabel heißt die Schnittstelle `eth0`, Typ Ethernet. `SIOCGIFMEDIA` liefert nichts. Die WLAN-Schnittstelle erscheint nur, wenn sie verbunden ist. Wie sie heißt und welchen Typ sie meldet, ist noch nicht gemessen. Bis dahin gilt die vorsichtige WLAN-Zeit.
 
 ## Testablauf, 20.10.2026
 
