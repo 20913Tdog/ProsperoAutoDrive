@@ -45,6 +45,7 @@ bool Settings::Load() {
   if (GetFileAttributesW(file.c_str()) == INVALID_FILE_ATTRIBUTES) return false;
   ip = Ini(file, L"ip");
   server_id = Ini(file, L"server_id");
+  name = Ini(file, L"name");
   std::string p = Ini(file, L"port");
   if (!p.empty()) port = static_cast<unsigned short>(std::atoi(p.c_str()));
   return true;
@@ -55,7 +56,8 @@ bool Settings::Save() const {
   CreateDirectoryW(dir.c_str(), nullptr);
   return WritePrivateProfileStringW(L"server", L"ip", Wide(ip).c_str(), file.c_str()) &&
          WritePrivateProfileStringW(L"server", L"server_id", Wide(server_id).c_str(), file.c_str()) &&
-         WritePrivateProfileStringW(L"server", L"port", std::to_wstring(port).c_str(), file.c_str());
+         WritePrivateProfileStringW(L"server", L"port", std::to_wstring(port).c_str(), file.c_str()) &&
+         WritePrivateProfileStringW(L"server", L"name", Wide(name).c_str(), file.c_str());
 }
 
 Agent::Agent(Settings s, bool console) : s_(std::move(s)), console_(console) {
@@ -90,6 +92,7 @@ void Agent::Log(const char *fmt, ...) {
   char line[700];
   snprintf(line, sizeof line, "%04u-%02u-%02u %02u:%02u:%02u.%03u %s\n", t.wYear, t.wMonth, t.wDay,
            t.wHour, t.wMinute, t.wSecond, t.wMilliseconds, msg);
+  std::lock_guard<std::mutex> hold(log_lock_);
   if (log_) {
     fputs(line, log_);
     fflush(log_);
@@ -101,23 +104,25 @@ std::wstring Agent::Remote() const {
   return L"\\\\" + Wide(s_.share_host.empty() ? s_.ip : s_.share_host) + L"\\" + Wide(hello_.share);
 }
 
-int Agent::Run(HANDLE stop) {
+int Agent::Run(HANDLE stop, HANDLE search) {
   core::Timing t;
   bool creds = !s_.server_id.empty() && LoadCredential(s_.server_id, &cred_);
   core::Machine m(t, s_.server_id, creds);
   m_ = &m;
   Log("Start: Server %s unter %s:%u", s_.server_id.empty() ? "(noch keiner)" : s_.server_id.c_str(),
       s_.ip.c_str(), s_.port);
+  Report("", false);
   Do(m.Start(Now()));
+  HANDLE never = CreateEventW(nullptr, TRUE, FALSE, nullptr);
   for (;;) {
-    HANDLE hs[3] = {stop, sock_event_, net_event_};
+    HANDLE hs[4] = {stop, sock_event_, net_event_, search ? search : never};
     int64_t wake = m.NextWakeMs();
     DWORD to = INFINITE;
     if (wake >= 0) {
       int64_t d = wake - Now();
       to = d > 0 ? static_cast<DWORD>(d) : 0;
     }
-    DWORD r = WaitForMultipleObjects(3, hs, FALSE, to);
+    DWORD r = WaitForMultipleObjects(4, hs, FALSE, to);
     if (r == WAIT_OBJECT_0) {
       Log("Ende angefordert");
       Do(m.Handle(Event(Event::kShutdown), Now()));
@@ -138,6 +143,9 @@ int Agent::Run(HANDLE stop) {
     } else if (r == WAIT_OBJECT_0 + 2) {
       ResetEvent(net_event_);
       Do(m.Handle(Event(Event::kNetworkChanged), Now()));
+    } else if (r == WAIT_OBJECT_0 + 3) {
+      ResetEvent(search);
+      Do(m.Handle(Event(Event::kSearch), Now()));
     } else if (r == WAIT_TIMEOUT) {
       Do(m.Handle(Event(Event::kTick), Now()));
     } else {
@@ -145,6 +153,7 @@ int Agent::Run(HANDLE stop) {
       Sleep(1000);
     }
   }
+  CloseHandle(never);
   m_ = nullptr;
   Log("beendet");
   return 0;
@@ -215,11 +224,13 @@ Agent::Event Agent::Exec(const Action &a, bool *answered) {
       return e;
     }
     case Action::kBroadcast: {
+      // Up to 30 s, one request every 2 s, until the server answers.
       Log("Suche im Netz");
       std::vector<in_addr> targets;
       for (auto &t : BroadcastTargets()) targets.push_back(t.first);
-      std::vector<Here> found;
-      if (Discover(targets, s_.port, 3000, &found, &err)) {
+      for (int round = 0; round < 15; round++) {
+        std::vector<Here> found;
+        if (!Discover(targets, s_.port, 2000, &found, &err)) break;
         for (const Here &h : found) {
           if (s_.server_id.empty() || h.id == s_.server_id) {
             Log("gefunden: %s unter %s", h.id.c_str(), h.ip.c_str());
@@ -230,6 +241,7 @@ Agent::Event Agent::Exec(const Action &a, bool *answered) {
         }
       }
       Log("Suche: nichts gefunden");
+      Report(s_.name.empty() ? "Server nicht gefunden" : s_.name + " nicht gefunden", true);
       break;
     }
     case Action::kNotify:
@@ -317,10 +329,17 @@ Agent::Event Agent::Map() {
   letter_ = chosen;
   Log("%s -> %s verbunden in %lld ms", Narrow(chosen).c_str(), Narrow(remote).c_str(),
       static_cast<long long>(Now() - t0));
-  if (s_.server_id != hello_.server_id) {
+  if (s_.server_id != hello_.server_id || s_.name != hello_.name) {
     s_.server_id = hello_.server_id;
+    s_.name = hello_.name;
     s_.Save();
   }
+  SYSTEMTIME lt;
+  GetLocalTime(&lt);
+  char seen[40];
+  snprintf(seen, sizeof seen, "%02u.%02u.%04u %02u:%02u", lt.wDay, lt.wMonth, lt.wYear, lt.wHour,
+           lt.wMinute);
+  last_seen_ = seen;
   Event e(Event::kMapped);
   e.text = Narrow(chosen);
   if (chosen != L"P:") e.reason = Event::kLetterBusy;
@@ -350,33 +369,70 @@ bool Agent::Probe(unsigned short port) {
 }
 
 void Agent::Notify(core::Note n, const std::string &text) {
-  // P3.3 shows these on the tray icon; for now they go into the log.
+  std::string who = s_.name.empty() ? "Server" : s_.name;
+  std::string msg;
+  bool problem = true;
   switch (n) {
     case core::Note::kConnected:
-      Log("MELDUNG: Server verbunden als %s", text.c_str());
+      msg = who + " verbunden als " + text;
+      problem = false;
       break;
     case core::Note::kDisconnected:
-      Log("MELDUNG: Server getrennt");
+      msg = who + " getrennt";
+      problem = false;
       break;
     case core::Note::kOtherServer:
-      Log("MELDUNG: Unter %s antwortet ein anderer Server (%s)", s_.ip.c_str(), text.c_str());
+      msg = "Unter " + s_.ip + " antwortet ein anderer Server (" + text + ")";
       break;
     case core::Note::kPairRefused:
-      Log("MELDUNG: Koppeln abgelehnt");
+      msg = who + " hat das Koppeln abgelehnt. Auf einem schon gekoppelten PC "
+            "\"Weiteren PC koppeln\" waehlen.";
       break;
     case core::Note::kLoginRefused:
-      Log("MELDUNG: Anmeldung an der Freigabe abgelehnt");
+      msg = who + ": Anmeldung an der Freigabe abgelehnt";
       break;
     case core::Note::kLetterBusy:
-      Log("MELDUNG: P: ist belegt, das Laufwerk heisst %s", text.c_str());
+      msg = "P: ist belegt, das Laufwerk heisst " + text;
+      problem = false;
       break;
     case core::Note::kNoLetter:
-      Log("MELDUNG: Kein Laufwerksbuchstabe frei");
+      msg = "Kein Laufwerksbuchstabe frei";
       break;
     case core::Note::kMapFailed:
-      Log("MELDUNG: Laufwerk nicht verbunden: %s", text.c_str());
+      msg = "Laufwerk nicht verbunden: " + text;
       break;
   }
+  Log("MELDUNG: %s", msg.c_str());
+  Report(msg, problem);
+}
+
+void Agent::Report(const std::string &message, bool problem) {
+  Status st;
+  st.connected = m_ && m_->mapped();
+  st.letter = Narrow(letter_);
+  st.link = hello_.link;
+  st.name = s_.name.empty() ? "Server" : s_.name;
+  st.last_seen = last_seen_;
+  st.message = message;
+  st.problem = problem;
+  if (on_status && (!message.empty() || st.connected != reported_connected_ || !m_)) on_status(st);
+  reported_connected_ = st.connected;
+}
+
+std::string Agent::OpenPairing() {
+  Channel c;
+  Hello h;
+  std::string err;
+  int seconds = 0;
+  if (cred_.password.empty()) return "Noch nicht gekoppelt";
+  if (!c.Connect(s_.ip, s_.port, 2000, &err) || !c.SayHello(&h, &err) ||
+      !c.OpenPairing(cred_.password, &seconds, &err)) {
+    Log("Weiteren PC koppeln: %s", err.c_str());
+    return "Koppeln nicht geoeffnet: " + err;
+  }
+  Log("Weiteren PC koppeln: %d s offen", seconds);
+  return "Ein weiterer PC kann sich jetzt " + std::to_string(seconds / 60) +
+         " Minuten lang koppeln: dort ProsperoAutoDrive installieren.";
 }
 
 }  // namespace prospero

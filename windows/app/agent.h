@@ -14,6 +14,8 @@
 #include "machine.h"
 
 #include <cstdio>
+#include <functional>
+#include <mutex>
 #include <string>
 
 namespace prospero {
@@ -23,10 +25,22 @@ struct Settings {
   std::string ip;                // last address of the server
   std::string server_id;         // empty until the first connect
   std::string share_host;        // name in \\host\share, default: ip (CI: an alias)
+  std::string name;              // the server's own name (HELLO), for the tray
   unsigned short port = kServicePort;
 
   bool Load();                   // from dir\settings.ini; false if there is none
   bool Save() const;
+};
+
+// What the tray shows; sent on every change, from the agent's thread.
+struct Status {
+  bool connected = false;
+  std::string letter;            // "P:"
+  std::string link;              // wired, wifi, unknown
+  std::string name;              // of the server, "Server" until known
+  std::string last_seen;         // local time of the last connection, or empty
+  std::string message;           // a notification to show now, or empty
+  bool problem = false;          // message is a problem, not news
 };
 
 class Agent {
@@ -35,7 +49,15 @@ class Agent {
   ~Agent();
 
   // Runs until `stop` is signalled; then removes the drive. Returns 0.
-  int Run(HANDLE stop);
+  // `search` asks for a network search (tray menu).
+  int Run(HANDLE stop, HANDLE search = nullptr);
+
+  // Called on every change of the status, from the thread of Run().
+  std::function<void(const Status &)> on_status;
+
+  // Asks the server to accept one more PC for a while, over a channel of
+  // its own; blocks for at most a few seconds. Returns the message to show.
+  std::string OpenPairing();
 
   void Log(const char *fmt, ...);
 
@@ -50,6 +72,7 @@ class Agent {
   void Unmap();
   bool Probe(unsigned short port);
   void Notify(core::Note n, const std::string &text);
+  void Report(const std::string &message, bool problem);
   std::wstring Remote() const;
 
   Settings s_;
@@ -64,6 +87,9 @@ class Agent {
   std::wstring letter_;          // "P:" while mapped
   DWORD last_map_err_ = 0;       // logged once while it repeats
   int64_t last_pong_ = 0;        // GetTickCount64 of the last PONG
+  std::string last_seen_;        // local time of the last connect
+  bool reported_connected_ = false;
+  std::mutex log_lock_;
   core::Machine *m_ = nullptr;
 };
 

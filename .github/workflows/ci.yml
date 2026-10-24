@@ -369,7 +369,8 @@ jobs:
               if (curl.exe -fsS --max-time 2 http://127.0.0.1:4445/ 2>$null | Select-String '^PROSPERO-SMBD OK') { break }
               Start-Sleep 1
             }
-            .\binaries\ProsperoAutoDrive.exe --stop
+            # A GUI program: PowerShell waits only with Start-Process -Wait.
+            Start-Process -Wait -FilePath .\binaries\ProsperoAutoDrive.exe -ArgumentList '--stop'
             $stopped = -not (Test-Path 'O:\')
             $p_kept = Test-Path 'P:\'
             subst P: /d
@@ -382,6 +383,30 @@ jobs:
             if (-not $stopped) { throw "P3.2: drive still there after --stop" }
             if (-not $p_kept) { throw "P3.2: the foreign P: was touched" }
             'P3.2: OK'
+            # P3.3: setup without the dialog into a scratch folder, then the
+            # removal Windows would call. The runner may run elevated, then
+            # the entry is machine-wide (HKLM).
+            $inst = Join-Path $env:RUNNER_TEMP 'pad-install'
+            Start-Process -Wait -FilePath .\binaries\ProsperoAutoDrive.exe `
+              -ArgumentList '--install',$inst,'--quiet','--no-launch'
+            $key = 'Software\Microsoft\Windows\CurrentVersion\Uninstall\ProsperoAutoDrive'
+            $entry = Get-ItemProperty "HKCU:\$key" -ErrorAction SilentlyContinue
+            if (-not $entry) { $entry = Get-ItemProperty "HKLM:\$key" -ErrorAction SilentlyContinue }
+            "P3.3 entry: $($entry.DisplayName) $($entry.DisplayVersion) in $($entry.InstallLocation): $($entry.UninstallString)"
+            $exe_ok = Test-Path (Join-Path $inst 'ProsperoAutoDrive.exe')
+            Start-Process -Wait -FilePath (Join-Path $inst 'ProsperoAutoDrive.exe') -ArgumentList '--uninstall','--quiet'
+            $gone_ok = $false
+            for ($i = 0; $i -lt 40 -and -not $gone_ok; $i++) {
+              Start-Sleep -Milliseconds 500
+              $gone_ok = -not (Test-Path (Join-Path $inst 'ProsperoAutoDrive.exe'))
+            }
+            $left = (Test-Path "HKCU:\$key") -or (Test-Path "HKLM:\$key")
+            "P3.3 removed: exe $gone_ok, folder $(-not (Test-Path $inst)), entry left $left"
+            if (-not $exe_ok) { throw "P3.3: exe not installed" }
+            if ($entry.InstallLocation -ne $inst) { throw "P3.3: no uninstall entry" }
+            if (-not $gone_ok) { throw "P3.3: exe still there after the removal" }
+            if ($left) { throw "P3.3: uninstall entry still there" }
+            'P3.3: OK'
             net use $share /delete /y
             curl.exe -fsS --max-time 3 http://127.0.0.1:4445/ | Select-String '^(PROSPERO-SMBD|share|connections|files_created|dirs_created)'
             curl.exe -fsS --max-time 3 http://127.0.0.1:4445/quit

@@ -1,0 +1,31 @@
+// Prospero AutoDrive - resources of ProsperoAutoDrive.exe: manifest and
+// version. No icon file: the tray icon is drawn at run time.
+#include <winver.h>
+
+1 24 "app.manifest"
+
+1 VERSIONINFO
+FILEVERSION 0,1,0,0
+PRODUCTVERSION 0,1,0,0
+FILEOS VOS_NT_WINDOWS32
+FILETYPE VFT_APP
+BEGIN
+  BLOCK "StringFileInfo"
+  BEGIN
+    BLOCK "040704B0"
+    BEGIN
+      VALUE "CompanyName", "Prospero AutoDrive contributors"
+      VALUE "FileDescription", "Prospero AutoDrive"
+      VALUE "FileVersion", "0.1.0"
+      VALUE "InternalName", "ProsperoAutoDrive"
+      VALUE "LegalCopyright", "MIT License"
+      VALUE "OriginalFilename", "ProsperoAutoDrive.exe"
+      VALUE "ProductName", "Prospero AutoDrive"
+      VALUE "ProductVersion", "0.1.0"
+    END
+  END
+  BLOCK "VarFileInfo"
+  BEGIN
+    VALUE "Translation", 0x0407, 1200
+  END
+END
