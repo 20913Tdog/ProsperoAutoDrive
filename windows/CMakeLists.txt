@@ -14,3 +14,4 @@ add_executable(prospero-probe tools/probe/main.cpp tools/probe/load.cpp)
 target_link_libraries(prospero-probe PRIVATE prospero-client mpr)
 
 add_subdirectory(spikes/s7-discover)
+add_subdirectory(app/core)

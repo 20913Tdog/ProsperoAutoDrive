@@ -171,6 +171,10 @@ jobs:
         shell: bash
         run: bash tests/smbd/host-test.sh build/host/bin/prospero-smbd 2>&1 | tee -a ci.log
 
+      - name: State machine of the Windows program (E1)
+        shell: bash
+        run: build/host/bin/prospero-core-test 2>&1 | tee -a ci.log
+
       # Static, so the same binaries also run in a minimal WSL 1 rootfs on
       # the Windows runner (spike S6).
       - name: Static host servers for the client tests

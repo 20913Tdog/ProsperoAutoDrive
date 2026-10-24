@@ -175,6 +175,12 @@ Go für natives SMB, wenn S1, S2, S3, S6 und S7 bestanden sind und S4 mindestens
 
 ## Phase 3 – Windows-Programm
 
+Entwurf: [`entwurf-phase3.md`](entwurf-phase3.md).
+
+**Stand:**
+
+- **P3.1** Zustandsautomat (`windows/app/core/`): Unit-Tests mit simulierter Uhr und simuliertem Server (E1, 24.10.2026, lokal). Laufwerk nach höchstens 2,1 s, egal wann die PS5 erscheint. Weg nach 4,1 s am Kabel, 13,1 s im WLAN, 2 ms bei ordentlichem Ende. Aussetzer von 2 s (Kabel) und 9 s (WLAN) trennen nicht. Falsches Passwort: eine Meldung, ein Versuch je Minute. Im Leerlauf ein Aufwachen je Sekunde (online) bzw. je 2 s (suchend).
+
 **Umfang:**
 
 - eine einzelne exe, ohne Installer-Paket und ohne ZIP

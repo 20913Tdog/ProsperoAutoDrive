@@ -67,6 +67,10 @@ if(NOT WIN32)
   add_subdirectory(ps5/spikes/s1-portprobe)
   add_subdirectory(ps5/spikes/smbserver)
   add_subdirectory(ps5/smbd)
+  # The state machine of the Windows program has no Win32 calls; its unit
+  # test runs here too.
+  enable_language(CXX)
+  add_subdirectory(windows/app/core)
 else()
   add_subdirectory(windows)
 endif()
