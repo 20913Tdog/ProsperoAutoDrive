@@ -402,6 +402,10 @@ jobs:
             }
             $left = (Test-Path "HKCU:\$key") -or (Test-Path "HKLM:\$key")
             "P3.3 removed: exe $gone_ok, folder $(-not (Test-Path $inst)), entry left $left"
+            if (-not $gone_ok) {
+              Get-CimInstance Win32_Process -Filter "Name='cmd.exe' or Name='ProsperoAutoDrive.exe'" |
+                ForEach-Object { "process: $($_.ProcessId) $($_.CommandLine)" }
+            }
             if (-not $exe_ok) { throw "P3.3: exe not installed" }
             if ($entry.InstallLocation -ne $inst) { throw "P3.3: no uninstall entry" }
             if (-not $gone_ok) { throw "P3.3: exe still there after the removal" }

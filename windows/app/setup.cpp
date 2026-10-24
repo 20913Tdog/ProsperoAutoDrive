@@ -157,10 +157,17 @@ void DeleteAfterExit(const std::wstring &exe, const std::wstring &dir) {
   PROCESS_INFORMATION pi{};
   wchar_t sys[MAX_PATH];
   GetSystemDirectoryW(sys, MAX_PATH);
+  // A console of its own, but no window: ping and del need a console.
   if (CreateProcessW((std::wstring(sys) + L"\\cmd.exe").c_str(), cmd.data(), nullptr, nullptr, FALSE,
-                     CREATE_NO_WINDOW | DETACHED_PROCESS, nullptr, sys, &si, &pi)) {
+                     CREATE_NO_WINDOW | CREATE_BREAKAWAY_FROM_JOB, nullptr, sys, &si, &pi) ||
+      CreateProcessW((std::wstring(sys) + L"\\cmd.exe").c_str(), cmd.data(), nullptr, nullptr, FALSE,
+                     CREATE_NO_WINDOW, nullptr, sys, &si, &pi)) {
     CloseHandle(pi.hThread);
     CloseHandle(pi.hProcess);
+  } else {
+    // Then at the next restart.
+    MoveFileExW(exe.c_str(), nullptr, MOVEFILE_DELAY_UNTIL_REBOOT);
+    MoveFileExW(dir.c_str(), nullptr, MOVEFILE_DELAY_UNTIL_REBOOT);
   }
 }
 
