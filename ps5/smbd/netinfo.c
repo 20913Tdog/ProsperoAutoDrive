@@ -7,13 +7,15 @@
  * Free Software Foundation, either version 3 of the License, or (at your
  * option) any later version. See ps5/LICENSE.
  *
- * Three hints, each printed, because which of them the console gives is
- * not known yet (spike of 24.10.2026, only libc and libkernel calls):
+ * Three hints, each printed; the first one that says Wi-Fi or wired
+ * decides, in this order:
  *   media  SIOCGIFMEDIA: IFM_ETHER or IFM_IEEE80211 (FreeBSD)
  *   type   sdl_type of the AF_LINK address: IFT_ETHER or IFT_IEEE80211;
  *          FreeBSD reports wlan interfaces as IFT_ETHER too
- *   name   "wlan..." is Wi-Fi
- * The first one that says Wi-Fi or wired decides, in that order.
+ *   name   "wlan..." is Wi-Fi, "eth..." is wired
+ * Measured on the console (P30, 24.10.2026): no media, type ether on both,
+ * the interface is eth0 on the cable and wlan0 on Wi-Fi. So the name
+ * decides there.
  */
 
 #include "netinfo.h"
@@ -181,10 +183,30 @@ netinfo_text(int fd, char *buf, size_t size) {
       } else if(!strncmp(i->name, "wlan", 4)) {
         link = "wifi";
         basis = "name";
+      } else if(!strncmp(i->name, "eth", 3)) {
+        link = "wired";
+        basis = "name";
       }
     }
   }
   n = add(buf, size, n, "link=%s basis=%s if=%s\n", link, basis, link_if);
   freeifaddrs(list);
   return n < 0 ? 0 : ((size_t)n >= size ? (int)size - 1 : n);
+}
+
+
+const char *
+netinfo_link(int fd) {
+  char buf[2048];
+  const char *p;
+
+  netinfo_text(fd, buf, sizeof buf);
+  p = strstr(buf, "\nlink=");
+  if(p && !strncmp(p + 6, "wired ", 6)) {
+    return "wired";
+  }
+  if(p && !strncmp(p + 6, "wifi ", 5)) {
+    return "wifi";
+  }
+  return "unknown";
 }

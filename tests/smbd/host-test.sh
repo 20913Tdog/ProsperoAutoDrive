@@ -139,7 +139,7 @@ echo "case 1 passed"
 echo "== case 2: service channel"
 rep=$(svc 127.0.0.1 "HELLO 1 utc_ms=1 pc=ci" "STATUS 1" "NOPE 1" "HELLO 2")
 echo "$rep"
-expect "$rep" "^HELLO 1 server_id=$ID name=PS5 share=prospero smb_port=$PORT pairing=open nonce=[0-9a-f]\{16\}$"
+expect "$rep" "^HELLO 1 server_id=$ID name=PS5 share=prospero smb_port=$PORT pairing=open nonce=[0-9a-f]\{16\} link=unknown$"
 expect "$rep" '^STATUS 1$'
 expect "$rep" '^PROSPERO-SMBD OK$'
 expect "$rep" '^END 1$'

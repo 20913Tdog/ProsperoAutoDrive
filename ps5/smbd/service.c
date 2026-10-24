@@ -14,6 +14,7 @@
  *   HELLO 1 [more fields]
  *       -> HELLO 1 server_id=<id> name=<name> share=<share>
  *          smb_port=<port> pairing=<open|closed> nonce=<16 hex>
+ *          link=<wired|wifi|unknown>   (of the console, netinfo.c)
  *   PAIR 1 pc=<name>
  *       -> PAIRED 1 user=<user> password=<password>
  *          or PAIR-REFUSED 1 reason=<closed|bad-name|storage>
@@ -297,9 +298,10 @@ handle_line(client_t *c, const char *line) {
       make_nonce(c->nonce);
     }
     n = snprintf(out, sizeof out,
-                 "HELLO 1 server_id=%s name=%s share=%s smb_port=%u pairing=%s nonce=%s\n",
+                 "HELLO 1 server_id=%s name=%s share=%s smb_port=%u pairing=%s nonce=%s "
+                 "link=%s\n",
                  in->server_id, in->name, in->share, (unsigned)in->smb_port,
-                 in->pairing_is_open() ? "open" : "closed", c->nonce);
+                 in->pairing_is_open() ? "open" : "closed", c->nonce, netinfo_link(c->fd));
   } else if(is_cmd(line, "PAIR")) {
     n = pair(c, line, out, sizeof out);
   } else if(is_cmd(line, "PING")) {

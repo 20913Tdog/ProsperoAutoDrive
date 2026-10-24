@@ -265,7 +265,9 @@ Der Projektverantwortliche hat den Vorschlag angenommen:
   - Ohne Lebenszeichen, 30 s: Server 0,067 % eines Kerns, PC 0,000 %. Das ist die Serverschleife, die alle 100 ms aufwacht.
   - Lebenszeichen jede Sekunde, 120 s: Server 0,080 %, PC 0,038 % (mit Fortschrittsbalken des Testprogramms). Alle 120 `PING` beantwortet. Das Lebenszeichen selbst kostet auf der PS5 also etwa 0,013 %.
   - Ziel unter 0,1 % erreicht. Die PS5 hat 8 Kerne, bezogen auf die ganze Konsole sind das etwa 0,01 %.
-  - Verbindungsart: `getifaddrs` läuft auf der PS5. Am Kabel heißt die Schnittstelle `eth0`, Typ Ethernet. `SIOCGIFMEDIA` liefert nichts. Die WLAN-Schnittstelle erscheint nur, wenn sie verbunden ist. Wie sie heißt und welchen Typ sie meldet, ist noch nicht gemessen. Bis dahin gilt die vorsichtige WLAN-Zeit.
+  - Verbindungsart: `getifaddrs` läuft auf der PS5. Am Kabel heißt die Schnittstelle `eth0`, Typ Ethernet. `SIOCGIFMEDIA` liefert nichts. Die WLAN-Schnittstelle erscheint nur, wenn sie verbunden ist.
+- **Messung P30, WLAN** (E3, Build `b56cd09`, 24.10.2026): Die Schnittstelle heißt `wlan0` und meldet ebenfalls Typ Ethernet. Also entscheidet der Name, `eth…` ist Kabel, `wlan…` ist WLAN. Leerlauf: Server 0,037 % ohne und 0,045 % mit Lebenszeichen, PC 0,038 %. Das Lebenszeichen kam nach 4–5 ms zurück (Kabel: 0–1 ms).
+- **Umsetzung:** Das Payload nennt die Verbindungsart im `HELLO` (`link=wired|wifi|unknown`). Das Programm nimmt bei `wired` die Kabelzeit, sonst die WLAN-Zeit.
 
 ## Testablauf, 20.10.2026
 

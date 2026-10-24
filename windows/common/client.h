@@ -72,6 +72,7 @@ struct Hello {
   std::string share;
   unsigned short smb_port = 0;
   bool pairing_open = false;
+  std::string link;            // the console's: wired, wifi, unknown (or empty)
   std::string line;
 };
 

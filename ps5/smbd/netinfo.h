@@ -18,3 +18,7 @@
  * it to pick how fast it gives up on a missing heartbeat (decision of
  * 24.10.2026). Returns the characters written. */
 int netinfo_text(int fd, char *buf, size_t size);
+
+/* Only the link type of the interface that carries fd: "wired", "wifi" or
+ * "unknown". */
+const char *netinfo_link(int fd);

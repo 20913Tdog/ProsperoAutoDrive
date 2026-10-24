@@ -276,7 +276,13 @@ int main(int argc, char **argv) {
     std::printf("\nPROBE: NICHT BESTANDEN, %d Fehler\n", g_failures);
     return 1;
   }
-  Ok(hello.line.substr(0, hello.line.find(" nonce=")));
+  {
+    // Without the nonce, which only keys this connection.
+    std::string shown = hello.line;
+    size_t p = shown.find(" nonce=");
+    if (p != std::string::npos) shown.erase(p, shown.find(' ', p + 1) - p);
+    Ok(shown);
+  }
   if (!disc_id.empty() && disc_id != hello.server_id) {
     Fail("Server-ID der Suche (" + disc_id + ") und des Dienstkanals verschieden");
   }

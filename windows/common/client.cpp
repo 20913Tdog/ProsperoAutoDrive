@@ -336,6 +336,7 @@ bool Channel::SayHello(Hello *out, std::string *err) {
   out->share = f["share"];
   out->smb_port = static_cast<unsigned short>(std::atoi(f["smb_port"].c_str()));
   out->pairing_open = f["pairing"] == "open";
+  out->link = f["link"];
   out->line = rep;
   nonce_ = f["nonce"];
   if (out->server_id.empty() || out->share.empty() || nonce_.empty()) {
