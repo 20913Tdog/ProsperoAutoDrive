@@ -188,8 +188,9 @@ Go für natives SMB, wenn S1, S2, S3, S6 und S7 bestanden sind und S4 mindestens
 
 - Unit-Tests des Zustandsautomaten mit simulierter Uhr und simulierter Liveness
 - CI-Integration:
-  - Server an → `P:` ist nach höchstens 10 s da.
-  - Server aus → `P:` ist nach höchstens 15 s weg.
+  - Server an → `P:` ist nach höchstens 3 s da.
+  - Server aus → `P:` ist nach höchstens 5 s weg (Kabel), 15 s (WLAN), unter 1 s bei ordentlichem Ende des Payloads ([Entscheidung](entscheidungen.md#sofort-für-verbinden-und-trennen-24102026)).
+  - Leerlauf mit verbundenem PC: Rechenzeit unter 0,1 % eines Kerns, auf dem PC und auf dem Server gemessen.
   - Server wieder an → `P:` ist wieder da.
   - Ein fremdes Mapping bleibt unberührt.
   - Falsches Passwort → Hinweis, aber kein Sturm von Wiederholungen.
@@ -228,7 +229,8 @@ Alle Schreibtests laufen nur im neu angelegten Testordner:
 ## Abnahmekriterien 1.0.0
 
 - [ ] Installation als Standardbenutzer ohne UAC-Dialog und ohne Fremdsoftware, in höchstens 2 Minuten
-- [ ] `P:` erscheint höchstens 10 s nach Erreichbarkeit und verschwindet höchstens 15 s nach Wegfall (Median über mindestens 10 Zyklen, kein Ausreißer über 30 s)
+- [ ] `P:` erscheint höchstens 3 s nach Erreichbarkeit und verschwindet höchstens 5 s (Kabel) bzw. 15 s (WLAN) nach Wegfall (Median über mindestens 10 Zyklen, kein Ausreißer über 30 s)
+- [ ] Im Leerlauf weniger als 0,1 % eines Kerns Rechenzeit, auf PC und PS5
 - [ ] Keine Wiederherstellungsmeldung beim Anmelden, kein toter Laufwerksbuchstabe, kein fremdes Laufwerk berührt
 - [ ] Explorer-Matrix, 7-Zip, Truncate/Seek und Differential-Tester zu 100 % bestanden
 - [ ] 10-GiB-Kopie hin und zurück mit identischem SHA-256; ein Kopierabbruch zeigt einen Fehler, nichts wird nachgesendet

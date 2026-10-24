@@ -245,6 +245,23 @@ Der Projektverantwortliche hat die PS5 per Kabel angeschlossen (feste IP 192.168
 - **Maßnahme:** AES-CMAC mit AES-NI (Patch `libsmb2-cmac-aesni`), Signieren bleibt immer an. Der Server prüft beim Start die Prüfwerte aus RFC 4493 und vergleicht mit der Referenz, sonst nimmt er die Referenz.
 - **Gates G1/G2** bleiben im Text als WLAN-Messung definiert, bis der Projektverantwortliche das ändert. Jede Messung nennt künftig WLAN oder Kabel.
 
+### Ergebnis (24.10.2026)
+
+Ziel am Kabel erreicht (E3, Build `86e62c1`, 7 Runden im Wechsel): Schreiben 136 %, Lesen 101 % von ftpsrv, keine Leserunde unter 95 %. Details in Messung 8 im [Fahrplan](fahrplan.md).
+
+## „Sofort“ für Verbinden und Trennen (24.10.2026)
+
+Der Projektverantwortliche hat den Vorschlag angenommen:
+
+- **Erscheinen:** `P:` ist höchstens **3 s** nach Erreichbarkeit da. Solange die PS5 fehlt, versucht das Programm jede Sekunde eine Verbindung.
+- **Verschwinden am Kabel:** höchstens **5 s**. Es gibt jede Sekunde ein Lebenszeichen. Getrennt wird nach 3 verpassten, und nur wenn auch der Test auf TCP 445 scheitert.
+- **Verschwinden im WLAN:** 10–15 s, weil kurze Aussetzer dort normal sind und `P:` nicht mitten in einer Kopie verschwinden soll.
+- **Ordentliches Ende des Payloads:** Es meldet sich über den Dienstkanal ab, `P:` ist nach unter 1 s weg.
+- **Bedingung des Projektverantwortlichen:** Das darf weder auf der PS5 noch auf dem PC spürbar CPU kosten, „ganz entspannt für beide Maschinen“. Das wird gemessen, nicht angenommen:
+  - **PC:** Das Programm schläft zwischen den Lebenszeichen in einem Wartezustand, es fragt nicht in einer Schleife ab. Ziel ist eine Rechenzeit unter 0,1 % eines Kerns und kein Aufwachen öfter als einmal je Sekunde.
+  - **PS5:** Ein Lebenszeichen ist eine Zeile von etwa 100 Bytes je Sekunde, ohne Signaturrechnung über große Daten. Ziel ist eine Rechenzeit des Payloads unter 0,1 % eines Kerns im Leerlauf mit verbundenem PC. Die Serverschleife wacht heute ohne Last alle 100 ms auf (Vorgabe von libsmb2). Das wird zuerst gemessen und nur verlängert, wenn es messbar Last erzeugt.
+- **Offen:** Woran das Programm erkennt, ob Kabel oder WLAN gilt. Der PC kennt nur seine eigene Verbindung, nicht die der PS5. Vorschlag: Die PS5 meldet ihre Verbindungsart im `HELLO`, falls sie das ermitteln kann. Sonst gilt die vorsichtige WLAN-Zeit.
+
 ## Testablauf, 20.10.2026
 
 ### Test mit einem Klick
