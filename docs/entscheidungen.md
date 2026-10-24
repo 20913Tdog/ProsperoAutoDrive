@@ -277,6 +277,12 @@ Der Projektverantwortliche möchte das Heimnetz nicht mit Rundrufen belasten, we
 - Das Tray-Symbol zeigt „nicht erreichbar, zuletzt gesehen am …“.
 - Ein Rundruf läuft nur über „PS5 im Netz suchen (30 s)“ im Tray-Menü und einmal bei der Einrichtung.
 
+## Laufwerk, Installation, Deinstallation (24.10.2026)
+
+- **`P:` belegt:** Das fremde Laufwerk bleibt unberührt. Das Programm nimmt den nächsten freien Buchstaben rückwärts ab `O:` und meldet das einmal.
+- **Installation:** Ein Installationsdialog mit wählbarem Zielordner, keine stille Selbstkopie. Danach muss man das Programm nie wieder anfassen. Weil kein Admin vorgesehen ist, gehen nur Ordner, in die der Benutzer schreiben darf. Vorgeschlagen ist `%LOCALAPPDATA%\Programs\ProsperoAutoDrive\`. Die exe ist ihr eigener Installer, es gibt kein separates Installer-Paket.
+- **Deinstallation:** über Windows (Installierte Apps / „Programm deinstallieren“), per Eintrag für den Benutzer unter `HKCU`.
+
 ## Testablauf, 20.10.2026
 
 ### Test mit einem Klick

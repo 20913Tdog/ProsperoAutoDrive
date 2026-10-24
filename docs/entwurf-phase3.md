@@ -46,16 +46,20 @@ Rechnung Kabel: 3 s verpasst + höchstens 1 s Test + Trennen ≈ 4–5 s. Ordent
 ## Laufwerksbuchstabe
 
 - Standard `P:`. Ist `P:` belegt (fremdes Mapping, USB-Stick), wird es **nicht** angefasst.
-- **Vorschlag:** Dann nimmt das Programm den nächsten freien Buchstaben rückwärts ab `O:` und meldet das einmal. Alternative: gar kein Laufwerk und ein Hinweis.
+- Dann nimmt das Programm den nächsten freien Buchstaben rückwärts ab `O:` und meldet das einmal (bestätigt am 24.10.2026).
 
 ## Einrichtung, Autostart, Deinstallation
 
-- **Erster Start** (Doppelklick auf die heruntergeladene exe):
-  1. Das Programm kopiert sich nach `%LOCALAPPDATA%\Programs\ProsperoAutoDrive\` und startet von dort.
-  2. Es trägt sich in den Autostart des Benutzers ein (`HKCU\...\Run`), ohne UAC.
-  3. Es sucht die PS5: erst Rundruf, dann Eingabe der IP. Danach koppelt es und speichert IP, Server-ID und Zugangsdaten.
-- **Tray-Menü:** Status in der ersten Zeile (z. B. „PS5 verbunden als P:, Kabel“ oder „PS5 nicht erreichbar, zuletzt gesehen am …“), „Laufwerk öffnen“, „PS5 im Netz suchen (30 s)“, „Weiteren PC koppeln“, „Mit Windows starten“ (an/aus), „Deinstallieren“, „Beenden“.
-- **Deinstallieren** aus dem Tray-Menü: `P:` entfernen, Autostart-Eintrag, Zugangsdaten und Einstellungen löschen, danach den Programmordner. Die laufende exe kann sich nicht selbst löschen. Das übernimmt ein kurzer `cmd.exe`-Aufruf, der wartet, bis das Programm beendet ist (kein PowerShell).
+- **Installationsdialog** (Entscheidung vom 24.10.2026): Startet die exe nicht aus ihrem Installationsordner, zeigt sie einen Dialog. Danach muss man sie nie wieder anfassen.
+  1. **Zielordner wählbar**, vorgeschlagen ist `%LOCALAPPDATA%\Programs\ProsperoAutoDrive\`. Ohne Admin-Rechte geht nur ein Ordner, in den der Benutzer schreiben darf. Für `C:\Program Files` erklärt der Dialog das und schlägt den Standard vor, statt nach Admin-Rechten zu fragen.
+  2. Häkchen „Mit Windows starten“ (Autostart des Benutzers, `HKCU\...\Run`) und „Eintrag im Startmenü“, beide vorbelegt.
+  3. Das Programm kopiert sich in den Ordner, legt den Deinstallationseintrag an und startet von dort.
+  4. Es sucht die PS5: erst Rundruf, dann Eingabe der IP. Danach koppelt es und speichert IP, Server-ID und Zugangsdaten.
+  - Startet man eine neuere exe, bietet der Dialog die Aktualisierung am selben Ort an.
+- **Tray-Menü:** Status in der ersten Zeile (z. B. „PS5 verbunden als P:, Kabel“ oder „PS5 nicht erreichbar, zuletzt gesehen am …“), „Laufwerk öffnen“, „PS5 im Netz suchen (30 s)“, „Weiteren PC koppeln“, „Mit Windows starten“ (an/aus), „Beenden“.
+- **Deinstallieren über Windows** (Entscheidung vom 24.10.2026): unter Einstellungen → Apps → Installierte Apps bzw. „Programm deinstallieren“. Der Eintrag liegt unter `HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\ProsperoAutoDrive`. Das geht ohne Admin und ist der übliche Weg für Programme, die nur für einen Benutzer installiert sind.
+  - Die Deinstallation beendet ein laufendes Programm, entfernt `P:`, Autostart, Startmenü-Eintrag, Zugangsdaten, Einstellungen und Log, dann den Programmordner.
+  - Die laufende exe kann sich nicht selbst löschen. Das übernimmt ein kurzer `cmd.exe`-Aufruf, der wartet, bis das Programm beendet ist (kein PowerShell).
 - **Einstellungen:** `%LOCALAPPDATA%\ProsperoAutoDrive\settings.ini` (IP, Server-ID, Buchstabe), Ringlog daneben. Das Passwort steht nur in der Anmeldeinformationsverwaltung.
 
 ## Benachrichtigungen
@@ -87,5 +91,5 @@ Rechnung Kabel: 3 s verpasst + höchstens 1 s Test + Trennen ≈ 4–5 s. Ordent
 |---|---|---|
 | P3.1 | Zustandsautomat mit Unit-Tests | E1 |
 | P3.2 | Win32-Schicht: Kanal, Lebenszeichen, `P:` anlegen und entfernen, Log. Noch ohne Tray, über Kommandozeile startbar | E2, E3 |
-| P3.3 | Tray, Benachrichtigungen, Einrichtung, Autostart, Deinstallation | E2, E3 |
+| P3.3 | Tray, Benachrichtigungen, Installationsdialog, Autostart, Deinstallation über Windows | E2, E3 |
 | P3.4 | Abnahme Phase 3: Zeiten und CPU, 10 Zyklen | E3, dann Release 0.1.0 |
