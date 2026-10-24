@@ -62,6 +62,7 @@ class Agent {
   HANDLE net_event_ = nullptr;
   HANDLE net_notify_ = nullptr;
   std::wstring letter_;          // "P:" while mapped
+  DWORD last_map_err_ = 0;       // logged once while it repeats
   core::Machine *m_ = nullptr;
 };
 

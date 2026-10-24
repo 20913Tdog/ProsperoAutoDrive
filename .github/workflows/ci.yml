@@ -362,8 +362,16 @@ jobs:
             Start-Process -FilePath wsl.exe -WindowStyle Hidden `
               -ArgumentList '-d','ci','-u','root','--','/root/prospero-smbd','/root/smbroot/','/root/smbd-state',$env:SMB_PORT `
               -RedirectStandardOutput smbd2.log -RedirectStandardError smbd2.err
-            $again = Wait-Drive 'O:' $true 20000
-            "P3.2 drive up again after $again ms (includes the server start)"
+            # Windows forgets the alternate port once the server is gone
+            # (error 53 on the next mapping), so net use tells it again; with
+            # port 445 at home this is not needed.
+            for ($i = 0; $i -lt 30; $i++) {
+              if (curl.exe -fsS --max-time 2 http://127.0.0.1:4445/ 2>$null | Select-String '^PROSPERO-SMBD OK') { break }
+              Start-Sleep 1
+            }
+            net use $share $spw /user:prospero /TCPPORT:$env:SMB_PORT
+            $again = Wait-Drive 'O:' $true 10000
+            "P3.2 drive up again after $again ms (after net use)"
             .\binaries\ProsperoAutoDrive.exe --stop
             $stopped = -not (Test-Path 'O:\')
             $p_kept = Test-Path 'P:\'

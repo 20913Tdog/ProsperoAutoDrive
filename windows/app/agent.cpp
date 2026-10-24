@@ -6,6 +6,7 @@
 #include "agent.h"
 
 #include <iphlpapi.h>
+#include <lm.h>
 #include <winnetwk.h>
 
 #include <cstdarg>
@@ -236,13 +237,15 @@ Agent::Event Agent::Exec(const Action &a, bool *answered) {
 }
 
 Agent::Event Agent::Connect() {
-  static std::string last_err;
+  // Every 2 s while the console is off or the drive fails: only a change
+  // goes into the log.
+  static std::string last_err, last_up;
   std::string err;
   if (!ch_.Connect(s_.ip, s_.port, 1000, &err) || !ch_.SayHello(&hello_, &err)) {
     ch_.Close();
-    // Every 2 s while the console is off: only a change goes into the log.
     if (err != last_err) Log("Dienstkanal: %s", err.c_str());
     last_err = err;
+    last_up.clear();
     return Event(Event::kChannelFailed);
   }
   last_err.clear();
@@ -254,8 +257,10 @@ Agent::Event Agent::Connect() {
     if (LoadCredential(hello_.server_id, &c)) cred_ = c;
   }
   e.ok = !cred_.password.empty();
-  Log("Dienstkanal: %s (%s), Verbindung %s", hello_.server_id.c_str(), hello_.name.c_str(),
-      hello_.link.empty() ? "unbekannt" : hello_.link.c_str());
+  std::string up = hello_.server_id + " (" + hello_.name + "), Verbindung " +
+                   (hello_.link.empty() ? "unbekannt" : hello_.link);
+  if (up != last_up) Log("Dienstkanal: %s", up.c_str());
+  last_up = up;
   return e;
 }
 
@@ -298,9 +303,13 @@ Agent::Event Agent::Map() {
                    ? Event::kAuth
                    : Event::kOther;
     e.text = "Windows-Fehler " + std::to_string(rc);
-    Log("%s -> %s: Windows-Fehler %lu", Narrow(chosen).c_str(), Narrow(remote).c_str(), rc);
+    if (rc != last_map_err_) {
+      Log("%s -> %s: Windows-Fehler %lu", Narrow(chosen).c_str(), Narrow(remote).c_str(), rc);
+    }
+    last_map_err_ = rc;
     return e;
   }
+  last_map_err_ = 0;
   letter_ = chosen;
   Log("%s -> %s verbunden in %lld ms", Narrow(chosen).c_str(), Narrow(remote).c_str(),
       static_cast<long long>(Now() - t0));
@@ -314,11 +323,19 @@ Agent::Event Agent::Map() {
   return e;
 }
 
+// NetUseDel with USE_LOTS_OF_FORCE: WNetCancelConnection2 with force took
+// 5 s against a server that had gone (E2, 24.10.2026).
 void Agent::Unmap() {
   if (letter_.empty()) return;
-  DWORD rc = WNetCancelConnection2W(letter_.c_str(), 0, TRUE);
-  Log("%s getrennt%s", Narrow(letter_).c_str(),
-      rc == NO_ERROR ? "" : (", Windows-Fehler " + std::to_string(rc)).c_str());
+  int64_t t0 = Now();
+  const char *how = "NetUseDel";
+  DWORD rc = NetUseDel(nullptr, letter_.data(), USE_LOTS_OF_FORCE);
+  if (rc != NERR_Success) {
+    how = "WNetCancelConnection2";
+    rc = WNetCancelConnection2W(letter_.c_str(), 0, TRUE);
+  }
+  Log("%s getrennt in %lld ms (%s)%s", Narrow(letter_).c_str(), static_cast<long long>(Now() - t0),
+      how, rc == NO_ERROR ? "" : (", Windows-Fehler " + std::to_string(rc)).c_str());
   letter_.clear();
 }
 
