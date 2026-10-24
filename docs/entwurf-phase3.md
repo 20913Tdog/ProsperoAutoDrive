@@ -51,18 +51,16 @@ Rechnung Kabel: 3 s verpasst + höchstens 1 s Test + Trennen ≈ 4–5 s. Ordent
 ## Einrichtung, Autostart, Deinstallation
 
 - **Installationsdialog** (Entscheidung vom 24.10.2026): Startet die exe nicht aus ihrem Installationsordner, zeigt sie einen Dialog. Danach muss man sie nie wieder anfassen.
-  1. **Zielordner wählbar.** Admin-Rechte sind für die Installation erlaubt (Entscheidung vom 24.10.2026):
-     - **Für mich:** `%LOCALAPPDATA%\Programs\ProsperoAutoDrive\` oder ein anderer Ordner, in den der Benutzer schreiben darf. Kein UAC-Dialog.
-     - **Für alle Benutzer:** `C:\Program Files\ProsperoAutoDrive\` oder ein anderer geschützter Ordner. Der Installer fragt dann selbst per UAC nach Admin-Rechten, nur für das Kopieren und die Einträge. Ein Rechtsklick „Als Administrator ausführen“ ist nicht nötig.
+  1. **Zielordner frei wählbar**, ein Feld mit „Durchsuchen …“, vorbelegt mit `C:\Program Files\ProsperoAutoDrive\` (Entscheidung vom 24.10.2026, nicht `%LOCALAPPDATA%`). Braucht der Ordner Admin-Rechte, fragt der Installer selbst per UAC, nur für das Kopieren und die Einträge. Ein Rechtsklick „Als Administrator ausführen“ ist nicht nötig.
      - **Das Programm selbst läuft immer ohne Admin**, auch nach einer Installation für alle. Ein Laufwerk, das ein Programm mit Admin-Rechten verbindet, sieht der normale Explorer nicht. Deshalb startet der Installer das Programm am Ende ausdrücklich ohne Admin-Rechte.
-     - **Autostart:** bei „Für mich“ über `HKCU\...\Run`, bei „Für alle“ über `HKLM\...\Run`. Würde der Installer mit Admin-Rechten unter `HKCU` schreiben, landete der Eintrag bei einem anderen Konto, falls ein Standardbenutzer das Passwort eines Admins eingibt.
+     - **Autostart und Deinstallationseintrag:** Lief die Installation mit Admin-Rechten, unter `HKLM`, sonst unter `HKCU`. Würde der Installer mit Admin-Rechten unter `HKCU` schreiben, landete der Eintrag bei einem anderen Konto, falls ein Standardbenutzer das Passwort eines Admins eingibt.
      - Zugangsdaten, Einstellungen und Log bleiben immer beim jeweiligen Benutzer.
   2. Häkchen „Mit Windows starten“ (Autostart des Benutzers, `HKCU\...\Run`) und „Eintrag im Startmenü“, beide vorbelegt.
   3. Das Programm kopiert sich in den Ordner, legt den Deinstallationseintrag an und startet von dort.
   4. Es sucht die PS5: erst Rundruf, dann Eingabe der IP. Danach koppelt es und speichert IP, Server-ID und Zugangsdaten.
   - Startet man eine neuere exe, bietet der Dialog die Aktualisierung am selben Ort an.
 - **Tray-Menü:** Status in der ersten Zeile (z. B. „PS5 verbunden als P:, Kabel“ oder „PS5 nicht erreichbar, zuletzt gesehen am …“), „Laufwerk öffnen“, „PS5 im Netz suchen (30 s)“, „Weiteren PC koppeln“, „Mit Windows starten“ (an/aus), „Beenden“.
-- **Deinstallieren über Windows** (Entscheidung vom 24.10.2026): unter Einstellungen → Apps → Installierte Apps bzw. „Programm deinstallieren“. Der Eintrag liegt bei „Für mich“ unter `HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\ProsperoAutoDrive`, ohne Admin. Bei „Für alle“ liegt er unter `HKLM\...`, und die Deinstallation fragt per UAC.
+- **Deinstallieren über Windows** (Entscheidung vom 24.10.2026): unter Einstellungen → Apps → Installierte Apps bzw. „Programm deinstallieren“. Der Eintrag liegt unter `...\CurrentVersion\Uninstall\ProsperoAutoDrive`, in `HKLM` bei einer Installation mit Admin-Rechten (dann fragt auch die Deinstallation per UAC), sonst in `HKCU`.
   - Die Deinstallation beendet ein laufendes Programm, entfernt `P:`, Autostart, Startmenü-Eintrag, Zugangsdaten, Einstellungen und Log, dann den Programmordner.
   - Die laufende exe kann sich nicht selbst löschen. Das übernimmt ein kurzer `cmd.exe`-Aufruf, der wartet, bis das Programm beendet ist (kein PowerShell).
 - **Einstellungen:** `%LOCALAPPDATA%\ProsperoAutoDrive\settings.ini` (IP, Server-ID, Buchstabe), Ringlog daneben. Das Passwort steht nur in der Anmeldeinformationsverwaltung.

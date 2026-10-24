@@ -202,7 +202,7 @@ Entwurf: [`entwurf-phase3.md`](entwurf-phase3.md).
   - Falsches Passwort → Hinweis, aber kein Sturm von Wiederholungen.
   - Server 5 s weg → kein Trennen.
 
-**Fertig, wenn:** die CI grün ist, das Manifest `asInvoker` setzt, das Programm im Betrieb ohne Admin läuft, die Installation „Für mich“ und ihre Deinstallation keinen UAC-Dialog zeigen, „Für alle“ genau einen (live geprüft), und nach der Deinstallation nichts zurückbleibt.
+**Fertig, wenn:** die CI grün ist, das Manifest `asInvoker` setzt, das Programm im Betrieb ohne Admin läuft, die Installation in einen geschützten Ordner genau einen UAC-Dialog zeigt und in einen freien keinen (live geprüft), und nach der Deinstallation nichts zurückbleibt.
 
 **Danach:** erstes Release 0.1.0 per PR von `dev` nach `main`, nach dem Live-Test des Projektverantwortlichen.
 
@@ -234,7 +234,7 @@ Alle Schreibtests laufen nur im neu angelegten Testordner:
 
 ## Abnahmekriterien 1.0.0
 
-- [ ] Installation ohne Fremdsoftware in höchstens 2 Minuten; „Für mich“ ohne UAC-Dialog, „Für alle“ mit genau einem; im Betrieb nie Admin
+- [ ] Installation ohne Fremdsoftware in höchstens 2 Minuten; Pfad frei wählbar (Standard `C:\Program Files\ProsperoAutoDrive\`), höchstens ein UAC-Dialog; im Betrieb nie Admin
 - [ ] `P:` erscheint höchstens 3 s nach Erreichbarkeit und verschwindet höchstens 5 s (Kabel) bzw. 15 s (WLAN) nach Wegfall (Median über mindestens 10 Zyklen, kein Ausreißer über 30 s)
 - [ ] Im Leerlauf weniger als 0,1 % eines Kerns Rechenzeit, auf PC und PS5
 - [ ] Keine Wiederherstellungsmeldung beim Anmelden, kein toter Laufwerksbuchstabe, kein fremdes Laufwerk berührt

@@ -282,7 +282,7 @@ Der Projektverantwortliche möchte das Heimnetz nicht mit Rundrufen belasten, we
 - **`P:` belegt:** Das fremde Laufwerk bleibt unberührt. Das Programm nimmt den nächsten freien Buchstaben rückwärts ab `O:` und meldet das einmal.
 - **Installation:** Ein Installationsdialog mit wählbarem Zielordner, keine stille Selbstkopie. Danach muss man das Programm nie wieder anfassen. Die exe ist ihr eigener Installer, es gibt kein separates Installer-Paket.
 - **Admin-Rechte für die Installation erlaubt** (Projektverantwortlicher, 24.10.2026; ändert „braucht keinen Admin“ aus D5 für die Installation):
-  - „Für mich“ in `%LOCALAPPDATA%\Programs\…` geht ohne UAC. „Für alle“ in `C:\Program Files\…` fragt der Installer selbst per UAC, ein Rechtsklick „Als Administrator“ ist nicht nötig.
+  - Der Installationspfad ist frei wählbar, vorbelegt mit `C:\Program Files\ProsperoAutoDrive\`, ausdrücklich nicht `%LOCALAPPDATA%`. Braucht der gewählte Ordner Admin-Rechte, fragt der Installer selbst per UAC. Ein Rechtsklick „Als Administrator“ ist nicht nötig.
   - **Das Programm selbst läuft weiter ohne Admin.** Ein Laufwerk, das ein Prozess mit Admin-Rechten verbindet, sieht der normale Explorer nicht. Das ist eine Eigenschaft von Windows, keine Wahl.
   - Ohne Signatur zeigt der UAC-Dialog „Unbekannter Herausgeber“, bis die Signierung (Phase 4) steht.
 - **Deinstallation:** über Windows (Installierte Apps / „Programm deinstallieren“), per Eintrag für den Benutzer unter `HKCU`.
