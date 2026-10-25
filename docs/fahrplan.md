@@ -236,10 +236,11 @@ Entwurf: [`entwurf-phase3.md`](entwurf-phase3.md).
 - P33.1 teilweise: Im Dashboard steht „prospero smbd“ mit grünem Haken, ohne Version, und `P:` ist verbunden. Unter „Active Processes“ steht der Server aber **nicht**. Ob er ein eigener Prozess ist, ist damit offen.
 - P33.6 bestanden: Die Datei ließ sich über `P:` überschreiben, während der Server lief. Neustart aus dem Dashboard: Die neue Instanz beendete die alte, das Programm meldete das Trennen und verband sofort neu.
 
-**Stand:** Alles Weitere wird per Websend entwickelt. Alles Weitere wird per Websend entwickelt. Der vollständige Test P33 läuft vor dem Release.
+**Stand:** Alles Weitere wird per Websend entwickelt. Der vollständige Test P33 läuft vor dem Release.
 
 ## Phase 4 – Härtung
 
+- **Smart App Control (SAC):** Auf einem Windows 11 mit eingeschaltetem SAC startet eine unsignierte exe gar nicht. Der Test-PC hat SAC aus (lässt sich ohne Neuinstallation nicht wieder einschalten), P3.3 prüft also nur den Fall ohne SAC. Mit der Signierung muss ein Test auf einem Windows mit SAC ein folgen, etwa in einer frisch installierten VM.
 - **CHANGE_NOTIFY:** Der Explorer aktualisiert sich selbst.
 - **Ereignisse:** PC-Standby, WLAN-Wechsel, IP-Wechsel
 - **Worker-Threads** für READ/WRITE, nur falls die Maßnahmen aus Phase 2 die Antwortzeit unter Last nicht genug senken
