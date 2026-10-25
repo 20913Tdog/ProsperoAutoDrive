@@ -335,8 +335,8 @@ jobs:
             $idle
             if (-not ($idle -match 'Lebenszeichen jede Sekunde: 4 s, PING 4 beantwortet, 0 ohne Antwort')) { throw "probe idle test did not run" }
             curl.exe -fsS --max-time 3 http://127.0.0.1:4445/net
-            # Many files in one folder (25.10.2026): for now the run itself
-            # must pass; the 1 s PING goal is reported, not yet enforced.
+            # Many files in one folder (25.10.2026): every PING within 1 s
+            # while files are created, looked up, listed and deleted.
             net use $share $spw /user:prospero /TCPPORT:$env:SMB_PORT
             if ($LASTEXITCODE) { throw "net use (many files) failed: $LASTEXITCODE" }
             $many = .\binaries\prospero-probe.exe 127.0.0.1 --no-broadcast --share-host prosperotest --many-files-test data 5000
@@ -345,6 +345,7 @@ jobs:
             $many | Select-String -Pattern '(anlegen|suchen|auflisten|loeschen):|Lebenszeichen ' |
               ForEach-Object { "::notice title=many files::$($_.Line.Trim())" }
             if (-not ($many -match '^\S+\s+loeschen: 5000 Dateien') -or ($many -match 'Abbruch')) { throw "probe many-files test did not run" }
+            if (-not ($many -match '^PROBE: BESTANDEN')) { throw "probe many-files test: a PING took over 1 s" }
             net use $share $spw /user:prospero /TCPPORT:$env:SMB_PORT
             if ($LASTEXITCODE) { throw "net use (after many files) failed: $LASTEXITCODE" }
             # P3.2: ProsperoAutoDrive.exe maps the share while the server

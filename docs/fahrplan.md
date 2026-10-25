@@ -188,6 +188,7 @@ Entwurf: [`entwurf-phase3.md`](entwurf-phase3.md).
   - Kabel eingesteckt: `P:` im selben Moment wie der Dienstkanal da. Wie lange die PS5 nach dem Einstecken selbst braucht, ist nicht gemessen.
   - Alle Ziele erreicht: Erscheinen ≤ 3 s, Verschwinden ≤ 5 s am Kabel, ordentliches Ende < 1 s.
 
+- **Viele Dateien in einem Ordner** (P34, live: Löschen von 100.000 Dateien ließ den Dienstkanal minutenlang ohne Antwort). Ursache: Auflisten mit `stat()` für jeden Eintrag in einer einzigen Anfrage, und jede Suche nach einem einzelnen Namen las den ganzen Ordner. Behoben in `13d3c91`. Live mit 20.000 Dateien (E3, Build `a6b7ca7`, 25.10.2026, Kabel): Lebenszeichen höchstens 16 ms in allen Phasen; Anlegen 138 s (4,5 ms je Datei am Anfang, 9,2 ms am Ende), einzeln suchen 0,8–1 ms, Auflisten 0,45 s, Löschen 118 s (5,8 bis 4,4 ms). Offen: Anlegen wird mit der Größe des Ordners langsamer, weil jeder neue Name ohne Rücksicht auf Groß/klein gesucht wird.
 - **Server beenden** aus dem Tray (signiertes `QUIT`, der Server sagt zuletzt `GOODBYE`) und **Mit neuem Server koppeln** (nach einem Zurücksetzen des Servers): E1 und E2 grün, live bestanden (E3, Build `7f97ddc`, 25.10.2026).
 
 **Umfang:**

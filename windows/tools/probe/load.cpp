@@ -702,6 +702,7 @@ int ManyFilesTest(const std::string &ip, const std::string &unc_host, unsigned s
   std::string err;
   bool status = ch.Connect(ip, port, 3000, &err) && ch.SayHello(&h2, &err);
   int failures = 0;
+  int listed = 0;              // entries seen by the listing phase
   Pinger pinger(ip, port, cred.password);
 
   // Prints one phase: time per file at the start and end, the slowest PING,
@@ -712,12 +713,23 @@ int ManyFilesTest(const std::string &ip, const std::string &unc_host, unsigned s
     Ends(us, &first, &last);
     std::map<std::string, std::string> st;
     std::string gap = "?";
-    if (status && ch.Status(&st, &err)) gap = Max(st, "diag_loop_gap_ms");
+    // The server closes a channel that was silent for 60 s, as this one
+    // during a long phase: then a new one.
+    if (!(status && ch.Status(&st, &err))) {
+      prospero::Hello h;
+      status = ch.Connect(ip, port, 3000, &err) && ch.SayHello(&h, &err) && ch.Status(&st, &err);
+    }
+    if (status) gap = Max(st, "diag_loop_gap_ms");
     g_bar.Clear();
     bool ok = worst <= 1000;
     if (!ok) failures++;
-    std::printf("%s %s: %zu Dateien in %.1f s, je Datei %.2f ms am Anfang, %.2f ms am Ende\n",
-                ok ? "OK     " : "FALSCH ", title, us.size(), total_ms / 1000.0, first, last);
+    if (us.size() == 1) {
+      std::printf("%s %s: %d Dateien in %.1f s\n", ok ? "OK     " : "FALSCH ", title, listed,
+                  total_ms / 1000.0);
+    } else {
+      std::printf("%s %s: %zu Dateien in %.1f s, je Datei %.2f ms am Anfang, %.2f ms am Ende\n",
+                  ok ? "OK     " : "FALSCH ", title, us.size(), total_ms / 1000.0, first, last);
+    }
     std::printf("          langsamstes Lebenszeichen %s, laengste Pause der Server-Schleife %s ms "
                 "(Ziel: Lebenszeichen unter 1000 ms)\n",
                 worst >= Pinger::kNoAnswer ? "ohne Antwort" : (std::to_string(worst) + " ms").c_str(),
@@ -786,6 +798,7 @@ int ManyFilesTest(const std::string &ip, const std::string &unc_host, unsigned s
       FindClose(f);
     }
     us.push_back(NowUs() - a);
+    listed = seen;
     if (seen != created) {
       std::printf("FALSCH  Auflisten: %d statt %d Dateien\n", seen, created);
       failures++;
