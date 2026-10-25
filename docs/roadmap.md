@@ -219,7 +219,7 @@ Design: [`design-phase3.md`](design-phase3.md).
 
 **Done when:** the CI is green, the manifest sets `asInvoker`, the program runs without admin in operation, installing into a protected folder shows exactly one UAC prompt and into a free one none (checked live), and nothing is left after removal.
 
-**Afterwards:** first release 0.1.0 via a PR from `dev` to `main`, after the project owner's live test.
+**Afterwards:** first release 0.1.0 via a PR from `dev` to `main`, after the project owner's live test. P33 belongs to 0.1.0. The release is built only when the project owner gives the go (decision of 2026-10-25).
 
 ### P33 – Payload as its own process
 
@@ -240,7 +240,7 @@ Design: [`design-phase3.md`](design-phase3.md).
 - P33.1 partly: the dashboard shows "prospero smbd" with a green check mark, without a version, and `P:` is connected. The server is **not** listed under "Active Processes", though. Whether it is a process of its own is therefore open.
 - P33.6 passed: the file could be overwritten via `P:` while the server was running. Restart from the dashboard: the new instance ended the old one, the program reported the disconnect and reconnected immediately.
 
-**Status:** everything else is developed via websend. The full P33 test runs before the release.
+**Status:** everything else is developed via websend. The full P33 test runs before release 0.1.0 and is part of it.
 
 ## Phase 4 – Hardening
 
