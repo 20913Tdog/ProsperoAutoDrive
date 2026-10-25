@@ -272,7 +272,7 @@ smb -c 'ls' > "$WORK/ls.txt"
 need grep -q "$TEST" "$WORK/ls.txt"
 echo "case 3 passed"
 
-echo "== case 3b: a name without wildcards is looked up, not listed"
+echo "== case 3l: a name without wildcards is looked up, not listed"
 for i in $(seq 1 50); do : > "$ROOT/$TEST/n$i.txt"; done
 : > "$ROOT/$TEST/MixedCase.TXT"
 out=$(smb -c "cd $TEST; ls n7.txt")
@@ -288,7 +288,31 @@ printf '12345' > "$ROOT/$TEST/n3.txt"
 out=$(smb -c "cd $TEST; ls")
 need [ "$(grep -c ' n[0-9]*\.txt ' <<<"$out")" = 50 ]
 need grep -Eq ' n3\.txt +[A-Z]* +5 ' <<<"$out"
-echo "case 3b passed"
+echo "case 3l passed"
+
+echo "== case 3n: new names are checked in every spelling, also after changes"
+printf 'one' > "$WORK/one.txt"
+printf 'two' > "$WORK/two.txt"
+# A put to another spelling replaces the existing file instead of adding one.
+smb -c "cd $TEST; put $WORK/one.txt NEW.txt; put $WORK/two.txt new.TXT" >/dev/null
+need [ "$(ls "$ROOT/$TEST" | grep -ic '^new\.txt$')" = 1 ]
+need [ "$(cat "$ROOT/$TEST/NEW.txt")" = two ]
+# A file another program creates right after is seen at once.
+smb -c "cd $TEST; put $WORK/one.txt warm.txt" >/dev/null
+printf 'disk' > "$ROOT/$TEST/Outside.TXT"
+smb -c "cd $TEST; put $WORK/two.txt outside.txt" >/dev/null
+need [ "$(ls "$ROOT/$TEST" | grep -ic '^outside\.txt$')" = 1 ]
+need [ "$(cat "$ROOT/$TEST/Outside.TXT")" = two ]
+# Deleted through the share, the name is free again in any spelling.
+smb -c "cd $TEST; del NEW.txt; put $WORK/one.txt New.Txt" >/dev/null
+need [ "$(ls "$ROOT/$TEST" | grep -ic '^new\.txt$')" = 1 ]
+need test -f "$ROOT/$TEST/New.Txt"
+# Renamed through the share: the old name is free, the new one taken.
+smb -c "cd $TEST; rename New.Txt Renamed.txt; put $WORK/two.txt RENAMED.TXT; put $WORK/one.txt new.txt" >/dev/null
+need [ "$(ls "$ROOT/$TEST" | grep -ic '^renamed\.txt$')" = 1 ]
+need [ "$(cat "$ROOT/$TEST/Renamed.txt")" = two ]
+need test -f "$ROOT/$TEST/new.txt"
+echo "case 3n passed"
 
 echo "== case 3a: TUNE sets send buffer and credit limit"
 rep=$(svc 127.0.0.1 "HELLO 1" "TUNE 1 seq=1 sndbuf=131072 credits=16 mac=0000" \

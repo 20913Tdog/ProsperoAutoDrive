@@ -678,24 +678,241 @@ valid_component(const char *c) {
 }
 
 
-/* Finds the on-disk spelling of name in dir, ignoring case. */
+/* Names of one folder, by case-folded hash, for find_ci. Each new name
+ * that does not exist in the client's spelling must be looked for in every
+ * other spelling, which meant reading the whole folder per file: creating
+ * 20,000 files took twice as long per file at the end as at the start
+ * (live, 25.10.2026). The cache holds the folder last searched. It is valid
+ * while the folder's identity and mtime are unchanged and for at most
+ * NC_MAX_AGE_S, so a change by another program within one mtime tick is
+ * seen soon. Our own creates, deletes and renames update it (nc_note). */
+#define NC_MAX_AGE_S 2
+
+static struct {
+  char dir[PATH_SIZE];
+  dev_t dev;
+  ino_t ino;
+  struct timespec mtime;
+  time_t built;               /* CLOCK_MONOTONIC seconds, 0 = empty */
+  char **names;               /* NULL where a name was removed */
+  size_t n, cap;
+  uint32_t *slots;            /* index + 1 into names, 0 = free */
+  size_t nslots;              /* power of two */
+} nc;
+
+
+static time_t
+mono_s(void) {
+  struct timespec ts;
+
+  clock_gettime(CLOCK_MONOTONIC, &ts);
+  return ts.tv_sec + 1;       /* never 0 */
+}
+
+
+static uint32_t
+nc_hash(const char *name) {
+  uint32_t h = 2166136261u;
+
+  while(*name) {
+    h = (h ^ fold(next_cp(&name))) * 16777619u;
+  }
+  return h;
+}
+
+
+static void
+nc_clear(void) {
+  for(size_t i=0; i<nc.n; i++) {
+    free(nc.names[i]);
+  }
+  free(nc.names);
+  free(nc.slots);
+  memset(&nc, 0, sizeof nc);
+}
+
+
+/* Returns 0, or -1 when out of memory (then the cache is dropped). */
 static int
-find_ci(const char *dir, const char *name, char *out, size_t size) {
+nc_insert(const char *name) {
+  if(nc.n == nc.cap) {
+    size_t cap = nc.cap ? 2 * nc.cap : 256;
+    char **bigger = realloc(nc.names, cap * sizeof *bigger);
+
+    if(!bigger) {
+      return -1;
+    }
+    nc.names = bigger;
+    nc.cap = cap;
+  }
+  if(2 * (nc.n + 1) > nc.nslots) {
+    size_t nslots = nc.nslots ? 2 * nc.nslots : 512;
+    uint32_t *slots = calloc(nslots, sizeof *slots);
+
+    if(!slots) {
+      return -1;
+    }
+    for(size_t i=0; i<nc.n; i++) {
+      size_t s;
+
+      if(!nc.names[i]) {
+        continue;
+      }
+      s = nc_hash(nc.names[i]) & (nslots - 1);
+      while(slots[s]) {
+        s = (s + 1) & (nslots - 1);
+      }
+      slots[s] = (uint32_t)i + 1;
+    }
+    free(nc.slots);
+    nc.slots = slots;
+    nc.nslots = nslots;
+  }
+  if(!(nc.names[nc.n]=strdup(name))) {
+    return -1;
+  }
+  {
+    size_t s = nc_hash(name) & (nc.nslots - 1);
+
+    while(nc.slots[s]) {
+      s = (s + 1) & (nc.nslots - 1);
+    }
+    nc.slots[s] = (uint32_t)nc.n + 1;
+  }
+  nc.n++;
+  return 0;
+}
+
+
+static char **
+nc_find(const char *name) {
+  size_t s;
+
+  if(!nc.nslots) {
+    return NULL;
+  }
+  for(s=nc_hash(name) & (nc.nslots - 1); nc.slots[s]; s=(s + 1) & (nc.nslots - 1)) {
+    char **p = &nc.names[nc.slots[s] - 1];
+
+    if(*p && name_equal(*p, name)) {
+      return p;
+    }
+  }
+  return NULL;
+}
+
+
+static int
+nc_valid(const char *dir, const struct stat *st) {
+  return nc.built && mono_s() - nc.built < NC_MAX_AGE_S && !strcmp(nc.dir, dir) &&
+         nc.dev == st->st_dev && nc.ino == st->st_ino &&
+         nc.mtime.tv_sec == st->st_mtim.tv_sec && nc.mtime.tv_nsec == st->st_mtim.tv_nsec;
+}
+
+
+/* Reads dir into the cache; its stat st is taken before, so a change during
+ * the read makes the next check fail. Returns 0 or -1. */
+static int
+nc_build(const char *dir, const struct stat *st) {
   struct dirent *e;
   DIR *d;
-  int found = 0;
 
-  if(!(d=opendir(dir))) {
-    return 0;
+  nc_clear();
+  if(strlen(dir) >= sizeof nc.dir || !(d=opendir(dir))) {
+    return -1;
   }
-  while(!found && (e=readdir(d))) {
-    if(name_equal(e->d_name, name)) {
-      snprintf(out, size, "%s", e->d_name);
-      found = 1;
+  while((e=readdir(d))) {
+    if(strcmp(e->d_name, ".") && strcmp(e->d_name, "..") && nc_insert(e->d_name) != 0) {
+      closedir(d);
+      nc_clear();
+      return -1;
     }
   }
   closedir(d);
-  return found;
+  snprintf(nc.dir, sizeof nc.dir, "%s", dir);
+  nc.dev = st->st_dev;
+  nc.ino = st->st_ino;
+  nc.mtime = st->st_mtim;
+  nc.built = mono_s();
+  return 0;
+}
+
+
+/* After this server added or removed the entry at path: keeps the cache of
+ * its folder valid, with the folder's new mtime. */
+static void
+nc_note(const char *path, int added) {
+  char dir[PATH_SIZE];
+  const char *leaf = strrchr(path, '/');
+  struct stat st;
+  size_t dlen;
+
+  if(!nc.built || !leaf) {
+    return;
+  }
+  dlen = leaf == path ? 1 : (size_t)(leaf - path);
+  if(dlen >= sizeof dir) {
+    return;
+  }
+  memcpy(dir, path, dlen);
+  dir[dlen] = '\0';
+  leaf++;
+  if(strcmp(dir, nc.dir)) {
+    return;
+  }
+  if(added) {
+    if(!nc_find(leaf) && nc_insert(leaf) != 0) {
+      nc_clear();
+      return;
+    }
+  } else {
+    char **p = nc_find(leaf);
+
+    if(p && !strcmp(*p, leaf)) {
+      free(*p);
+      *p = NULL;
+    }
+  }
+  if(stat(dir, &st) != 0) {
+    nc_clear();
+    return;
+  }
+  nc.mtime = st.st_mtim;
+}
+
+
+/* Finds the on-disk spelling of name in dir, ignoring case. */
+static int
+find_ci(const char *dir, const char *name, char *out, size_t size) {
+  struct stat st;
+  char **p;
+
+  if(stat(dir, &st) != 0) {
+    return 0;
+  }
+  if(!nc_valid(dir, &st) && nc_build(dir, &st) != 0) {
+    /* Without memory: the slow way. */
+    struct dirent *e;
+    DIR *d;
+    int found = 0;
+
+    if(!(d=opendir(dir))) {
+      return 0;
+    }
+    while(!found && (e=readdir(d))) {
+      if(name_equal(e->d_name, name)) {
+        snprintf(out, size, "%s", e->d_name);
+        found = 1;
+      }
+    }
+    closedir(d);
+    return found;
+  }
+  if(!(p=nc_find(name))) {
+    return 0;
+  }
+  snprintf(out, size, "%s", *p);
+  return 1;
 }
 
 
@@ -964,6 +1181,7 @@ finish_delete(handle_t *h) {
   }
   if((h->is_dir ? rmdir(h->path) : unlink(h->path)) == 0) {
     g.deletes++;
+    nc_note(h->path, 0);
   } else {
     g.delete_failures++;
     note("delete errno %d", errno);
@@ -1593,6 +1811,7 @@ open_rw(handle_t *h, const struct smb2_create_request *req, struct stat *st,
       g.files_created++;
     }
     *action = FILE_CREATED;
+    nc_note(h->path, 1);
     if(stat(h->path, &g.last_created_st) == 0) {
       snprintf(g.last_created, sizeof g.last_created, "%s", h->rel);
     }
@@ -2503,6 +2722,8 @@ set_rename(handle_t *h, const uint8_t *buf, uint32_t len) {
     return errno_status(errno);
   }
   g.renames++;
+  nc_note(h->path, 0);
+  nc_note(t.asked, 1);
   {
     char from[PATH_SIZE];
 
