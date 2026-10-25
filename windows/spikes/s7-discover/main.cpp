@@ -92,7 +92,7 @@ std::vector<in_addr> BroadcastTargets() {
         if (ConvertLengthToIpv4Mask(u->OnLinkPrefixLength, &mask) != NO_ERROR) continue;
         in_addr b;
         b.s_addr = sin->sin_addr.s_addr | ~mask;
-        std::printf("  Netz: %ls, Adresse %s/%u, Broadcast ", a->FriendlyName,
+        std::printf("  network: %ls, address %s/%u, broadcast ", a->FriendlyName,
                     Ip(*sin).c_str(), static_cast<unsigned>(u->OnLinkPrefixLength));
         sockaddr_in tmp{};
         tmp.sin_addr = b;
@@ -101,7 +101,7 @@ std::vector<in_addr> BroadcastTargets() {
       }
     }
   } else {
-    std::printf("  GetAdaptersAddresses fehlgeschlagen: %lu\n", rc);
+    std::printf("  GetAdaptersAddresses failed: %lu\n", rc);
   }
   in_addr all;
   all.s_addr = INADDR_BROADCAST;
@@ -130,7 +130,7 @@ Result Probe(SOCKET s, const std::vector<in_addr> &targets, unsigned short port)
       to.sin_addr = a;
       if (sendto(s, req.data(), static_cast<int>(req.size()), 0,
                  reinterpret_cast<sockaddr *>(&to), sizeof to) == SOCKET_ERROR) {
-        std::printf("  Versuch %d: sendto %s fehlgeschlagen, WSA-Fehler %d\n", t,
+        std::printf("  try %d: sendto %s failed, socket error %d\n", t,
                     Ip(to).c_str(), WSAGetLastError());
       }
     }
@@ -153,28 +153,28 @@ Result Probe(SOCKET s, const std::vector<in_addr> &targets, unsigned short port)
         // An ICMP "port unreachable" for an earlier datagram: nothing
         // listens there. Keep waiting for the other targets.
         if (err == WSAECONNRESET) {
-          std::printf("  Versuch %d: ICMP meldet Port nicht erreichbar\n", t);
+          std::printf("  try %d: ICMP reports the port unreachable\n", t);
           continue;
         }
-        std::printf("  Versuch %d: recvfrom WSA-Fehler %d\n", t, err);
+        std::printf("  try %d: recvfrom socket error %d\n", t, err);
         break;
       }
       buf[n] = '\0';
       while (n > 0 && (buf[n - 1] == '\n' || buf[n - 1] == '\r')) buf[--n] = '\0';
       std::string line(buf);
       if (line.rfind("PROSPERO-HERE 1 nonce=" + nonce + " ", 0) != 0) {
-        std::printf("  Versuch %d: fremde Antwort von %s ignoriert\n", t, Ip(from).c_str());
+        std::printf("  try %d: unrelated answer from %s ignored\n", t, Ip(from).c_str());
         continue;
       }
       int64_t rtt = UtcMs() - sent;
-      std::printf("  Versuch %d: Antwort von %s nach %lld ms: %s\n", t, Ip(from).c_str(),
+      std::printf("  try %d: answer from %s after %lld ms: %s\n", t, Ip(from).c_str(),
                   static_cast<long long>(rtt), line.c_str());
       if (r.best_rtt < 0 || rtt < r.best_rtt) r.best_rtt = rtt;
       if (r.first.empty()) r.first = Ip(from) + "  " + line;
       r.replies++;
       got++;
     }
-    if (!got) std::printf("  Versuch %d: keine Antwort\n", t);
+    if (!got) std::printf("  try %d: no answer\n", t);
   }
   return r;
 }
@@ -198,43 +198,43 @@ int main(int argc, char **argv) {
 
   WSADATA wsa;
   if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) {
-    std::printf("FEHLER: WSAStartup\n");
+    std::printf("ERROR: WSAStartup failed\n");
     return 3;
   }
   SOCKET s = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
   if (s == INVALID_SOCKET) {
-    std::printf("FEHLER: socket, WSA-Fehler %d\n", WSAGetLastError());
+    std::printf("ERROR: socket, socket error %d\n", WSAGetLastError());
     return 3;
   }
   BOOL on = TRUE;
   setsockopt(s, SOL_SOCKET, SO_BROADCAST, reinterpret_cast<const char *>(&on), sizeof on);
 
-  std::printf("PC-Zeit UTC (ms): %lld, UDP-Port %u\n", static_cast<long long>(UtcMs()), port);
+  std::printf("PC time UTC (ms): %lld, UDP port %u\n", static_cast<long long>(UtcMs()), port);
   int rc = 0;
   if (ip) {
     in_addr a;
     if (inet_pton(AF_INET, ip, &a) != 1) {
-      std::printf("FEHLER: keine IPv4-Adresse: %s\n", ip);
+      std::printf("ERROR: not an IPv4 address: %s\n", ip);
       return 3;
     }
-    std::printf("--- Unicast an %s\n", ip);
+    std::printf("--- unicast to %s\n", ip);
     Result u = Probe(s, {a}, port);
     if (u.replies) {
-      std::printf("S7-UNICAST: OK, %d Antworten, schnellste %lld ms\n", u.replies,
+      std::printf("S7-UNICAST: OK, %d answers, fastest %lld ms\n", u.replies,
                   static_cast<long long>(u.best_rtt));
     } else {
-      std::printf("S7-UNICAST: KEINE ANTWORT\n");
+      std::printf("S7-UNICAST: NO ANSWER\n");
       rc |= 1;
     }
   }
   if (broadcast) {
-    std::printf("--- Broadcast\n");
+    std::printf("--- broadcast\n");
     Result b = Probe(s, BroadcastTargets(), port);
     if (b.replies) {
-      std::printf("S7-BROADCAST: OK, %d Antworten, schnellste %lld ms, erste: %s\n", b.replies,
+      std::printf("S7-BROADCAST: OK, %d answers, fastest %lld ms, first: %s\n", b.replies,
                   static_cast<long long>(b.best_rtt), b.first.c_str());
     } else {
-      std::printf("S7-BROADCAST: KEINE ANTWORT\n");
+      std::printf("S7-BROADCAST: NO ANSWER\n");
       rc |= 2;
     }
   }

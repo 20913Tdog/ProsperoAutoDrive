@@ -16,13 +16,13 @@ if not defined PS5 if exist "%INI%" (
   for /f "usebackq tokens=1,* delims==" %%A in ("%INI%") do if /i "%%A"=="ip" set "PS5=%%B"
 )
 if not defined PS5 (
-  echo FEHLER: keine IP. Aufruf: %~nx0 ^<PS5-IP^>
+  echo ERROR: no IP address. Usage: %~nx0 ^<PS5-IP^>
   pause
   exit /b 2
 )
 set "EXE=%ROOT%\dist\dev\prospero-probe.exe"
 if not exist "%EXE%" (
-  echo FEHLER: %EXE% fehlt. Bitte tools\Get-DevBuild.cmd ausfuehren.
+  echo ERROR: %EXE% is missing. Run tools\Get-DevBuild.cmd first.
   pause
   exit /b 1
 )
@@ -30,7 +30,7 @@ if not exist "%EXE%" (
 "%EXE%" %PS5% --no-broadcast --connect
 if errorlevel 1 (
   echo.
-  echo Die Verbindung hat nicht geklappt, Ausgabe bitte zurueckmelden.
+  echo The connection failed. Please send back the output above.
   pause
   exit /b 1
 )

@@ -3,7 +3,7 @@
 // Copyright (C) 2026 Prospero AutoDrive contributors
 // SPDX-License-Identifier: MIT
 //
-// The exe is its own installer (docs/entwurf-phase3.md, decisions of
+// The exe is its own installer (docs/design-phase3.md, decisions of
 // 24.10.2026): a dialog with a freely chosen folder, by default
 // C:\Program Files\ProsperoAutoDrive. Only a folder the user cannot write
 // to needs admin rights; then just the copy and the machine-wide entries

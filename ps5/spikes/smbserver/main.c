@@ -400,7 +400,7 @@ main(int argc, char **argv) {
   stop_previous_instance();
 
   if((g_ctl_fd=open_control_port()) < 0) {
-    notify(NAME ": Port %d nicht frei: %s", CONTROL_PORT, strerror(errno));
+    notify(NAME ": port %d is in use: %s", CONTROL_PORT, strerror(errno));
     return 1;
   }
 
@@ -411,13 +411,13 @@ main(int argc, char **argv) {
   }
   if((rc=backend_init(g_folder, SHARE_NAME, USER_NAME, g_password,
                       WRITABLE, PROFILE))) {
-    notify(NAME ": FEHLER Freigabe: %s", strerror(-rc));
+    notify(NAME ": ERROR: cannot set up the share: %s", strerror(-rc));
     return 1;
   }
 
   if(DISCOVERY) {
     if((g_udp_fd=discovery_open(DISCOVERY_PORT)) < 0) {
-      notify(NAME ": UDP-Port %d nicht frei: %s", DISCOVERY_PORT, strerror(-g_udp_fd));
+      notify(NAME ": UDP port %d is in use: %s", DISCOVERY_PORT, strerror(-g_udp_fd));
       return 1;
     }
   }
@@ -431,14 +431,14 @@ main(int argc, char **argv) {
   g_server.extra_fdset = extra_fdset;
   g_server.extra_service = extra_service;
 
-  notify(NAME " bereit: Freigabe %s (%s), Benutzer %s, Passwort %s (%d min)",
-         SHARE_NAME, WRITABLE ? "lesen und schreiben" : "nur lesen",
+  notify(NAME " ready: share %s (%s), user %s, password %s (%d min)",
+         SHARE_NAME, WRITABLE ? "read and write" : "read only",
          USER_NAME, g_password, RUN_SECONDS / 60);
   rc = smb2_serve_port(&g_server, 8, on_new_client, NULL);
   if(rc < 0) {
-    notify(NAME ": SMB-Port %u nicht verfuegbar (%d)", port, rc);
+    notify(NAME ": SMB port %u is not available (%d)", port, rc);
   } else {
-    notify(NAME ": beendet (%u Verbindungen)", g_connections);
+    notify(NAME ": stopped (%u SMB connections served)", g_connections);
   }
 
   close(g_ctl_fd);

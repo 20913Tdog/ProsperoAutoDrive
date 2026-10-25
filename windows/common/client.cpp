@@ -35,8 +35,23 @@ std::string Narrow(const wchar_t *w, size_t len) {
   return s;
 }
 
+// A short meaning for the socket errors seen in practice.
+std::string SocketErrorText(int code) {
+  switch (code) {
+    case WSAETIMEDOUT: return " (timed out)";
+    case WSAECONNREFUSED: return " (connection refused)";
+    case WSAECONNRESET: return " (connection reset by the server)";
+    case WSAECONNABORTED: return " (connection aborted)";
+    case WSAEHOSTUNREACH: return " (host unreachable)";
+    case WSAENETUNREACH: return " (network unreachable)";
+    case WSAENETDOWN: return " (network down)";
+    default: return "";
+  }
+}
+
 std::string WsaError(const char *what) {
-  return std::string(what) + ", WSA-Fehler " + std::to_string(WSAGetLastError());
+  int code = WSAGetLastError();
+  return std::string(what) + " failed, socket error " + std::to_string(code) + SocketErrorText(code);
 }
 
 }  // namespace
@@ -163,7 +178,7 @@ std::vector<std::pair<in_addr, std::string>> BroadcastTargets() {
   }
   in_addr all;
   all.s_addr = INADDR_BROADCAST;
-  out.emplace_back(all, "alle (255.255.255.255)");
+  out.emplace_back(all, "all networks (255.255.255.255)");
   return out;
 }
 
@@ -171,7 +186,7 @@ bool Discover(const std::vector<in_addr> &targets, unsigned short port, DWORD wa
               std::vector<Here> *found, std::string *err) {
   SOCKET s = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
   if (s == INVALID_SOCKET) {
-    *err = WsaError("socket");
+    *err = WsaError("creating a socket");
     return false;
   }
   BOOL on = TRUE;
@@ -246,12 +261,12 @@ bool Channel::Connect(const std::string &ip, unsigned short port, DWORD timeout_
   to.sin_family = AF_INET;
   to.sin_port = htons(port);
   if (inet_pton(AF_INET, ip.c_str(), &to.sin_addr) != 1) {
-    *err = "keine IPv4-Adresse: " + ip;
+    *err = "not an IPv4 address: " + ip;
     return false;
   }
   s_ = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
   if (s_ == INVALID_SOCKET) {
-    *err = WsaError("socket");
+    *err = WsaError("creating a socket");
     return false;
   }
   // Windows answers a refused connect (RST) with two more SYNs, so a closed
@@ -276,8 +291,9 @@ bool Channel::Connect(const std::string &ip, unsigned short port, DWORD timeout_
     int soerr = 0;
     int len = sizeof soerr;
     getsockopt(s_, SOL_SOCKET, SO_ERROR, reinterpret_cast<char *>(&soerr), &len);
-    *err = "keine Verbindung zu " + ip + ":" + std::to_string(port) +
-           (soerr ? ", Fehler " + std::to_string(soerr) : ", Zeitlimit");
+    *err = "cannot connect to " + ip + ":" + std::to_string(port) +
+           (soerr ? ", socket error " + std::to_string(soerr) + SocketErrorText(soerr)
+                  : ", no answer within " + std::to_string(timeout_ms) + " ms");
     Close();
     return false;
   }
@@ -303,12 +319,12 @@ bool Channel::ReadLine(std::string *line, std::string *err) {
     char tmp[1024];
     int n = recv(s_, tmp, sizeof tmp, 0);
     if (n <= 0) {
-      *err = n == 0 ? "Verbindung vom Server geschlossen" : WsaError("recv");
+      *err = n == 0 ? "the server closed the connection" : WsaError("receiving");
       return false;
     }
     buf_.append(tmp, static_cast<size_t>(n));
     if (buf_.size() > 64 * 1024) {
-      *err = "Antwortzeile zu lang";
+      *err = "the server's reply line is too long";
       return false;
     }
   }
@@ -316,12 +332,12 @@ bool Channel::ReadLine(std::string *line, std::string *err) {
 
 bool Channel::Request(const std::string &line, std::string *reply, std::string *err) {
   if (s_ == INVALID_SOCKET) {
-    *err = "nicht verbunden";
+    *err = "not connected";
     return false;
   }
   std::string out = line + "\n";
   if (send(s_, out.data(), static_cast<int>(out.size()), 0) != static_cast<int>(out.size())) {
-    *err = WsaError("send");
+    *err = WsaError("sending");
     return false;
   }
   return ReadLine(reply, err);
@@ -337,7 +353,7 @@ bool Channel::SayHello(Hello *out, std::string *err) {
   std::string rep;
   if (!Request("HELLO 1 pc=" + PcName(), &rep, err)) return false;
   if (rep.rfind("HELLO 1 ", 0) != 0) {
-    *err = "unerwartete Antwort: " + rep;
+    *err = "unexpected reply: " + rep;
     return false;
   }
   auto f = Fields(rep);
@@ -350,7 +366,7 @@ bool Channel::SayHello(Hello *out, std::string *err) {
   out->line = rep;
   nonce_ = f["nonce"];
   if (out->server_id.empty() || out->share.empty() || nonce_.empty()) {
-    *err = "unvollstaendige Antwort: " + rep;
+    *err = "incomplete reply: " + rep;
     return false;
   }
   return true;
@@ -366,7 +382,7 @@ bool Channel::Pair(const std::string &pc, std::string *user, std::string *passwo
     *password = f["password"];
     return true;
   }
-  *refused = rep.rfind("PAIR-REFUSED 1 ", 0) == 0 ? f["reason"] : "unerwartete Antwort: " + rep;
+  *refused = rep.rfind("PAIR-REFUSED 1 ", 0) == 0 ? f["reason"] : "unexpected reply: " + rep;
   return false;
 }
 
@@ -376,7 +392,7 @@ bool Channel::Ping(const std::string &key, Pong *out, std::string *err) {
   std::string rep;
   if (!Request(key.empty() ? "PING 1 " + time : Signed("PING", time, key), &rep, err)) return false;
   if (rep.rfind("PONG 1 ", 0) != 0) {
-    *err = "unerwartete Antwort: " + rep;
+    *err = "unexpected reply: " + rep;
     return false;
   }
   auto f = Fields(rep);
@@ -394,7 +410,7 @@ bool Channel::OpenPairing(const std::string &key, int *seconds, std::string *err
     return false;
   }
   if (rep.rfind("PAIRING-OPEN 1 ", 0) != 0) {
-    *err = "abgelehnt: " + rep;
+    *err = "refused by the server: " + rep;
     return false;
   }
   *seconds = std::atoi(Fields(rep)["seconds"].c_str());
@@ -405,7 +421,7 @@ bool Channel::Status(std::map<std::string, std::string> *out, std::string *err) 
   std::string line;
   if (!Request("STATUS 1", &line, err)) return false;
   if (line != "STATUS 1") {
-    *err = "unerwartete Antwort: " + line;
+    *err = "unexpected reply: " + line;
     return false;
   }
   out->clear();
@@ -421,7 +437,7 @@ bool Channel::ResetStats(std::string *err) {
   std::string rep;
   if (!Request("RESET-STATS 1", &rep, err)) return false;
   if (rep != "RESET-STATS 1") {
-    *err = "unerwartete Antwort: " + rep;
+    *err = "unexpected reply: " + rep;
     return false;
   }
   return true;
@@ -432,7 +448,7 @@ bool Channel::Tune(const std::string &key, int sndbuf, int credits, std::string 
   std::string rest = "sndbuf=" + std::to_string(sndbuf) + " credits=" + std::to_string(credits);
   if (!Request(Signed("TUNE", rest, key), &rep, err)) return false;
   if (rep.rfind("TUNED 1 ", 0) != 0) {
-    *err = "abgelehnt: " + rep;
+    *err = "refused by the server: " + rep;
     return false;
   }
   return true;
@@ -442,7 +458,7 @@ bool Channel::Quit(const std::string &key, std::string *err) {
   std::string rep;
   if (!Request(Signed("QUIT", "", key), &rep, err)) return false;
   if (rep != "BYE 1") {
-    *err = "abgelehnt: " + rep;
+    *err = "refused by the server: " + rep;
     return false;
   }
   return true;
@@ -450,12 +466,12 @@ bool Channel::Quit(const std::string &key, std::string *err) {
 
 bool Channel::SendPing(const std::string &key, HANDLE event, std::string *err) {
   if (s_ == INVALID_SOCKET) {
-    *err = "nicht verbunden";
+    *err = "not connected";
     return false;
   }
   if (!watched_) {
     if (WSAEventSelect(s_, event, FD_READ | FD_CLOSE) != 0) {
-      *err = WsaError("WSAEventSelect");
+      *err = WsaError("watching the socket (WSAEventSelect)");
       return false;
     }
     watched_ = true;
@@ -463,7 +479,7 @@ bool Channel::SendPing(const std::string &key, HANDLE event, std::string *err) {
   std::string out = Signed("PING", "utc_ms=" + std::to_string(UtcMs()), key) + "\n";
   // A line of about 150 bytes fits into the empty send buffer at once.
   if (send(s_, out.data(), static_cast<int>(out.size()), 0) != static_cast<int>(out.size())) {
-    *err = WsaError("send");
+    *err = WsaError("sending");
     return false;
   }
   return true;
@@ -530,7 +546,7 @@ bool StoreCredential(const std::string &server_id, const Credential &cred, std::
   c.Persist = CRED_PERSIST_LOCAL_MACHINE;
   c.UserName = user.data();
   if (!CredWriteW(&c, 0)) {
-    *err = "CredWrite fehlgeschlagen, Fehler " + std::to_string(GetLastError());
+    *err = "saving to the Windows Credential Manager failed, error " + std::to_string(GetLastError());
     return false;
   }
   return true;

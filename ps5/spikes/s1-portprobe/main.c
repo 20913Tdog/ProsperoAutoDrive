@@ -254,7 +254,7 @@ main(void) {
       close(ports[i].fd);
     }
   }
-  notify("Prospero S1: beendet");
+  notify("Prospero S1: stopped");
 
   return 0;
 }

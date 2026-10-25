@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT
 //
 // Keeps the server's share as a drive letter while the server is reachable,
-// with a tray icon (docs/entwurf-phase3.md). The same exe is its own
+// with a tray icon (docs/design-phase3.md). The same exe is its own
 // installer:
 //
 //   ProsperoAutoDrive.exe                 not installed here: setup dialog;
@@ -119,10 +119,10 @@ int main(int argc, char **argv) {
       uninstall_files = true;
     } else {
       AttachOutput();
-      std::printf("Aufruf: ProsperoAutoDrive.exe [--run] [--ip <IPv4-Adresse>] [--port N] [--share-host <Name>]\n"
-                  "                              [--state-dir <Ordner>] [--console]\n"
+      std::printf("Usage: ProsperoAutoDrive.exe [--run] [--ip <IPv4 address>] [--port N] [--share-host <name>]\n"
+                  "                             [--state-dir <folder>] [--console]\n"
                   "       ProsperoAutoDrive.exe --stop\n"
-                  "       ProsperoAutoDrive.exe --install <Ordner> [--no-autostart] [--no-startmenu]\n"
+                  "       ProsperoAutoDrive.exe --install <folder> [--no-autostart] [--no-startmenu]\n"
                   "                             [--no-launch] [--quiet]\n"
                   "       ProsperoAutoDrive.exe --uninstall [--quiet]\n");
       return 2;
@@ -132,7 +132,7 @@ int main(int argc, char **argv) {
   if (stop) {
     AttachOutput();
     bool ok = setup::StopRunning(15000);
-    std::printf(ok ? "ProsperoAutoDrive beendet.\n" : "ProsperoAutoDrive reagiert nicht.\n");
+    std::printf(ok ? "ProsperoAutoDrive stopped.\n" : "ProsperoAutoDrive does not respond.\n");
     return ok ? 0 : 1;
   }
   if (install_files) return setup::InstallFiles(install_dir, machine, startmenu, autostart);
@@ -141,7 +141,7 @@ int main(int argc, char **argv) {
   if (install) {
     AttachOutput();
     int rc = setup::Install(install_dir, startmenu, autostart, launch, quiet);
-    std::printf(rc == 0 ? "Installiert.\n" : "Installation fehlgeschlagen, Fehler %d.\n", rc);
+    std::printf(rc == 0 ? "Installed.\n" : "Installation failed, error %d.\n", rc);
     return rc;
   }
   setup::Installed here = setup::FindInstalled();
@@ -152,7 +152,7 @@ int main(int argc, char **argv) {
   g_stop = CreateEventW(nullptr, TRUE, FALSE, L"Local\\ProsperoAutoDrive.Stop");
   HANDLE instance = CreateMutexW(nullptr, TRUE, L"Local\\ProsperoAutoDrive.Instance");
   if (GetLastError() == ERROR_ALREADY_EXISTS) {
-    if (console) std::printf("ProsperoAutoDrive laeuft schon.\n");
+    if (console) std::printf("ProsperoAutoDrive is already running.\n");
     return 1;
   }
   ResetEvent(g_stop);

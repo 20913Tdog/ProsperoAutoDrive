@@ -9,7 +9,7 @@
  *
  * ASCII text lines, one request and one reply per line, fields separated
  * by single spaces; the number after the command is the protocol version.
- * The PC opens the connection and keeps it (docs/entwurf-phase2.md):
+ * The PC opens the connection and keeps it (docs/design-phase2.md):
  *
  *   HELLO 1 [more fields]
  *       -> HELLO 1 server_id=<id> name=<name> share=<share>

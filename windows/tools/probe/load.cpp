@@ -81,7 +81,7 @@ class Bar {
 };
 
 Bar g_bar;
-std::string g_bar_label;      // e.g. "Runde 2/3"
+std::string g_bar_label;      // e.g. "round 2/3"
 
 void ShowProgress(const char *title, long long done, long long want, int64_t elapsed_ms) {
   constexpr int kWidth = 30;
@@ -93,7 +93,7 @@ void ShowProgress(const char *title, long long done, long long want, int64_t ela
   std::snprintf(buf, sizeof buf, "  %s %-9s [%s%s] %3d %%  %5lld/%lld MiB  %6.1f MB/s  %s",
                 g_bar_label.c_str(), title, std::string(fill, '#').c_str(),
                 std::string(kWidth - fill, '-').c_str(), pct, done >> 20, want >> 20, mb_s,
-                left >= 0 ? ("noch " + std::to_string(left) + " s").c_str() : "");
+                left >= 0 ? (std::to_string(left) + " s left").c_str() : "");
   g_bar.Show(buf);
 }
 
@@ -203,7 +203,7 @@ PhaseResult Phase(const char *title, bool write, const std::wstring &big, const 
     bool ok = CopyFileExW(j->from.c_str(), j->to.c_str(), Progress, &j->moved,
                           const_cast<BOOL *>(&j->cancel),
                           COPY_FILE_NO_BUFFERING | COPY_FILE_FAIL_IF_EXISTS) != 0;
-    if (!ok) std::printf("  CopyFileEx: Windows-Fehler %lu\n", GetLastError());
+    if (!ok) std::printf("  CopyFileEx: Windows error %lu\n", GetLastError());
     if (!j->write) DeleteFileW(j->to.c_str());    // local copy on the PC only
     j->ok = ok && j->moved == j->want;
     j->running = false;
@@ -214,7 +214,7 @@ PhaseResult Phase(const char *title, bool write, const std::wstring &big, const 
   int64_t last_progress = t0;
 
   std::printf("  --- %s, %u MiB\n", title, mib);
-  std::printf("  %6s %10s %10s %8s %12s %12s %7s %7s\n", "t [s]", "klein [ms]", "dienst [ms]",
+  std::printf("  %6s %10s %10s %8s %12s %12s %7s %7s\n", "t [s]", "small [ms]", "ctrl [ms]",
               "outq", "outq [MiB]", "sock [MiB]", "waitq", "gap");
   while (running) {
     int64_t next = NowMs() + kSampleMs;
@@ -227,7 +227,7 @@ PhaseResult Phase(const char *title, bool write, const std::wstring &big, const 
       last_moved = job->moved;
       last_progress = NowMs();
     } else if (NowMs() - last_progress > kStallMs) {
-      std::printf("  HAENGT: seit %lld s kein Byte bewegt (%.0f von %u MiB), Kopie wird abgebrochen\n",
+      std::printf("  STALLED: no byte moved for %lld s (%.0f of %u MiB), cancelling the copy\n",
                   static_cast<long long>(kStallMs / 1000), Mib(last_moved), mib);
       r.hung = true;
       job->cancel = TRUE;
@@ -269,7 +269,7 @@ PhaseResult Phase(const char *title, bool write, const std::wstring &big, const 
   if (done) {
     delete job;
   } else {
-    std::printf("  Die Kopie reagiert nicht auf den Abbruch, sie bleibt im Hintergrund.\n");
+    std::printf("  The copy does not react to the cancel; it stays in the background.\n");
   }
   std::map<std::string, std::string> st;
   if (ch.Status(&st, &err)) r.last = st;
@@ -279,13 +279,13 @@ PhaseResult Phase(const char *title, bool write, const std::wstring &big, const 
 void Report(const char *title, const PhaseResult &r, int64_t idle, int *failures) {
   int64_t med = Median(r.small_ms);
   int64_t mx = r.small_ms.empty() ? -1 : *std::max_element(r.small_ms.begin(), r.small_ms.end());
-  std::printf("  %s: %s, %.2f MB/s; kleine Datei Median %lld ms, max %lld ms (ohne Last %lld ms); "
-              "Dienstkanal Median %lld ms\n",
-              title, r.ok ? "OK" : "FEHLER", r.mb_s, static_cast<long long>(med),
+  std::printf("  %s: %s, %.2f MB/s; small file median %lld ms, max %lld ms (without load %lld ms); "
+              "control channel median %lld ms\n",
+              title, r.ok ? "OK" : "FAILED", r.mb_s, static_cast<long long>(med),
               static_cast<long long>(mx), static_cast<long long>(idle),
               static_cast<long long>(Median(r.service_ms)));
-  std::printf("  %s, Hoechstwerte im Server: outq %s Antworten, %s Bytes; sock %s Bytes; "
-              "waitq %s; Pause %s ms; Sendepuffer %s Bytes\n",
+  std::printf("  %s, server peaks: outq %s replies, %s bytes; sock %s bytes; "
+              "waitq %s; loop gap %s ms; send buffer %s bytes\n",
               title, Max(r.last, "diag_outq_pdus").c_str(), Max(r.last, "diag_outq_bytes").c_str(),
               Max(r.last, "diag_sock_unsent_bytes").c_str(), Max(r.last, "diag_waitq_pdus").c_str(),
               Max(r.last, "diag_loop_gap_ms").c_str(),
@@ -297,9 +297,9 @@ void Report(const char *title, const PhaseResult &r, int64_t idle, int *failures
   long long span = num("since_reset_ms");
   long long cpu = num("cpu_user_ms") + num("cpu_sys_ms");
   if (span > 0) {
-    std::printf("  %s, Server: Rechenzeit %lld ms (davon System %lld) in %lld ms, also %lld %%; "
-                "pread %lld ms, pwrite %lld ms (%lld von %lld im Schreib-Thread, "
-                "darauf gewartet %lld ms)\n",
+    std::printf("  %s, server: CPU time %lld ms (system %lld) in %lld ms, so %lld %%; "
+                "pread %lld ms, pwrite %lld ms (%lld of %lld in the write thread, "
+                "waited for it %lld ms)\n",
                 title, cpu, num("cpu_sys_ms"), span, cpu * 100 / span, num("pread_ms"),
                 num("pwrite_ms"), num("writes_async"), num("writes"), num("write_wait_ms"));
   }
@@ -316,8 +316,8 @@ struct Variant {
   int sndbuf = 0;      // bytes, 0 = server default
   int credits = 0;     // 0 = no limit
   std::string Name() const {
-    std::string s = sndbuf ? std::to_string(sndbuf / 1024) + " KiB" : "Standard";
-    return "Puffer " + s + ", Kredite " + (credits ? std::to_string(credits) : "frei");
+    std::string s = sndbuf ? std::to_string(sndbuf / 1024) + " KiB" : "default";
+    return "buffer " + s + ", credits " + (credits ? std::to_string(credits) : "unlimited");
   }
   std::vector<PhaseResult> writes, reads;
 };
@@ -370,22 +370,22 @@ int LoadTest(const std::string &ip, const std::string &unc_host, unsigned short 
   nr.lpRemoteName = share.data();
   DWORD rc = WNetAddConnection2W(&nr, password.c_str(), user.c_str(), CONNECT_TEMPORARY);
   if (rc != NO_ERROR) {
-    std::printf("FALSCH  Verbindung zur Freigabe, Windows-Fehler %lu\n", rc);
+    std::printf("FAIL    connect to the share, Windows error %lu\n", rc);
     return 1;
   }
   std::wstring dir = share + L"\\" + Wide(folder) + L"\\" + Wide(*test_dir);
   if (!CreateDirectoryW(dir.c_str(), nullptr)) {
-    std::printf("FALSCH  Testordner anlegen, Windows-Fehler %lu\n", GetLastError());
+    std::printf("FAIL    create test folder, Windows error %lu\n", GetLastError());
     WNetCancelConnection2W(share.c_str(), 0, TRUE);
     return 1;
   }
-  std::printf("OK      Testordner: %s\n", std::string(dir.begin(), dir.end()).c_str());
+  std::printf("OK      test folder: %s\n", std::string(dir.begin(), dir.end()).c_str());
 
   prospero::Channel ch;
   prospero::Hello h2;
   std::string err;
   if (!ch.Connect(ip, port, 3000, &err) || !ch.SayHello(&h2, &err)) {
-    std::printf("FALSCH  Dienstkanal: %s\n", err.c_str());
+    std::printf("FAIL    control channel: %s\n", err.c_str());
     WNetCancelConnection2W(share.c_str(), 0, TRUE);
     return 1;
   }
@@ -397,7 +397,7 @@ int LoadTest(const std::string &ip, const std::string &unc_host, unsigned short 
     if (t >= 0) idle_v.push_back(t);
   }
   int64_t idle = Median(idle_v);
-  std::printf("OK      kleine Datei ohne Last: Median %lld ms aus %zu Versuchen\n",
+  std::printf("OK      small file without load: median %lld ms of %zu tries\n",
               static_cast<long long>(idle), idle_v.size());
 
   wchar_t tmp[MAX_PATH];
@@ -405,7 +405,7 @@ int LoadTest(const std::string &ip, const std::string &unc_host, unsigned short 
   std::wstring local = std::wstring(tmp) + L"prospero-probe-" +
                        Wide(prospero::RandomHex(4)) + L".bin";
   if (!MakeLocal(local, mib)) {
-    std::printf("FALSCH  lokale Quelldatei in %%TEMP%% anlegen, Windows-Fehler %lu\n", GetLastError());
+    std::printf("FAIL    create the local source file in %%TEMP%%, Windows error %lu\n", GetLastError());
     ch.Close();
     WNetCancelConnection2W(share.c_str(), 0, TRUE);
     return 1;
@@ -420,26 +420,26 @@ int LoadTest(const std::string &ip, const std::string &unc_host, unsigned short 
     for (size_t k = 0; k < vs.size(); k++) {
       size_t i = (r % 2) ? k : vs.size() - 1 - k;
       Variant &v = vs[i];
-      std::printf("\n  ===== Runde %d von %d, Variante %zu: %s =====\n", r, rounds, i + 1,
+      std::printf("\n  ===== round %d of %d, variant %zu: %s =====\n", r, rounds, i + 1,
                   v.Name().c_str());
-      g_bar_label = "Runde " + std::to_string(r) + "/" + std::to_string(rounds);
+      g_bar_label = "round " + std::to_string(r) + "/" + std::to_string(rounds);
       if (vs.size() > 1) g_bar_label += " V" + std::to_string(i + 1);
       if (tuning && !ch.Tune(cred.password, v.sndbuf, v.credits, &err)) {
-        std::printf("FALSCH  TUNE: %s\n", err.c_str());
+        std::printf("FAIL    TUNE: %s\n", err.c_str());
         failures++;
         continue;
       }
       std::wstring big = dir + L"\\big-" + std::to_wstring(r) + L"-" + std::to_wstring(i + 1) + L".bin";
-      PhaseResult w = Phase("Schreiben", true, big, local, mib, dir, &small_n, ch, ip, port);
+      PhaseResult w = Phase("write", true, big, local, mib, dir, &small_n, ch, ip, port);
       PhaseResult rd;
-      if (!w.hung) rd = Phase("Lesen", false, big, local, mib, dir, &small_n, ch, ip, port);
+      if (!w.hung) rd = Phase("read", false, big, local, mib, dir, &small_n, ch, ip, port);
       std::printf("\n");
-      Report("Schreiben", w, idle, &failures);
-      if (!w.hung) Report("Lesen", rd, idle, &failures);
+      Report("write", w, idle, &failures);
+      if (!w.hung) Report("read", rd, idle, &failures);
       v.writes.push_back(w);
       v.reads.push_back(rd);
       if (w.hung || rd.hung) {
-        std::printf("FALSCH  Eine Kopie hing, der Lasttest endet hier.\n");
+        std::printf("FAIL    a copy stalled; the load test ends here.\n");
         hung = true;
         break;
       }
@@ -450,18 +450,18 @@ int LoadTest(const std::string &ip, const std::string &unc_host, unsigned short 
       // script inherits stdout, so its lines land in the same log.
       std::string cmd = "\"\"" + round_cmd + "\" --round " + std::to_string(r) + "\"";
       int rc = std::system(cmd.c_str());
-      if (rc != 0) std::printf("  Rundenbefehl: Exitcode %d\n", rc);
+      if (rc != 0) std::printf("  round command: exit code %d\n", rc);
     }
   }
   if (tuning && !ch.Tune(cred.password, 0, 0, &err)) {
-    std::printf("FALSCH  TUNE zurueck auf Standard: %s\n", err.c_str());
+    std::printf("FAIL    TUNE back to the default: %s\n", err.c_str());
     failures++;
   }
 
-  std::printf("\n  ===== Zusammenfassung (Median ueber alle Runden), ohne Last %lld ms =====\n",
+  std::printf("\n  ===== summary (median over all rounds), without load %lld ms =====\n",
               static_cast<long long>(idle));
-  std::printf("  %-32s %12s %14s %12s %14s\n", "Variante", "Schr. MB/s", "Schr. klein ms",
-              "Lesen MB/s", "Lesen klein ms");
+  std::printf("  %-32s %12s %14s %12s %14s\n", "variant", "write MB/s", "write small ms",
+              "read MB/s", "read small ms");
   for (size_t i = 0; i < vs.size(); i++) {
     const Variant &v = vs[i];
     std::printf("  %zu %-30s %12.2f %14lld %12.2f %14lld\n", i + 1, v.Name().c_str(),
@@ -493,7 +493,7 @@ bool IdlePhase(const char *title, bool ping, int seconds, prospero::Channel &ch,
                const std::string &key) {
   std::string err;
   if (!ch.ResetStats(&err)) {
-    std::printf("FALSCH  %s: RESET-STATS: %s\n", title, err.c_str());
+    std::printf("FAIL    %s: RESET-STATS: %s\n", title, err.c_str());
     return false;
   }
   int64_t t0 = NowMs();
@@ -512,7 +512,7 @@ bool IdlePhase(const char *title, bool ping, int seconds, prospero::Channel &ch,
       }
     }
     char line[120];
-    std::snprintf(line, sizeof line, "  %s: %d von %d s", title, s, seconds);
+    std::snprintf(line, sizeof line, "  %s: %d of %d s", title, s, seconds);
     g_bar.Show(line);
   }
   int64_t wall = NowMs() - t0;
@@ -520,7 +520,7 @@ bool IdlePhase(const char *title, bool ping, int seconds, prospero::Channel &ch,
   g_bar.Clear();
   std::map<std::string, std::string> st;
   if (!ch.Status(&st, &err)) {
-    std::printf("FALSCH  %s: STATUS: %s\n", title, err.c_str());
+    std::printf("FAIL    %s: STATUS: %s\n", title, err.c_str());
     return false;
   }
   auto num = [&](const char *k) { return st.count(k) ? std::atoll(st.at(k).c_str()) : -1LL; };
@@ -529,13 +529,13 @@ bool IdlePhase(const char *title, bool ping, int seconds, prospero::Channel &ch,
   double srv_pct = span > 0 ? srv_cpu * 100.0 / span : -1;
   double pc_pct = wall > 0 ? pc_cpu * 100.0 / wall : -1;
   bool ok = srv_pct >= 0 && srv_pct < 0.1 && pc_pct >= 0 && pc_pct < 0.1 && lost == 0;
-  std::printf("%s %s: %lld s, PING %d beantwortet, %d ohne Antwort\n", ok ? "OK     " : "FALSCH ",
+  std::printf("%s %s: %lld s, PING %d answered, %d without answer\n", ok ? "OK     " : "FAIL   ",
               title, static_cast<long long>(wall / 1000), pings, lost);
-  std::printf("          Server: %lld ms Rechenzeit (System %lld) in %lld ms, also %.3f %% eines Kerns\n",
+  std::printf("          server: %lld ms CPU time (system %lld) in %lld ms, so %.3f %% of one core\n",
               srv_cpu, num("cpu_sys_ms"), span, srv_pct);
-  std::printf("          PC (dieses Programm): %lld ms in %lld ms, also %.3f %% eines Kerns\n",
+  std::printf("          PC (this program): %lld ms in %lld ms, so %.3f %% of one core\n",
               static_cast<long long>(pc_cpu), static_cast<long long>(wall), pc_pct);
-  std::printf("          Ziel: unter 0,1 %% auf beiden Seiten\n");
+  std::printf("          goal: below 0.1 %% on both sides\n");
   return ok;
 }
 
@@ -553,23 +553,23 @@ int IdleTest(const std::string &ip, const std::string &unc_host, unsigned short 
   nr.lpRemoteName = share.data();
   DWORD rc = WNetAddConnection2W(&nr, password.c_str(), user.c_str(), CONNECT_TEMPORARY);
   if (rc != NO_ERROR) {
-    std::printf("FALSCH  Verbindung zur Freigabe, Windows-Fehler %lu\n", rc);
+    std::printf("FAIL    connect to the share, Windows error %lu\n", rc);
     return 1;
   }
-  std::printf("OK      Freigabe verbunden, es wird nichts gelesen oder geschrieben\n");
+  std::printf("OK      share connected; nothing is read or written\n");
   prospero::Channel ch;
   prospero::Hello h2;
   std::string err;
   if (!ch.Connect(ip, port, 3000, &err) || !ch.SayHello(&h2, &err)) {
-    std::printf("FALSCH  Dienstkanal: %s\n", err.c_str());
+    std::printf("FAIL    control channel: %s\n", err.c_str());
     WNetCancelConnection2W(share.c_str(), 0, TRUE);
     return 1;
   }
   // The server closes a silent channel after 60 s, so the quiet phase is
   // shorter than that.
   int quiet = seconds / 2 < 30 ? seconds / 2 : 30;
-  if (quiet > 0 && !IdlePhase("ohne Lebenszeichen", false, quiet, ch, cred.password)) failures++;
-  if (!IdlePhase("Lebenszeichen jede Sekunde", true, seconds, ch, cred.password)) failures++;
+  if (quiet > 0 && !IdlePhase("without heartbeat", false, quiet, ch, cred.password)) failures++;
+  if (!IdlePhase("heartbeat every second", true, seconds, ch, cred.password)) failures++;
   ch.Close();
   WNetCancelConnection2W(share.c_str(), 0, TRUE);
   return failures;
@@ -686,17 +686,17 @@ int ManyFilesTest(const std::string &ip, const std::string &unc_host, unsigned s
   nr.lpRemoteName = share.data();
   DWORD rc = WNetAddConnection2W(&nr, password.c_str(), user.c_str(), CONNECT_TEMPORARY);
   if (rc != NO_ERROR) {
-    std::printf("FALSCH  Verbindung zur Freigabe, Windows-Fehler %lu\n", rc);
+    std::printf("FAIL    connect to the share, Windows error %lu\n", rc);
     return 1;
   }
   std::wstring dir = share + L"\\" + Wide(folder) + L"\\" + Wide(test_dir);
   std::string dir_text(dir.begin(), dir.end());
   if (!CreateDirectoryW(dir.c_str(), nullptr)) {
-    std::printf("FALSCH  Testordner anlegen %s, Windows-Fehler %lu\n", dir_text.c_str(), GetLastError());
+    std::printf("FAIL    create test folder %s, Windows error %lu\n", dir_text.c_str(), GetLastError());
     WNetCancelConnection2W(share.c_str(), 0, TRUE);
     return 1;
   }
-  std::printf("OK      Testordner angelegt: %s\n", dir_text.c_str());
+  std::printf("OK      test folder created: %s\n", dir_text.c_str());
   prospero::Channel ch;
   prospero::Hello h2;
   std::string err;
@@ -724,22 +724,22 @@ int ManyFilesTest(const std::string &ip, const std::string &unc_host, unsigned s
     bool ok = worst <= 1000;
     if (!ok) failures++;
     if (us.size() == 1) {
-      std::printf("%s %s: %d Dateien in %.1f s\n", ok ? "OK     " : "FALSCH ", title, listed,
+      std::printf("%s %s: %d files in %.1f s\n", ok ? "OK     " : "FAIL   ", title, listed,
                   total_ms / 1000.0);
     } else {
-      std::printf("%s %s: %zu Dateien in %.1f s, je Datei %.2f ms am Anfang, %.2f ms am Ende\n",
-                  ok ? "OK     " : "FALSCH ", title, us.size(), total_ms / 1000.0, first, last);
+      std::printf("%s %s: %zu files in %.1f s, %.2f ms per file at the start, %.2f ms at the end\n",
+                  ok ? "OK     " : "FAIL   ", title, us.size(), total_ms / 1000.0, first, last);
     }
-    std::printf("          langsamstes Lebenszeichen %s, laengste Pause der Server-Schleife %s ms "
-                "(Ziel: Lebenszeichen unter 1000 ms)\n",
-                worst >= Pinger::kNoAnswer ? "ohne Antwort" : (std::to_string(worst) + " ms").c_str(),
+    std::printf("          slowest heartbeat %s, longest pause of the server loop %s ms "
+                "(goal: heartbeat below 1000 ms)\n",
+                worst >= Pinger::kNoAnswer ? "without answer" : (std::to_string(worst) + " ms").c_str(),
                 gap.c_str());
     if (status) ch.ResetStats(&err);
   };
   auto progress = [&](const char *title, int done, int want) {
     if (done % 100) return;
     char line[120];
-    std::snprintf(line, sizeof line, "  %s: %d von %d", title, done, want);
+    std::snprintf(line, sizeof line, "  %s: %d of %d", title, done, want);
     g_bar.Show(line);
   };
   if (status) ch.ResetStats(&err);
@@ -755,16 +755,16 @@ int ManyFilesTest(const std::string &ip, const std::string &unc_host, unsigned s
                            FILE_ATTRIBUTE_NORMAL, nullptr);
     if (h == INVALID_HANDLE_VALUE) {
       g_bar.Clear();
-      std::printf("FALSCH  Datei %d anlegen, Windows-Fehler %lu; Abbruch\n", i, GetLastError());
+      std::printf("FAIL    create file %d, Windows error %lu; aborted\n", i, GetLastError());
       failures++;
       break;
     }
     CloseHandle(h);
     us.push_back(NowUs() - a);
     created++;
-    progress("anlegen", created, count);
+    progress("create", created, count);
   }
-  report("anlegen", us, NowMs() - t0);
+  report("create", us, NowMs() - t0);
 
   // 2. Look up single names, as the Explorer does for each file it deletes.
   us.clear();
@@ -774,14 +774,14 @@ int ManyFilesTest(const std::string &ip, const std::string &unc_host, unsigned s
     int64_t a = NowUs();
     if (!Exists(ManyName(dir, i))) {
       g_bar.Clear();
-      std::printf("FALSCH  Datei %d nicht gefunden\n", i);
+      std::printf("FAIL    file %d not found\n", i);
       failures++;
       break;
     }
     us.push_back(NowUs() - a);
-    progress("suchen", static_cast<int>(us.size()), created / step);
+    progress("look up", static_cast<int>(us.size()), created / step);
   }
-  report("einzeln suchen", us, NowMs() - t0);
+  report("look up by name", us, NowMs() - t0);
 
   // 3. List the whole folder.
   us.clear();
@@ -800,11 +800,11 @@ int ManyFilesTest(const std::string &ip, const std::string &unc_host, unsigned s
     us.push_back(NowUs() - a);
     listed = seen;
     if (seen != created) {
-      std::printf("FALSCH  Auflisten: %d statt %d Dateien\n", seen, created);
+      std::printf("FAIL    listing: %d instead of %d files\n", seen, created);
       failures++;
     }
   }
-  report("auflisten", us, NowMs() - t0);
+  report("list", us, NowMs() - t0);
 
   // 4. Delete what this run created, by name; the first failure stops.
   us.clear();
@@ -815,18 +815,18 @@ int ManyFilesTest(const std::string &ip, const std::string &unc_host, unsigned s
     int64_t a = NowUs();
     if (!Exists(path) || !DeleteFileW(path.c_str())) {
       g_bar.Clear();
-      std::printf("FALSCH  Datei %d loeschen, Windows-Fehler %lu; Abbruch, der Rest bleibt\n", i,
+      std::printf("FAIL    delete file %d, Windows error %lu; aborted, the rest stays\n", i,
                   GetLastError());
       failures++;
       break;
     }
     us.push_back(NowUs() - a);
     deleted++;
-    progress("loeschen", deleted, created);
+    progress("delete", deleted, created);
   }
-  report("loeschen", us, NowMs() - t0);
+  report("delete", us, NowMs() - t0);
   if (deleted == created && !RemoveDirectoryW(dir.c_str())) {
-    std::printf("FALSCH  Testordner entfernen, Windows-Fehler %lu\n", GetLastError());
+    std::printf("FAIL    remove test folder, Windows error %lu\n", GetLastError());
     failures++;
   }
   ch.Close();

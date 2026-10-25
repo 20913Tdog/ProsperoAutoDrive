@@ -12,7 +12,7 @@ setlocal EnableExtensions EnableDelayedExpansion
 chcp 65001 >nul
 
 if "%~1"=="" (
-  echo Aufruf: %~nx0 ^<PS5-IP^>
+  echo Usage: %~nx0 ^<PS5-IP^>
   exit /b 2
 )
 set "PS5=%~1"
@@ -20,36 +20,36 @@ set "CTL=http://%PS5%:4445"
 set "EXE=%~dp0..\..\dist\dev\prospero-probe.exe"
 set "STATUS=%TEMP%\prospero-p22-status.txt"
 
-echo ===== 0. Server-Status vorher =====
+echo ===== 0. Server status before =====
 curl.exe -s --connect-timeout 3 --max-time 5 -o "%STATUS%" "%CTL%/"
 findstr /b /c:"PROSPERO-SMBD OK" "%STATUS%" >nul 2>&1
 if errorlevel 1 (
-  echo FEHLER: prospero-smbd antwortet nicht auf Port 4445. Laeuft es?
+  echo ERROR: prospero-smbd does not answer on port 4445. Is it running?
   exit /b 1
 )
 findstr /b /c:"version=" /c:"server_id=" /c:"share=" /c:"paired_pcs=" /c:"pairing=" /c:"skew_" /c:"clock_skew_s=" /c:"now_utc=" /c:"restarts=" "%STATUS%"
 if not exist "%EXE%" (
-  echo FEHLER: %EXE% fehlt. Bitte tools\Get-DevBuild.cmd ausfuehren.
+  echo ERROR: %EXE% is missing. Run tools\Get-DevBuild.cmd first.
   exit /b 1
 )
 
 echo.
-echo ===== 1. Testprogramm =====
+echo ===== 1. Test program =====
 "%EXE%" %PS5% --write-test data
 set "RC=%errorlevel%"
-echo Exitcode %RC%
+echo Exit code %RC%
 
 echo.
-echo ===== 2. Server-Status nachher =====
+echo ===== 2. Server status after =====
 curl.exe -s --connect-timeout 3 --max-time 5 -o "%STATUS%" "%CTL%/"
 findstr /b /c:"paired_pcs=" /c:"pairing=" /c:"skew_" /c:"clock_skew_s=" /c:"discovery_" /c:"connections=" /c:"files_created=" /c:"dirs_created=" /c:"special_refused=" "%STATUS%"
-echo Referenz UTC ^(github.com^):
+echo Reference UTC ^(github.com^):
 curl.exe -sSI --max-time 5 https://github.com 2>&1 | findstr /b /i /c:"date:"
 
 echo.
 if "%RC%"=="0" (
-  echo P22-CHECK: BESTANDEN
+  echo P22-CHECK: PASSED
 ) else (
-  echo P22-CHECK: NICHT BESTANDEN, Ausgabe bitte komplett zurueckmelden
+  echo P22-CHECK: FAILED, please send back the complete output
 )
 exit /b %RC%

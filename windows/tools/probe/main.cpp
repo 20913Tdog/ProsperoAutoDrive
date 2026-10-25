@@ -63,7 +63,7 @@ int g_failures = 0;
 void Ok(const std::string &what) { std::printf("OK      %s\n", what.c_str()); }
 
 void Fail(const std::string &what) {
-  std::printf("FALSCH  %s\n", what.c_str());
+  std::printf("FAIL    %s\n", what.c_str());
   g_failures++;
 }
 
@@ -92,27 +92,27 @@ bool WriteTest(const std::string &ip, const prospero::Hello &hello,
   nr.lpRemoteName = share.data();
   DWORD rc = WNetAddConnection2W(&nr, password.c_str(), user.c_str(), CONNECT_TEMPORARY);
   if (rc != NO_ERROR) {
-    Fail("Verbindung zur Freigabe " + std::string(share.begin(), share.end()) +
-         ", Windows-Fehler " + std::to_string(rc));
+    Fail("connect to the share " + std::string(share.begin(), share.end()) +
+         ", Windows error " + std::to_string(rc));
     return false;
   }
-  Ok("Verbindung zur Freigabe " + std::string(share.begin(), share.end()));
+  Ok("connected to the share " + std::string(share.begin(), share.end()));
 
   bool good = false;
   std::string name = TestFolderName();
   std::wstring dir = share + L"\\" + Wide(folder) + L"\\" + Wide(name);
   std::string dir_text(dir.begin(), dir.end());
   if (!CreateDirectoryW(dir.c_str(), nullptr)) {
-    Fail("Testordner anlegen " + dir_text + ", Windows-Fehler " + std::to_string(GetLastError()));
+    Fail("create test folder " + dir_text + ", Windows error " + std::to_string(GetLastError()));
   } else {
-    Ok("Testordner angelegt: " + dir_text);
+    Ok("test folder created: " + dir_text);
     // What the Explorer checks before it copies into this folder.
     ULARGE_INTEGER free_bytes{}, total_bytes{};
     if (GetDiskFreeSpaceExW((dir + L"\\").c_str(), &free_bytes, &total_bytes, nullptr)) {
-      std::printf("  freier Speicher laut Windows: %.1f GB von %.1f GB\n",
+      std::printf("  free space as Windows sees it: %.1f GB of %.1f GB\n",
                   free_bytes.QuadPart / 1e9, total_bytes.QuadPart / 1e9);
     } else {
-      Fail("freien Speicher abfragen, Windows-Fehler " + std::to_string(GetLastError()));
+      Fail("query free space, Windows error " + std::to_string(GetLastError()));
     }
     std::wstring file = dir + L"\\hello.txt";
     std::string text = "Prospero AutoDrive probe " + prospero::RandomHex(8) + "\r\n";
@@ -124,7 +124,7 @@ bool WriteTest(const std::string &ip, const prospero::Hello &hello,
                    n == text.size();
     if (h != INVALID_HANDLE_VALUE) CloseHandle(h);
     if (!written) {
-      Fail("Datei schreiben, Windows-Fehler " + std::to_string(GetLastError()));
+      Fail("write file, Windows error " + std::to_string(GetLastError()));
     } else {
       char back[256] = {};
       h = CreateFileW(file.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
@@ -135,7 +135,7 @@ bool WriteTest(const std::string &ip, const prospero::Hello &hello,
         CloseHandle(h);
       }
       if (std::string(back, n) == text) {
-        Ok("Datei geschrieben und gleich zurueckgelesen (" + std::to_string(n) + " Bytes)");
+        Ok("file written and read back unchanged (" + std::to_string(n) + " bytes)");
         good = true;
         // The server stamps a new file with its own clock and reports it
         // corrected by the measured skew, so it should match this PC.
@@ -148,20 +148,20 @@ bool WriteTest(const std::string &ip, const prospero::Hello &hello,
                                         f.dwLowDateTime);
           };
           int64_t diff_s = (ticks(fa.ftLastWriteTime) - ticks(now)) / 10000000;
-          std::string what = "Aenderungszeit der neuen Datei weicht " + std::to_string(diff_s) +
-                             " s von der PC-Uhr ab";
+          std::string what = "modification time of the new file differs from the PC clock by " +
+                             std::to_string(diff_s) + " s";
           if (diff_s >= -10 && diff_s <= 10) {
             Ok(what);
           } else {
-            Fail(what + " (erlaubt: 10 s)");
+            Fail(what + " (allowed: 10 s)");
             good = false;
           }
         } else {
-          Fail("Aenderungszeit lesen, Windows-Fehler " + std::to_string(GetLastError()));
+          Fail("read modification time, Windows error " + std::to_string(GetLastError()));
           good = false;
         }
       } else {
-        Fail("Datei zurueckgelesen, aber anders (" + std::to_string(n) + " Bytes)");
+        Fail("file read back, but different (" + std::to_string(n) + " bytes)");
       }
     }
   }
@@ -225,66 +225,67 @@ int main(int argc, char **argv) {
     }
   }
   if (ip.empty()) {
-    std::printf("Aufruf: prospero-probe.exe <IPv4-Adresse> [--port N] [--no-broadcast]\n"
-                "                           [--open-pairing] [--write-test <Ordner>]\n"
-                "                           [--connect]\n");
+    std::printf("Usage: prospero-probe.exe <IPv4 address> [--port N] [--no-broadcast]\n"
+                "                          [--open-pairing] [--write-test <folder>]\n"
+                "                          [--connect] [--load-test <folder> <MiB> [--rounds N]]\n"
+                "                          [--idle-test <seconds>] [--many-files-test <folder> <count>]\n");
     return 2;
   }
   setvbuf(stdout, nullptr, _IONBF, 0);
   const std::string unc = share_host.empty() ? ip : share_host;
   WSADATA wsa;
   if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) {
-    std::printf("FEHLER: WSAStartup\n");
+    std::printf("ERROR: WSAStartup failed\n");
     return 1;
   }
   std::string err;
-  std::printf("PC %s, Server %s, Port %u\n", prospero::PcName().c_str(), ip.c_str(), port);
+  std::printf("PC %s, server %s, control port %u\n", prospero::PcName().c_str(), ip.c_str(), port);
 
-  std::printf("\n===== 1. Suche per UDP =====\n");
+  std::printf("\n===== 1. Discovery over UDP =====\n");
   in_addr addr{};
   inet_pton(AF_INET, ip.c_str(), &addr);
   std::vector<prospero::Here> found;
   std::string disc_id;
   if (!prospero::Discover({addr}, port, 1500, &found, &err)) {
-    Fail("Suche: " + err);
+    Fail("discovery: " + err);
   } else if (found.empty()) {
-    Fail("Unicast an " + ip + ": keine Antwort");
+    Fail("unicast to " + ip + ": no answer");
   } else {
     disc_id = found[0].id;
-    Ok("Unicast an " + ip + ": Antwort nach " + std::to_string(found[0].rtt_ms) + " ms: " +
+    Ok("unicast to " + ip + ": answer after " + std::to_string(found[0].rtt_ms) + " ms: " +
        found[0].line);
   }
   if (broadcast) {
     auto targets = prospero::BroadcastTargets();
     std::vector<in_addr> addrs;
     for (const auto &t : targets) {
-      std::printf("  Netz: %s, Broadcast %s\n", t.second.c_str(), prospero::Ip(t.first).c_str());
+      std::printf("  network: %s, broadcast %s\n", t.second.c_str(), prospero::Ip(t.first).c_str());
       addrs.push_back(t.first);
     }
     found.clear();
     if (!prospero::Discover(addrs, port, 1500, &found, &err)) {
-      Fail("Broadcast: " + err);
+      Fail("broadcast: " + err);
     } else {
       bool seen = false;
       for (const auto &h : found) {
-        std::printf("  Antwort von %s nach %lld ms, id=%s\n", h.ip.c_str(),
+        std::printf("  answer from %s after %lld ms, id=%s\n", h.ip.c_str(),
                     static_cast<long long>(h.rtt_ms), h.id.c_str());
         seen |= h.ip == ip;
       }
       if (seen) {
-        Ok("Broadcast: " + ip + " hat geantwortet");
+        Ok("broadcast: " + ip + " answered");
       } else {
-        Fail("Broadcast: keine Antwort von " + ip);
+        Fail("broadcast: no answer from " + ip);
       }
     }
   }
 
-  std::printf("\n===== 2. Dienstkanal per TCP =====\n");
+  std::printf("\n===== 2. Control channel (TCP) =====\n");
   prospero::Channel ch;
   prospero::Hello hello;
   if (!ch.Connect(ip, port, 3000, &err) || !ch.SayHello(&hello, &err)) {
     Fail("HELLO: " + err);
-    std::printf("\nPROBE: NICHT BESTANDEN, %d Fehler\n", g_failures);
+    std::printf("\nPROBE: FAILED, %d failure(s)\n", g_failures);
     return 1;
   }
   {
@@ -295,38 +296,38 @@ int main(int argc, char **argv) {
     Ok(shown);
   }
   if (!disc_id.empty() && disc_id != hello.server_id) {
-    Fail("Server-ID der Suche (" + disc_id + ") und des Dienstkanals verschieden");
+    Fail("server ID from discovery (" + disc_id + ") differs from the control channel's");
   }
 
-  std::printf("\n===== 3. Kopplung =====\n");
+  std::printf("\n===== 3. Pairing =====\n");
   prospero::Credential cred;
   bool have = prospero::LoadCredential(hello.server_id, &cred);
   if (have) {
-    Ok("bereits gekoppelt, Zugangsdaten aus der Anmeldeinformationsverwaltung (Benutzer " +
+    Ok("already paired, credentials from the Windows Credential Manager (user " +
        cred.user + ")");
     if (cred.last_ip != ip) {
       cred.last_ip = ip;
       prospero::StoreCredential(hello.server_id, cred, &err);
     }
   } else if (!hello.pairing_open) {
-    Fail("nicht gekoppelt, und der Server laesst gerade kein Koppeln zu");
+    Fail("not paired, and the server does not allow pairing right now");
   } else {
     std::string refused;
     if (ch.Pair(prospero::PcName(), &cred.user, &cred.password, &refused, &err)) {
       cred.last_ip = ip;
       if (prospero::StoreCredential(hello.server_id, cred, &err)) {
-        Ok("gekoppelt als " + prospero::PcName() + ", Zugangsdaten gespeichert (Benutzer " +
+        Ok("paired as " + prospero::PcName() + ", credentials saved (user " +
            cred.user + ")");
         have = true;
       } else {
-        Fail("gekoppelt, aber nicht gespeichert: " + err);
+        Fail("paired, but the credentials were not saved: " + err);
       }
     } else {
-      Fail("Koppeln abgelehnt: " + (refused.empty() ? err : refused));
+      Fail("pairing refused: " + (refused.empty() ? err : refused));
     }
   }
 
-  std::printf("\n===== 4. Lebenszeichen =====\n");
+  std::printf("\n===== 4. Heartbeat (PING) =====\n");
   if (have) {
     for (int i = 1; i <= 3; i++) {
       prospero::Pong p;
@@ -334,29 +335,29 @@ int main(int argc, char **argv) {
         Fail("PING " + std::to_string(i) + ": " + err);
         break;
       }
-      std::printf("  PING %d: Antwort nach %lld ms, Abweichung Server - PC %lld ms, trusted=%d\n",
+      std::printf("  PING %d: answer after %lld ms, clock difference server - PC %lld ms, trusted=%d\n",
                   i, static_cast<long long>(p.rtt_ms), static_cast<long long>(p.skew_ms),
                   p.trusted ? 1 : 0);
-      if (!p.trusted) Fail("PING mit Pruefsumme nicht anerkannt");
+      if (!p.trusted) Fail("signed PING not accepted");
       if (i < 3) Sleep(1000);
     }
   }
   prospero::Pong plain;
   if (!ch.Ping("", &plain, &err)) {
-    Fail("PING ohne Pruefsumme: " + err);
+    Fail("unsigned PING: " + err);
   } else if (plain.trusted) {
-    Fail("PING ohne Pruefsumme wurde anerkannt");
+    Fail("unsigned PING was trusted for the clock");
   } else {
-    Ok("PING ohne Pruefsumme beantwortet, aber nicht fuer die Uhr verwendet");
+    Ok("unsigned PING answered, but not used for the clock");
   }
 
   if (open_pairing) {
-    std::printf("\n===== 5. Weiteren PC koppeln =====\n");
+    std::printf("\n===== 5. Allow another PC to pair =====\n");
     int seconds = 0;
     if (!have) {
-      Fail("nicht gekoppelt, kann kein Koppeln oeffnen");
+      Fail("not paired, cannot open pairing");
     } else if (ch.OpenPairing(cred.password, &seconds, &err)) {
-      Ok("Koppeln fuer " + std::to_string(seconds / 60) + " Minuten offen");
+      Ok("pairing open for " + std::to_string(seconds / 60) + " minutes");
     } else {
       Fail("OPEN-PAIRING: " + err);
     }
@@ -364,68 +365,68 @@ int main(int argc, char **argv) {
   ch.Close();
 
   if (!write_folder.empty()) {
-    std::printf("\n===== 6. Freigabe: Testordner schreiben =====\n");
+    std::printf("\n===== 6. Share: write a test folder =====\n");
     if (have) {
       WriteTest(unc, hello, cred, write_folder);
     } else {
-      Fail("ohne Zugangsdaten kein Schreibtest");
+      Fail("no write test without credentials");
     }
   }
 
   if (!load_folder.empty()) {
-    std::printf("\n===== 8. Antwortzeit unter Last =====\n");
+    std::printf("\n===== 8. Response time under load =====\n");
     if (!have) {
-      Fail("ohne Zugangsdaten kein Lasttest");
+      Fail("no load test without credentials");
     } else if (load_mib < 1 || rounds < 1) {
-      Fail("--load-test braucht eine Groesse ab 1 MiB und --rounds ab 1");
+      Fail("--load-test needs a size of at least 1 MiB and --rounds of at least 1");
     } else {
       std::string name = TestFolderName();
       if (!test_name.empty()) name = test_name;
       int f = LoadTest(ip, unc, port, hello, cred, load_folder, &name, load_mib, rounds, variants,
                        round_cmd);
       if (f) {
-        Fail("Lasttest: " + std::to_string(f) + " Uebertragung(en) fehlgeschlagen");
+        Fail("load test: " + std::to_string(f) + " transfer(s) failed");
       } else {
-        Ok("Lasttest durchgelaufen");
+        Ok("load test completed");
       }
     }
   }
 
   if (idle_seconds > 0) {
-    std::printf("\n===== 9. Leerlauf: Rechenzeit =====\n");
+    std::printf("\n===== 9. Idle: CPU time =====\n");
     if (!have) {
-      Fail("ohne Zugangsdaten kein Leerlauftest");
+      Fail("no idle test without credentials");
     } else {
       int f = IdleTest(ip, unc, port, hello, cred, idle_seconds);
       if (f) {
-        Fail("Leerlauf: " + std::to_string(f) + " Phase(n) ueber 0,1 % oder ohne Antwort");
+        Fail("idle: " + std::to_string(f) + " phase(s) above 0.1 % or without answer");
       } else {
-        Ok("Leerlauf unter 0,1 % auf Server und PC");
+        Ok("idle below 0.1 % on server and PC");
       }
     }
   }
 
   if (!many_folder.empty()) {
-    std::printf("\n===== 10. Viele Dateien in einem Ordner =====\n");
+    std::printf("\n===== 10. Many files in one folder =====\n");
     if (!have) {
-      Fail("ohne Zugangsdaten kein Test mit vielen Dateien");
+      Fail("no many-files test without credentials");
     } else if (many_count < 1) {
-      Fail("--many-files-test braucht eine Anzahl ab 1");
+      Fail("--many-files-test needs a count of at least 1");
     } else {
       std::string name = test_name.empty() ? TestFolderName() : test_name;
       int f = ManyFilesTest(ip, unc, port, hello, cred, many_folder, name, many_count);
       if (f) {
-        Fail("viele Dateien: " + std::to_string(f) + " Fehler oder Lebenszeichen ueber 1 s");
+        Fail("many files: " + std::to_string(f) + " failure(s) or a heartbeat slower than 1 s");
       } else {
-        Ok("viele Dateien: Lebenszeichen immer unter 1 s");
+        Ok("many files: every heartbeat answered within 1 s");
       }
     }
   }
 
   if (connect) {
-    std::printf("\n===== 7. Freigabe fuer den Explorer verbinden =====\n");
+    std::printf("\n===== 7. Connect the share for the Explorer =====\n");
     if (!have) {
-      Fail("ohne Zugangsdaten keine Verbindung");
+      Fail("no connection without credentials");
     } else {
       // Temporary: it ends with the logon, nothing is remembered.
       std::wstring share = L"\\\\" + Wide(unc) + L"\\" + Wide(hello.share);
@@ -437,12 +438,12 @@ int main(int argc, char **argv) {
       DWORD rc = WNetAddConnection2W(&nr, password.c_str(), user.c_str(), CONNECT_TEMPORARY);
       std::string text(share.begin(), share.end());
       if (rc == NO_ERROR) {
-        Ok(text + " ist bis zur Abmeldung verbunden, der Explorer fragt nicht mehr nach dem Passwort");
+        Ok(text + " is connected until sign-out; the Explorer no longer asks for the password");
       } else if (rc == ERROR_SESSION_CREDENTIAL_CONFLICT) {
-        Fail(text + ": es besteht schon eine Verbindung mit anderen Anmeldedaten (Fehler 1219). "
-             "Explorer-Fenster schliessen, \"net use " + text + " /delete\" ausfuehren und neu starten");
+        Fail(text + ": a connection with other credentials exists already (error 1219). "
+             "Close Explorer windows, run \"net use " + text + " /delete\" and start again");
       } else {
-        Fail(text + ", Windows-Fehler " + std::to_string(rc));
+        Fail(text + ", Windows error " + std::to_string(rc));
       }
     }
   }
@@ -450,9 +451,9 @@ int main(int argc, char **argv) {
   WSACleanup();
   std::printf("\n");
   if (g_failures) {
-    std::printf("PROBE: NICHT BESTANDEN, %d Fehler\n", g_failures);
+    std::printf("PROBE: FAILED, %d failure(s)\n", g_failures);
     return 1;
   }
-  std::printf("PROBE: BESTANDEN\n");
+  std::printf("PROBE: PASSED\n");
   return 0;
 }

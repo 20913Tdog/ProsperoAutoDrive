@@ -5,7 +5,7 @@ rem and once AFTER (expect: "PROSPERO-S1 OK" on both ports).
 setlocal EnableExtensions
 
 if "%~1"=="" (
-  echo Aufruf: %~nx0 ^<PS5-IP^>
+  echo Usage: %~nx0 ^<PS5-IP^>
   exit /b 2
 )
 set "PS5=%~1"
@@ -24,27 +24,27 @@ echo ===== Port %PORT% =====
 if "%RC%"=="0" (
   findstr /b /c:"PROSPERO-S1 OK" "%BODY%" >nul
   if errorlevel 1 (
-    echo Ein FREMDER Dienst antwortet auf Port %PORT%.
+    echo A DIFFERENT service answers on port %PORT%.
   ) else (
     type "%BODY%"
   )
   goto :eof
 )
 if "%RC%"=="7" (
-  echo Nichts lauscht auf Port %PORT% ^(Verbindung abgelehnt^).
+  echo Nothing listens on port %PORT% ^(connection refused^).
   goto :eof
 )
 if "%RC%"=="28" (
-  echo Keine Antwort auf Port %PORT% ^(Timeout^): PS5 nicht erreichbar oder Port gefiltert.
+  echo No answer on port %PORT% ^(timeout^): PS5 not reachable or the port is filtered.
   goto :eof
 )
 if "%RC%"=="52" (
-  echo Ein FREMDER Dienst nimmt Verbindungen an, antwortet aber nicht per HTTP.
+  echo A DIFFERENT service accepts connections but does not answer HTTP.
   goto :eof
 )
 if "%RC%"=="56" (
-  echo Ein FREMDER Dienst hat die Verbindung sofort getrennt.
+  echo A DIFFERENT service closed the connection at once.
   goto :eof
 )
-echo Unerwartetes Ergebnis ^(curl-Code %RC%^).
+echo Unexpected result ^(curl exit code %RC%^).
 goto :eof

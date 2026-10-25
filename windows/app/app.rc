@@ -12,7 +12,7 @@ FILETYPE VFT_APP
 BEGIN
   BLOCK "StringFileInfo"
   BEGIN
-    BLOCK "040704B0"
+    BLOCK "040904B0"
     BEGIN
       VALUE "CompanyName", "Prospero AutoDrive contributors"
       VALUE "FileDescription", "Prospero AutoDrive"
@@ -26,6 +26,6 @@ BEGIN
   END
   BLOCK "VarFileInfo"
   BEGIN
-    VALUE "Translation", 0x0407, 1200
+    VALUE "Translation", 0x0409, 1200
   END
 END

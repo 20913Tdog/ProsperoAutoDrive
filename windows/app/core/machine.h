@@ -6,7 +6,7 @@
 // Decides when to connect, map, ping, check and unmap; it does no I/O
 // itself and has no clock. The Win32 layer feeds it events with the time
 // in ms, carries out the actions it returns, and sleeps until NextWakeMs()
-// or the next event, so nothing runs in between (docs/entwurf-phase3.md).
+// or the next event, so nothing runs in between (docs/design-phase3.md).
 // It knows a server only as "service channel plus SMB share".
 
 #pragma once
@@ -84,7 +84,7 @@ struct Event {
     kSearch,            // the user asked for a network search
     kFound,             // the search found our server
     kAdopt,             // the user confirmed: take the other server instead
-    kRetry,             // the user asked to try now ("Neu koppeln")
+    kRetry,             // the user asked to try now ("Pair again")
     kShutdown,
   };
   enum Reason { kAuth, kLetterBusy, kNoLetter, kOther };

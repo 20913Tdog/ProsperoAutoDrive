@@ -11,7 +11,7 @@ setlocal EnableExtensions EnableDelayedExpansion
 chcp 65001 >nul
 
 if "%~1"=="" (
-  echo Aufruf: %~nx0 ^<PS5-IP^> [FTP-Port]
+  echo Usage: %~nx0 ^<PS5-IP^> [FTP port]
   exit /b 2
 )
 set "PS5=%~1"
@@ -25,39 +25,39 @@ set "STATUS=%TEMP%\prospero-s2b-status.txt"
 curl.exe -s --connect-timeout 3 --max-time 5 -o "%STATUS%" "%CTL%/"
 findstr /b /c:"PROSPERO-S2 OK" "%STATUS%" >nul 2>&1
 if errorlevel 1 (
-  echo FEHLER: Das S2-Payload antwortet nicht auf Port 4445. Bitte neu starten.
+  echo ERROR: the S2 payload does not answer on port 4445. Please start it again.
   exit /b 1
 )
 set "FOLDER="
 for /f "tokens=1,* delims==" %%A in ('findstr /b /c:"folder=" "%STATUS%"') do set "FOLDER=%%B"
-echo Testordner: %FOLDER%
+echo Test folder: %FOLDER%
 rem tools\Run-Test.cmd passes the password in PROSPERO_PW.
 if defined PROSPERO_PW (
   set "PW=%PROSPERO_PW%"
 ) else (
-  set /p "PW=Passwort aus der PS5-Benachrichtigung: "
+  set /p "PW=Password from the PS5 notification: "
 )
 mkdir "%OUT%"
 echo Start: %date% %time%
-echo Vorhandene Verbindungen zur PS5 (werden getrennt):
+echo Existing connections to the PS5 (they are dropped):
 net use 2>nul | findstr /i /c:"%PS5%"
 
-call :ftp vorher
+call :ftp before
 for %%P in (a b c) do call :profile %%P
-call :ftp nachher
+call :ftp after
 
 call :disconnect
 rmdir /s /q "%OUT%"
 echo.
-echo Ende: %date% %time%
-echo S2-SPEED: FERTIG, Ausgabe bitte komplett zurueckmelden
+echo End: %date% %time%
+echo S2-SPEED: DONE, please send back the complete output
 exit /b 0
 
 :ftp
 echo.
-echo ===== WLAN-Referenz %1: FTP auf Port %FTPPORT%, 64 MiB =====
-curl.exe -sS --connect-timeout 3 --max-time 300 -o NUL -w "Bytes %%{size_download}, Sekunden %%{time_total}, Bytes/s %%{speed_download}\n" "ftp://%PS5%:%FTPPORT%%FOLDER%/pattern-64MiB.bin"
-if errorlevel 1 echo ^(FTP-Referenz fehlgeschlagen, siehe curl-Meldung oben^)
+echo ===== Wi-Fi reference %1: FTP on port %FTPPORT%, 64 MiB =====
+curl.exe -sS --connect-timeout 3 --max-time 300 -o NUL -w "bytes %%{size_download}, seconds %%{time_total}, bytes/s %%{speed_download}\n" "ftp://%PS5%:%FTPPORT%%FOLDER%/pattern-64MiB.bin"
+if errorlevel 1 echo ^(FTP reference failed, see the curl message above^)
 goto :eof
 
 rem Windows refuses a second user name for the same server (system error
@@ -75,14 +75,14 @@ goto :eof
 :profile
 set "P=%1"
 echo.
-echo ===== Profil %P% =====
+echo ===== Profile %P% =====
 call :disconnect
 curl.exe -s --max-time 5 "%CTL%/profile/%P%"
 rem Give the console a moment to end the previous connection.
 ping -n 3 127.0.0.1 >nul
 net use "%SHARE%" "%PW%" /user:prospero /persistent:no >nul
 if errorlevel 1 (
-  echo FEHLER: Verbindung mit Profil %P% fehlgeschlagen. Bestehende Verbindungen:
+  echo ERROR: connecting with profile %P% failed. Existing connections:
   net use
   goto :eof
 )
@@ -93,15 +93,15 @@ goto :eof
 
 :big
 curl.exe -s --max-time 5 "%CTL%/reset" >nul
-echo --- 64 MiB, Lauf %1
+echo --- 64 MiB, run %1
 robocopy "%SHARE%" "%OUT%\%P%-%1" pattern-64MiB.bin /R:0 /W:0 /NP /NJH /NFL /NDL | findstr /c:"Times :" /c:"Speed :"
 call :server
 goto :eof
 
 :small
 curl.exe -s --max-time 5 "%CTL%/reset" >nul
-echo --- 100 kleine Dateien
-robocopy "%SHARE%\viele" "%OUT%\%P%-klein" "datei-01*.txt" /R:0 /W:0 /NP /NJH /NFL /NDL | findstr /c:"Files :" /c:"Times :"
+echo --- 100 small files
+robocopy "%SHARE%\viele" "%OUT%\%P%-small" "datei-01*.txt" /R:0 /W:0 /NP /NJH /NFL /NDL | findstr /c:"Files :" /c:"Times :"
 call :server
 goto :eof
 

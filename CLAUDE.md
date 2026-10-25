@@ -1,60 +1,61 @@
 # CLAUDE.md – Prospero AutoDrive
 
-Projektregeln für die Entwicklung. Diese Regeln sind verbindlich und haben Vorrang vor allgemeinen Gewohnheiten.
+Project rules for development. These rules are binding and take precedence over general habits.
 
-## Zweck
+## Purpose
 
-Ein Windows-PC zeigt das Dateisystem einer PS5, auf der ein Homebrew-Payload läuft, als normales Explorer-Laufwerk `P:`. Das Laufwerk erscheint automatisch, sobald die PS5 erreichbar ist, und verschwindet, sobald sie offline geht. Es wird einmal eingerichtet und danach nie wieder angefasst.
+A Windows PC shows the file system of a PS5 that runs a homebrew payload as a normal Explorer drive `P:`. The drive appears automatically as soon as the PS5 is reachable and disappears as soon as it goes offline. It is set up once and never touched again.
 
-## Architektur (entschieden, Neustart vom 20.10.2026)
+## Architecture (decided, restart of 2026-10-20)
 
-- **PS5:** eigenes Payload `prospero-smbd.elf`. Es ist ein SMB2/3-Server auf Basis der libsmb2-Server-Engine (gepinnter `master`-Commit) mit eigenem, protokollneutralem POSIX-Dateisystem-Backend. Es nutzt NTLMv2, immer Signing, vergibt keine Oplocks/Leases und schreibt synchron. Es gibt genau eine Freigabe `/`, lesen und schreiben, ohne Schutzliste. Lizenz GPL-3.0 (PS5-SDK), im Verzeichnis `ps5/`.
-- **Windows:** nur der eingebaute SMB-Client plus `ProsperoAutoDrive.exe`, in C++/Win32, gebaut mit llvm-mingw und statisch gelinkt (nur Windows-eigene DLLs plus UCRT), MIT-Lizenz, im Verzeichnis `windows/`. Das Programm hat immer ein Tray-Symbol und benachrichtigt bei Verbinden, Trennen und Problemen. Es nutzt temporäre Mappings (`WNetAddConnection2`/`WNetCancelConnection2`) und bewahrt Zugangsdaten in der Windows-Anmeldeinformationsverwaltung auf. Es braucht im Betrieb keinen Admin, keinen Treiber und keine Fremdsoftware. Nur die Installation darf Admin-Rechte verlangen, wenn man einen geschützten Ordner wählt (Entscheidung vom 24.10.2026). **Das Windows-Programm bleibt generisch**: keine PS5- oder Jailbreak-spezifischen Funktionen, damit eine kostenlose Signierung später möglich bleibt.
-- **Suche:** UDP-Port 4445, dieselbe Nummer wie der Dienstkanal (Entscheidung vom 21.10.2026). Das Programm verbindet sich zuerst per TCP mit der gespeicherten IP. Nur wenn das scheitert, sucht es per UDP-Broadcast, als letzter Ausweg gibt der Benutzer die IP ein. Die Antwort nennt Server-ID, Name und Ports.
-- **Dienstkanal:** TCP-Port 4445, für Lebenszeichen mit Server-ID, Uhrzeit und Kopplung (Entscheidung vom 21.10.2026). Wegen WLAN wird erst getrennt, wenn das Lebenszeichen **und** ein TCP-445-Test fehlschlagen.
-- **Kopplung:** Der erste PC, der sich meldet, bekommt Benutzer und Passwort über den Dienstkanal (Variante C). Ein Passwort wird nie angezeigt. Das Risiko im eigenen WLAN trägt der Benutzer.
-- **Uhrzeit:** Die interne UTC-Uhr der PS5 kann abweichen (gemessen: +1 h). Das Programm schickt über den Dienstkanal die UTC-Zeit des PCs. Der Server misst daraus die Abweichung und rechnet Zeitstempel in beide Richtungen um.
-- **Ziele:** Windows 11 (Home/Pro/Enterprise, Standard-Sicherheit) voll unterstützt, Windows 10 22H2 Best Effort. Port 445 ist der Primärpfad.
-- **Vorgehen:** Vor jedem Produktcode laufen die Spikes S1–S7 (S5 nur simuliert, Entscheidung vom 21.10.2026) und Gate G1. G1 verlangt Durchsatz ≥ 70 % von ftpsrv, G2 (Release 1.0.0) verlangt ≥ 95 %, gemessen im WLAN, je Richtung ≥ 7 Läufe abwechselnd, Median.
+- **PS5:** our own payload `prospero-smbd.elf`. It is an SMB2/3 server based on the libsmb2 server engine (pinned `master` commit) with its own protocol-neutral POSIX file system backend. It uses NTLMv2, always signs, grants no oplocks/leases and writes synchronously. There is exactly one share `/`, read and write, without a protection list. License GPL-3.0 (PS5 SDK), in the directory `ps5/`.
+- **Windows:** only the built-in SMB client plus `ProsperoAutoDrive.exe`, in C++/Win32, built with llvm-mingw and statically linked (only Windows' own DLLs plus UCRT), MIT license, in the directory `windows/`. The program always has a tray icon and notifies on connect, disconnect and problems. It uses temporary mappings (`WNetAddConnection2`/`WNetCancelConnection2`) and keeps credentials in the Windows Credential Manager. In operation it needs no admin rights, no driver and no third-party software. Only the installation may ask for admin rights, when a protected folder is chosen (decision of 2026-10-24). **The Windows program stays generic**: no PS5- or jailbreak-specific functions, so that free code signing remains possible later.
+- **Discovery:** UDP port 4445, the same number as the service channel (decision of 2026-10-21). The program first connects via TCP to the saved IP. Only if that fails does it search by UDP broadcast; as a last resort the user enters the IP. The reply gives server ID, name and ports.
+- **Service channel:** TCP port 4445, for heartbeats with server ID, time and pairing (decision of 2026-10-21). Because of Wi-Fi, the drive is only disconnected when the heartbeat **and** a TCP 445 test fail.
+- **Pairing:** The first PC that reports gets user and password over the service channel (variant C). A password is never displayed. The user bears the risk within their own Wi-Fi.
+- **Time:** The PS5's internal UTC clock may deviate (measured: +1 h). The program sends the PC's UTC time over the service channel. From it the server measures the deviation and converts timestamps in both directions.
+- **Targets:** Windows 11 (Home/Pro/Enterprise, default security) fully supported, Windows 10 22H2 best effort. Port 445 is the primary path.
+- **Approach:** Before any product code, spikes S1–S7 run (S5 only simulated, decision of 2026-10-21) and gate G1. G1 requires throughput ≥ 70 % of ftpsrv, G2 (release 1.0.0) requires ≥ 95 %, measured over Wi-Fi, ≥ 7 alternating runs per direction, median.
 
-## Harte Regeln
+## Hard rules
 
-### Daten auf der PS5
+### Data on the PS5
 
-- Automatisierte und Test-Schreiboperationen **ausschließlich** in neu erzeugten Ordnern `/data/_ProsperoAutoDrive_Test_<Zeitstempel>-<Zufall>`.
-- `/data/homebrew` und alle bereits bestehenden Verzeichnisse in Tests **weder lesen noch verändern**.
-- Nach einem unklaren Ergebnis einer Schreiboperation nur **lesend** prüfen. Keine automatische Wiederholung, keine automatische Bereinigung, keine breitflächigen Löschungen.
+- Automated and test write operations **only** in newly created folders `/data/_ProsperoAutoDrive_Test_<timestamp>-<random>`.
+- In tests, **neither read nor modify** `/data/homebrew` or any directory that already exists.
+- After an unclear result of a write operation, check **read-only**. No automatic retry, no automatic cleanup, no wide-ranging deletions.
 
 ### Toolchain
 
-- Es gibt eine Toolchain für alle Ziele, lokal und in der CI mit identischen Versionen. Sie liegen gepinnt in `.github/workflows/ci.yml`:
-  - **llvm-mingw** `20260922` (Clang 23) für PS5 und Windows
+- There is one toolchain for all targets, locally and in the CI with identical versions. They are pinned in `.github/workflows/ci.yml`:
+  - **llvm-mingw** `20260922` (Clang 23) for PS5 and Windows
   - **ps5-payload-sdk** `v0.44`
   - CMake + Ninja
-- Kein MSVC und kein Visual Studio. Es gibt keine Lizenzfragen, und es braucht keinen Installer.
-- Gebaut wird über CMake-Presets: `ps5`, `windows`, `host` (Linux-Tests). Maschinenspezifische Pfade stehen in der nicht versionierten `CMakeUserPresets.json`, etwa `ps5-local` und `windows-local`.
-- Lokal (Entwicklungsrechner, ohne Admin): portable Ordner in `%LOCALAPPDATA%\Programs` (`llvm-mingw-20260922`, `ps5-payload-sdk-v0.44`, `cmake-4.4.4`). Ninja kommt aus dem SDK.
-- Die Compiler-Wrapper des SDK werden nicht verwendet. Unter Windows hängen sie `crt1.o` doppelt an. Details stehen in `cmake/toolchains/ps5.cmake`.
-- Lokale Builds sind schnelle Rückmeldung. Maßgeblich für Tests und Releases bleibt die CI.
+- No MSVC and no Visual Studio. There are no license questions, and no installer is needed.
+- Builds go through CMake presets: `ps5`, `windows`, `host` (Linux tests). Machine-specific paths are in the unversioned `CMakeUserPresets.json`, for example `ps5-local` and `windows-local`.
+- Locally (development machine, without admin): portable folders in `%LOCALAPPDATA%\Programs` (`llvm-mingw-20260922`, `ps5-payload-sdk-v0.44`, `cmake-4.4.4`). Ninja comes from the SDK.
+- The SDK's compiler wrappers are not used. On Windows they append `crt1.o` twice. Details are in `cmake/toolchains/ps5.cmake`.
+- Local builds are quick feedback. The CI remains authoritative for tests and releases.
 
-### Git, Build, Release
+### Git, build, release
 
-- `main` ist stabil. **Niemals direkt auf `main` pushen.** Änderungen kommen nur per PR von `dev`, nach Live-Test und OK des Projektverantwortlichen.
-- Alle Änderungen werden committet und auf `dev` gepusht. Der Projektverantwortliche testet auf einem anderen PC und kommt nur über GitHub an die Dateien.
-- **Keine Binaries in Git** (CI-Guard). CI baut jeden `dev`-Commit; ein grüner Build ersetzt das Pre-Release `dev-build`, das `tools\Get-DevBuild.cmd` mit `curl.exe` abruft und per SHA-256 prüft. Der Name ist bewusst nicht `dev`: Ein Tag `dev` neben dem Branch `dev` wäre mehrdeutig.
-- Ein Release veröffentlicht die hash-identischen Artefakte des getesteten `dev`-Builds mit gleichem Git-Tree-Hash. **Kein Rebuild beim Release.**
-- SemVer: `0.x` bis Gate G2, dann `1.0.0`.
-- Commit-Identität ist ausschließlich die GitHub-noreply-Adresse (repo-lokal gesetzt). **Niemals die globale bzw. Firmen-E-Mail verwenden.**
+- `main` is stable. **Never push directly to `main`.** Changes come only by PR from `dev`, after a live test and the project owner's OK.
+- All changes are committed and pushed to `dev`. The project owner tests on another PC and gets the files only through GitHub.
+- **No binaries in Git** (CI guard). The CI builds every `dev` commit; a green build replaces the pre-release `dev-build`, which `tools\Get-DevBuild.cmd` fetches with `curl.exe` and verifies by SHA-256. The name is deliberately not `dev`: a tag `dev` next to the branch `dev` would be ambiguous.
+- A release publishes the hash-identical artifacts of the tested `dev` build with the same Git tree hash. **No rebuild for the release.**
+- SemVer: `0.x` until gate G2, then `1.0.0`.
+- The commit identity is exclusively the GitHub noreply address (set locally in the repo). **Never use the global or company e-mail.**
 
-### Qualität und Kommunikation
+### Quality and communication
 
-- Bei jedem Status die Evidenzebene nennen: E1 Unit, E2 Protokoll-CI mit echtem Windows-Client, E3 PS5-Live. „Behoben“ nur mit Nachweis auf der geforderten Ebene.
-- Den Projektverantwortlichen erst dann zum Testen auffordern, wenn CI auf **genau diesem** Commit grün ist.
-- Kein PowerShell im Produkt. Der Projektverantwortliche braucht lokal keine Build-Werkzeuge und muss keine ZIPs entpacken.
-- Kleine, zusammenhängende Änderungen. Vor jedem Push Syntax- und Unit-Prüfungen lokal ausführen, soweit möglich.
-- Annahmen, die von der Norm abweichen und sinnlos erscheinen, aktiv hinterfragen, auch Vorgaben des Projektverantwortlichen. Kurz begründen, die übliche Praxis als Option anbieten, die finale Entscheidung respektieren.
+- With every status, state the evidence level: E1 unit, E2 protocol CI with a real Windows client, E3 PS5 live. "Fixed" only with proof at the required level.
+- Ask the project owner to test only when the CI is green on **exactly this** commit.
+- No PowerShell in the product. The project owner needs no build tools locally and does not have to unpack ZIPs.
+- Small, coherent changes. Before every push, run syntax and unit checks locally where possible.
+- Actively question assumptions that deviate from the norm and seem pointless, including the project owner's requirements. Give a short reason, offer the usual practice as an option, respect the final decision.
+- Replies to the project owner are in German; code, commits and documents are in English.
 
-## Lizenzen
+## Licenses
 
-- Repo-Root, Windows-Teil, Tests, Doku: MIT (`LICENSE`)
-- `ps5/`: GPL-3.0 (eigene `LICENSE`)
+- Repository root, Windows part, tests, documentation: MIT (`LICENSE`)
+- `ps5/`: GPL-3.0 (own `LICENSE`)

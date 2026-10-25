@@ -69,7 +69,7 @@ class Agent {
   // pair with that one. Any thread; the agent's thread does the work.
   void Adopt() { SetEvent(adopt_event_); }
 
-  // "Neu koppeln": connect and pair now instead of at the next try.
+  // "Pair again": connect and pair now instead of at the next try.
   void Retry() { SetEvent(retry_event_); }
 
   void Log(const char *fmt, ...);

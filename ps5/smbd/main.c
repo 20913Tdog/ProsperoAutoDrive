@@ -17,7 +17,7 @@
  * (discovery.c), pairs once over the service channel on TCP 4445
  * (service.c) and then sends PING there as liveness and clock reference.
  *
- * Pairing (variant C, docs/entwurf-phase2.md): open while no PC is paired;
+ * Pairing (variant C, docs/design-phase2.md): open while no PC is paired;
  * afterwards only for PAIRING_SECONDS after a paired PC asked for it, and
  * for PAIRING_ON_START_S after each start, until one PC pairs: a PC that
  * lost its pairing (reinstalled) gets back in when the user restarts the
@@ -152,7 +152,7 @@ on_paired(const char *pc, uint32_t peer) {
   g_cfg = next;
   g_pairing_until = 0;
   ip_text(peer, ip);
-  notify(NAME ": gekoppelt mit %s (%s)", pc, ip);
+  notify(NAME ": paired with PC %s (%s)", pc, ip);
   return 0;
 }
 
@@ -163,7 +163,7 @@ on_open_pairing(uint32_t peer) {
 
   g_pairing_until = time(NULL) + PAIRING_SECONDS;
   ip_text(peer, ip);
-  notify(NAME ": Koppeln fuer %d Minuten offen (angefordert von %s)",
+  notify(NAME ": pairing open for %d minutes (requested by %s)",
          PAIRING_SECONDS / 60, ip);
 }
 
@@ -281,7 +281,7 @@ extra_service(struct smb2_server *srv, fd_set *rfds, fd_set *wfds) {
   if(!g_announced) {
     /* The SMB port is bound once the loop runs. */
     g_announced = 1;
-    notify(NAME " laeuft: Freigabe %s auf Port %u", SHARE_NAME, (unsigned)srv->port);
+    notify(NAME " running: share %s on SMB port %u", SHARE_NAME, (unsigned)srv->port);
   }
   backend_flush();
   diag_sample();
@@ -377,7 +377,7 @@ main(int argc, char **argv) {
     printf("no log file in %s: %s\n", state_dir, strerror(-rc));
   }
   if(cfg_rc < 0) {
-    notify(NAME ": FEHLER Konfiguration in %s: %s", state_dir, strerror(-cfg_rc));
+    notify(NAME ": ERROR: cannot read or create the settings in %s: %s", state_dir, strerror(-cfg_rc));
     return 1;
   }
   log_msg("prospero-smbd %s starting: root %s, smb port %u, server_id %s",
@@ -385,8 +385,8 @@ main(int argc, char **argv) {
   if(cfg_rc == CONFIG_CREATED) {
     log_msg("config.ini created (first start)");
   } else if(cfg_rc == CONFIG_REPLACED) {
-    notify(NAME ": config.ini war fehlerhaft und wurde neu angelegt "
-           "(die alte liegt als config.ini.bad daneben)");
+    notify(NAME ": config.ini was damaged and has been created anew "
+           "(the old one is kept as config.ini.bad); PCs must pair again");
   }
 
   signing_check();
@@ -396,7 +396,7 @@ main(int argc, char **argv) {
   }
 
   if((rc=backend_init(g_root, SHARE_NAME, g_cfg.user, g_cfg.password, 1, PROFILE))) {
-    notify(NAME ": FEHLER Freigabe %s: %s", g_root, strerror(-rc));
+    notify(NAME ": ERROR: cannot share %s: %s", g_root, strerror(-rc));
     return 1;
   }
   /* Until the first PING the last measured value holds. */
@@ -464,14 +464,14 @@ main(int argc, char **argv) {
       pause_s = 1;
     }
     if(!failing++) {
-      notify(NAME ": Netzwerkfehler, versuche es weiter");
+      notify(NAME ": network error, retrying");
     }
     g_restarts++;
     sleep(pause_s);
     pause_s = pause_s * 2 > 30 ? 30 : pause_s * 2;
   }
 
-  notify(NAME ": beendet (%u Verbindungen)", g_connections);
+  notify(NAME ": stopped (%u SMB connections served)", g_connections);
   log_close();
   return 0;
 }

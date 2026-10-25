@@ -190,7 +190,7 @@ expect "$rep" "^PAIRED 1 user=prospero password=$PASS$"
 expect "$rep" '^PAIR-REFUSED 1 reason=closed$'
 expect "$rep" ' pairing=closed nonce='
 need grep -q '^paired=ci-pc.1$' "$STATE/config.ini"
-need grep -q "gekoppelt mit ci-pc.1 (127.0.0.1)" "$STATE/log.txt"
+need grep -q "paired with PC ci-pc.1 (127.0.0.1)" "$STATE/log.txt"
 expect "$(status)" '^paired_pcs=1$'
 echo "case 2b passed"
 
@@ -229,7 +229,7 @@ expect "$rep" '^ERROR 1 reason=bad-mac$'
 rep=$(svc 127.0.0.2 "HELLO 1" "OPEN-PAIRING 1 seq=1 mac=@MAC" "HELLO 1")
 expect "$rep" '^PAIRING-OPEN 1 seconds=600$'
 expect "$rep" ' pairing=open nonce='
-need grep -q "Koppeln fuer 10 Minuten offen (angefordert von 127.0.0.2)" "$STATE/log.txt"
+need grep -q "pairing open for 10 minutes (requested by 127.0.0.2)" "$STATE/log.txt"
 rep=$(svc 127.0.0.2 "PAIR 1 pc=second" "PAIR 1 pc=third")
 expect "$rep" "^PAIRED 1 user=prospero password=$PASS$"
 expect "$rep" '^PAIR-REFUSED 1 reason=closed$'
@@ -446,7 +446,7 @@ expect "$out" '^server_id=[0-9a-f]\{16\}$'
 expect "$out" '^pairing=open$'
 expect "$out" '^clock_skew_s=0 (unmeasured)$'
 need [ "$(sed -n 's/^server_id=//p' "$STATE/config.ini")" != "$ID" ]
-need grep -q "config.ini war fehlerhaft" "$STATE/log.txt"
+need grep -q "config.ini was damaged" "$STATE/log.txt"
 svc 127.0.0.1 "QUIT 1" >/dev/null
 need wait "$server"
 server=

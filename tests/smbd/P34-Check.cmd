@@ -11,7 +11,7 @@ setlocal EnableExtensions EnableDelayedExpansion
 chcp 65001 >nul
 
 if "%~1"=="" (
-  echo Aufruf: %~nx0 ^<PS5-IP^> [Anzahl]
+  echo Usage: %~nx0 ^<PS5-IP^> [count]
   exit /b 2
 )
 set "PS5=%~1"
@@ -20,19 +20,19 @@ if not defined COUNT set "COUNT=20000"
 set "EXE=%~dp0..\..\dist\dev\prospero-probe.exe"
 
 if not exist "%EXE%" (
-  echo FEHLER: %EXE% fehlt. Bitte tools\Get-DevBuild.cmd ausfuehren.
+  echo ERROR: %EXE% is missing. Run tools\Get-DevBuild.cmd first.
   exit /b 1
 )
-echo ===== Viele Dateien in einem Ordner: %COUNT% =====
->con echo   %COUNT% Dateien anlegen, suchen, auflisten, loeschen. Fortschritt unten.
+echo ===== Many files in one folder: %COUNT% =====
+>con echo   Create, look up, list and delete %COUNT% files. Progress below.
 "%EXE%" %PS5% --no-broadcast --many-files-test data %COUNT%
 set "RC=%errorlevel%"
-echo Exitcode %RC%
+echo Exit code %RC%
 
 echo.
 if "%RC%"=="0" (
-  echo P34-CHECK: BESTANDEN
+  echo P34-CHECK: PASSED
 ) else (
-  echo P34-CHECK: FEHLER, Ausgabe bitte komplett zurueckmelden
+  echo P34-CHECK: FAILED, please send back the complete output
 )
 exit /b %RC%

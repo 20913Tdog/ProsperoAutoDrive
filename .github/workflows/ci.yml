@@ -38,6 +38,9 @@ jobs:
           done < <(git ls-files -z)
           exit $fail
 
+      - name: No personal data (public IPs, e-mails, profile paths)
+        run: python3 .github/scripts/check-sanitized.py
+
   # Same pinned toolchain as local development: llvm-mingw (clang) for PS5 and
   # Windows targets, ps5-payload-sdk for the PS5 sysroot.
   ps5-build:
@@ -333,7 +336,7 @@ jobs:
             if ($LASTEXITCODE) { throw "net use (again) failed: $LASTEXITCODE" }
             $idle = .\binaries\prospero-probe.exe 127.0.0.1 --no-broadcast --share-host prosperotest --idle-test 4
             $idle
-            if (-not ($idle -match 'Lebenszeichen jede Sekunde: 4 s, PING 4 beantwortet, 0 ohne Antwort')) { throw "probe idle test did not run" }
+            if (-not ($idle -match 'heartbeat every second: 4 s, PING 4 answered, 0 without answer')) { throw "probe idle test did not run" }
             curl.exe -fsS --max-time 3 http://127.0.0.1:4445/net
             # Many files in one folder (25.10.2026): every PING within 1 s
             # while files are created, looked up, listed and deleted.
@@ -342,10 +345,10 @@ jobs:
             $many = .\binaries\prospero-probe.exe 127.0.0.1 --no-broadcast --share-host prosperotest --many-files-test data 5000
             $many
             # As annotations, readable without a login.
-            $many | Select-String -Pattern '(anlegen|suchen|auflisten|loeschen):|Lebenszeichen ' |
+            $many | Select-String -Pattern '(create|look up by name|list|delete):|heartbeat ' |
               ForEach-Object { "::notice title=many files::$($_.Line.Trim())" }
-            if (-not ($many -match '^\S+\s+loeschen: 5000 Dateien') -or ($many -match 'Abbruch')) { throw "probe many-files test did not run" }
-            if (-not ($many -match '^PROBE: BESTANDEN')) { throw "probe many-files test: a PING took over 1 s" }
+            if (-not ($many -match '^\S+\s+delete: 5000 files') -or ($many -match 'aborted')) { throw "probe many-files test did not run" }
+            if (-not ($many -match '^PROBE: PASSED')) { throw "probe many-files test: a PING took over 1 s" }
             net use $share $spw /user:prospero /TCPPORT:$env:SMB_PORT
             if ($LASTEXITCODE) { throw "net use (after many files) failed: $LASTEXITCODE" }
             # P3.2: ProsperoAutoDrive.exe maps the share while the server
@@ -396,7 +399,7 @@ jobs:
             if (-not $stopped) { throw "P3.2: drive still there after --stop" }
             if (-not $p_kept) { throw "P3.2: the foreign P: was touched" }
             # The server's last word on an orderly end lands in the log.
-            if (-not (Select-String -Quiet -Path (Join-Path $pad 'log.txt') -Pattern 'Server verabschiedet sich: GOODBYE 1 reason=replaced')) {
+            if (-not (Select-String -Quiet -Path (Join-Path $pad 'log.txt') -Pattern 'Server said goodbye: .*GOODBYE 1 reason=replaced')) {
               throw "P3.2: no GOODBYE in the log"
             }
             'P3.2: OK'
@@ -445,7 +448,7 @@ jobs:
         if: always()
         shell: bash
         run: |
-          [ -f s6.log ] && grep -E '^(OK|FALSCH|FEHLT|INFO|FEHLER|S3-CHECK|unsupported|connection_end|Systemfehler|System error)' s6.log > s6-summary.log || true
+          [ -f s6.log ] && grep -E '^(OK|FAIL|MISSING|INFO|ERROR|S3-CHECK|unsupported|connection_end|Systemfehler|System error)' s6.log > s6-summary.log || true
           bash .github/scripts/annotate-tail.sh s6-summary.log notice "S3-Check on windows-2025"
           [ -f s7.log ] && bash .github/scripts/annotate-tail.sh s7.log notice "S7 discovery on windows-2025"
           [ -f smbd-e2.log ] && bash .github/scripts/annotate-tail.sh smbd-e2.log notice "prospero-smbd on windows-2025"
@@ -557,7 +560,7 @@ jobs:
             --prerelease \
             --target "${GITHUB_SHA}" \
             --title "dev $(git rev-parse --short HEAD)" \
-            --notes "Automatischer, getesteter Build des dev-Branches. Nicht fuer den produktiven Einsatz. Commit ${GITHUB_SHA}"
+            --notes "Automatic, tested build of the dev branch. Not for production use. Commit ${GITHUB_SHA}"
 
       # The owner fetches the build anonymously, so check exactly that. Once
       # (run for b13868b) the step succeeded, the tag moved, and the release

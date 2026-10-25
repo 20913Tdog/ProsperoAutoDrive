@@ -7,7 +7,7 @@ setlocal EnableExtensions EnableDelayedExpansion
 chcp 65001 >nul
 
 if "%~1"=="" (
-  echo Aufruf: %~nx0 ^<PS5-IP^>
+  echo Usage: %~nx0 ^<PS5-IP^>
   exit /b 2
 )
 set "PS5=%~1"
@@ -17,11 +17,11 @@ set "OUT=%TEMP%\ProsperoS2-%RANDOM%%RANDOM%"
 set "STATUS=%TEMP%\prospero-s2-status.txt"
 set "FAIL=0"
 
-echo ===== 0. Payload-Status =====
+echo ===== 0. Payload status =====
 curl.exe -s --connect-timeout 3 --max-time 5 -o "%STATUS%" "http://%PS5%:4445/"
 findstr /b /c:"PROSPERO-S2 OK" "%STATUS%" >nul 2>&1
 if errorlevel 1 (
-  echo FEHLER: Das S2-Payload antwortet nicht auf Port 4445. Laeuft es noch?
+  echo ERROR: the S2 payload does not answer on port 4445. Is it still running?
   exit /b 1
 )
 type "%STATUS%"
@@ -31,16 +31,16 @@ rem PROSPERO_AUTO, which skips the manual Explorer step.
 if defined PROSPERO_PW (
   set "PW=%PROSPERO_PW%"
 ) else (
-  set /p "PW=Passwort aus der PS5-Benachrichtigung: "
+  set /p "PW=Password from the PS5 notification: "
 )
 
 echo.
-echo ===== 1. Verbinden =====
+echo ===== 1. Connect =====
 call :disconnect
 net use "%SHARE%" "%PW%" /user:prospero /persistent:no
 if errorlevel 1 (
-  echo FEHLER: Verbindung fehlgeschlagen. Fehlertext oben bitte mitschicken.
-  echo Bestehende Verbindungen:
+  echo ERROR: connecting failed. Please include the error text above.
+  echo Existing connections:
   net use
   set "FAIL=1"
   goto :report
@@ -48,84 +48,84 @@ if errorlevel 1 (
 net use "%SHARE%"
 
 echo.
-echo ===== 2. Ordnerinhalt =====
+echo ===== 2. Folder contents =====
 dir "%SHARE%"
 
 echo.
-echo ===== 3. Alles kopieren =====
+echo ===== 3. Copy everything =====
 robocopy "%SHARE%" "%OUT%" /E /R:0 /W:0 /NP /NFL /NDL /NJH
 if errorlevel 8 (
-  echo FEHLER: robocopy meldet Fehler.
+  echo ERROR: robocopy reports errors.
   set "FAIL=1"
 )
 
 echo.
-echo ===== 4. Pruefsummen =====
+echo ===== 4. Checksums =====
 for /f "usebackq tokens=1,*" %%H in ("%EXPECTED%") do call :check %%H "%%I"
 set "COUNT=0"
 for /f %%N in ('dir /s /b /a-d "%OUT%" 2^>nul ^| find /c /v ""') do set "COUNT=%%N"
 if "%COUNT%"=="1507" (
-  echo OK      1507 Dateien kopiert
+  echo OK      1507 files copied
 ) else (
-  echo FALSCH  %COUNT% statt 1507 Dateien kopiert
+  echo FAIL    %COUNT% files copied instead of 1507
   set "FAIL=1"
 )
 
 echo.
-echo ===== 5. Gross-/Kleinschreibung =====
+echo ===== 5. Upper and lower case =====
 set "LINE="
 for /f "usebackq delims=" %%L in ("%SHARE%\mixedcase.txt") do set "LINE=%%L"
 if "%LINE%"=="Gross und klein" (
-  echo OK      mixedcase.txt findet MixedCase.txt
+  echo OK      mixedcase.txt finds MixedCase.txt
 ) else (
-  echo FALSCH  mixedcase.txt nicht lesbar
+  echo FAIL    mixedcase.txt not readable
   set "FAIL=1"
 )
 
 echo.
-echo ===== 6. Schreibschutz =====
+echo ===== 6. Write protection =====
 (echo test> "%SHARE%\neu.txt") 2>nul
 if exist "%SHARE%\neu.txt" (
-  echo FALSCH  neu.txt konnte angelegt werden
+  echo FAIL    neu.txt could be created
   set "FAIL=1"
 ) else (
-  echo OK      Datei anlegen abgelehnt
+  echo OK      creating a file refused
 )
 mkdir "%SHARE%\neu" 2>nul
 if exist "%SHARE%\neu\" (
-  echo FALSCH  Ordner neu konnte angelegt werden
+  echo FAIL    folder neu could be created
   set "FAIL=1"
 ) else (
-  echo OK      Ordner anlegen abgelehnt
+  echo OK      creating a folder refused
 )
 del /q "%SHARE%\hello.txt" >nul 2>&1
 ren "%SHARE%\MixedCase.txt" umbenannt.txt >nul 2>&1
 if exist "%SHARE%\hello.txt" if exist "%SHARE%\MixedCase.txt" (
-  echo OK      Loeschen und Umbenennen abgelehnt
+  echo OK      deleting and renaming refused
   goto :explorer
 )
-echo FALSCH  Loeschen oder Umbenennen war moeglich
+echo FAIL    deleting or renaming was possible
 set "FAIL=1"
 
 :explorer
 echo.
 echo ===== 7. Explorer =====
 if defined PROSPERO_AUTO (
-  echo uebersprungen ^(automatischer Lauf^)
+  echo skipped ^(automatic run^)
   goto :report
 )
-echo Jetzt %SHARE% im Explorer oeffnen und wie in tests\spikes\README.md
-echo beschrieben testen. Danach hier eine Taste druecken.
+echo Now open %SHARE% in the Explorer and test it as described in
+echo tests\spikes\README.md. Then press a key here.
 pause >nul
 
 :report
 echo.
-echo ===== 8. Verbindungsdetails =====
+echo ===== 8. Connection details =====
 powershell.exe -NoProfile -Command "Get-SmbConnection -ServerName '%PS5%' -ErrorAction Stop | Format-List ShareName,Dialect,Signed,Encrypted" 2>nul
-if errorlevel 1 echo ^(Get-SmbConnection nicht verfuegbar, z. B. ohne Administratorrechte^)
+if errorlevel 1 echo ^(Get-SmbConnection not available, for example without administrator rights^)
 
 echo.
-echo ===== 9. Payload-Status danach =====
+echo ===== 9. Payload status after =====
 curl.exe -s --connect-timeout 3 --max-time 5 "http://%PS5%:4445/"
 
 call :disconnect
@@ -133,9 +133,9 @@ if exist "%OUT%" rmdir /s /q "%OUT%"
 
 echo.
 if "%FAIL%"=="0" (
-  echo S2-CHECK: ALLES OK
+  echo S2-CHECK: ALL OK
 ) else (
-  echo S2-CHECK: FEHLER, Ausgabe bitte komplett zurueckmelden
+  echo S2-CHECK: FAILED, please send back the complete output
 )
 exit /b %FAIL%
 
@@ -155,7 +155,7 @@ goto :eof
 set "FILE=%~2"
 set "FILE=!FILE:/=\!"
 if not exist "%OUT%\!FILE!" (
-  echo FEHLT   !FILE!
+  echo MISSING !FILE!
   set "FAIL=1"
   goto :eof
 )
@@ -173,7 +173,7 @@ set "GOT=!GOT: =!"
 if /i "!GOT!"=="%~1" (
   echo OK      !FILE!
 ) else (
-  echo FALSCH  !FILE!
+  echo FAIL    !FILE!
   set "FAIL=1"
 )
 goto :eof

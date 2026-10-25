@@ -129,7 +129,7 @@ bool MakeShortcut(const std::wstring &lnk, const std::wstring &target) {
   if (SUCCEEDED(CoCreateInstance(CLSID_ShellLink, nullptr, CLSCTX_INPROC_SERVER, IID_IShellLinkW,
                                  reinterpret_cast<void **>(&link)))) {
     link->SetPath(target.c_str());
-    link->SetDescription(L"Netzlaufwerk automatisch verbinden");
+    link->SetDescription(L"Connect the network drive automatically");
     IPersistFile *file = nullptr;
     if (SUCCEEDED(link->QueryInterface(IID_IPersistFile, reinterpret_cast<void **>(&file)))) {
       ok = SUCCEEDED(file->Save(lnk.c_str(), TRUE));
@@ -329,15 +329,16 @@ int InstallFiles(const std::wstring &dir_in, bool machine, bool startmenu, bool 
 int Install(const std::wstring &dir_in, bool startmenu, bool autostart, bool launch, bool quiet) {
   std::wstring dir = Trim(dir_in);
   if (!StopRunning(15000)) {
-    Message(quiet, L"Das laufende Programm reagiert nicht. Bitte ueber das Tray-Symbol beenden.", MB_ICONWARNING);
+    Message(quiet, L"The running program does not respond. Please exit it from its tray icon first.",
+            MB_ICONWARNING);
     return 6;
   }
   // An entry of an earlier installation elsewhere would point to the wrong
   // place; the user is told instead of silently moving it.
   Installed old = FindInstalled();
   if (old.found && !SameDir(old.dir, dir)) {
-    Message(quiet, L"Prospero AutoDrive ist schon in\n" + old.dir +
-                       L"\ninstalliert. Bitte erst dort ueber \"Installierte Apps\" entfernen.", MB_ICONWARNING);
+    Message(quiet, L"Prospero AutoDrive is already installed in\n" + old.dir +
+                       L"\nPlease remove it there first, under \"Installed apps\".", MB_ICONWARNING);
     return 7;
   }
   // Ask for admin rights only for a folder this user cannot write to (and
@@ -349,15 +350,15 @@ int Install(const std::wstring &dir_in, bool startmenu, bool autostart, bool lau
                         (autostart ? L"" : L" --no-autostart");
     rc = RunElevated(args);
     if (rc == -1) {
-      Message(quiet, L"Ohne Administratorrechte laesst sich dieser Ordner nicht beschreiben. "
-                     L"Bitte einen anderen Ordner waehlen.", MB_ICONWARNING);
+      Message(quiet, L"This folder cannot be written without administrator rights. "
+                     L"Please choose another folder.", MB_ICONWARNING);
       return 5;
     }
   } else {
     rc = InstallFiles(dir, machine, startmenu, autostart);
   }
   if (rc != 0) {
-    Message(quiet, L"Installation fehlgeschlagen (Fehler " + std::to_wstring(rc) + L").", MB_ICONERROR);
+    Message(quiet, L"Installation failed (error " + std::to_wstring(rc) + L").", MB_ICONERROR);
     return rc;
   }
   if (launch) Launch(dir + L"\\" + kExeName);
@@ -378,7 +379,8 @@ int UninstallFiles() {
 
 int Uninstall(bool quiet) {
   if (!StopRunning(15000)) {
-    Message(quiet, L"Das laufende Programm reagiert nicht. Bitte ueber das Tray-Symbol beenden.", MB_ICONWARNING);
+    Message(quiet, L"The running program does not respond. Please exit it from its tray icon first.",
+            MB_ICONWARNING);
     return 6;
   }
   RemoveUserData();
@@ -387,13 +389,13 @@ int Uninstall(bool quiet) {
   if (in.found && in.machine && !Elevated()) {
     rc = RunElevated(L"--uninstall-files");
     if (rc == -1) {
-      Message(quiet, L"Zum Entfernen werden Administratorrechte gebraucht.", MB_ICONWARNING);
+      Message(quiet, L"Administrator rights are needed to remove it.", MB_ICONWARNING);
       return 5;
     }
   } else {
     rc = UninstallFiles();
   }
-  if (rc == 0) Message(quiet, L"Prospero AutoDrive wurde entfernt.");
+  if (rc == 0) Message(quiet, L"Prospero AutoDrive has been removed.");
   return rc;
 }
 

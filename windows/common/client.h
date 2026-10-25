@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT
 //
 // Generic network client for a file server that announces itself over UDP
-// and keeps a line-based service channel over TCP (docs/entwurf-phase2.md).
+// and keeps a line-based service channel over TCP (docs/design-phase2.md).
 // Used by the diagnosis tool prospero-probe and later by
 // ProsperoAutoDrive.exe. No output here; callers decide what to show.
 // Callers run WSAStartup() first.

@@ -1,74 +1,76 @@
-# Machbarkeits-Spikes
+# Feasibility spikes
 
-Die Spikes S1–S7 klären vor jedem Produktcode, ob die Architektur „natives SMB“ trägt (Gate G1). Jeder Spike nennt seine Evidenzebene:
+Before any product code, spikes S1–S7 establish whether the "native SMB" architecture holds up (gate G1). Each spike states its evidence level:
 
-- **E1:** CI unter Linux
-- **E2:** CI mit echtem Windows-Client
-- **E3:** echte PS5
+- **E1:** CI on Linux
+- **E2:** CI with a real Windows client
+- **E3:** real PS5
 
-## Test mit einem Klick
+Program output quoted below (status lines, script results, folder and file names of the test data) is reproduced exactly as it was at the time of the run, so some of it is in German.
 
-`tools\Run-Test.cmd` starten, per Doppelklick oder in der Konsole. Beim ersten Mal fragt es nach der IP-Adresse der PS5 und speichert sie in `tools\ps5.local.ini` (nicht in git). Danach läuft alles ohne Rückfragen:
+## One-click test
 
-1. `git pull` auf `dev`
-2. den geprüften Build holen. Er muss genau zum Stand passen, sonst bricht das Skript ab, weil die CI noch läuft.
-3. alle Verbindungen zur PS5 trennen und ein laufendes Testpayload beenden
-4. das Payload senden (ELF-Loader, Port 9021) und warten, bis es bereit ist
-5. das Passwort einmalig über Port 4445 abholen, den aktuellen Test ausführen und das Payload danach beenden
+Start `tools\Run-Test.cmd`, by double-clicking it or from a console. The first time, it asks for the PS5's IP address and stores it in `tools\ps5.local.ini` (not in git). After that everything runs without questions:
 
-Am Ende steht die komplette Ausgabe in der Zwischenablage und in `logs\<Test>.log`. Sie muss nur noch in den Chat eingefügt werden. Explorer-Fenster zur PS5 vorher schließen.
+1. `git pull` on `dev`
+2. fetch the verified build. It must match the checked-out state exactly; otherwise the script stops, because the CI is still running.
+3. close all connections to the PS5 and end a running test payload
+4. send the payload (ELF loader, port 9021) and wait until it is ready
+5. fetch the password once over port 4445, run the current test and end the payload afterwards
 
-Welcher Test läuft, steht in `DEFAULT_TEST` im Skript. Ein anderer Test lässt sich direkt angeben: `tools\Run-Test.cmd S2 [PS5-IP]`. Die Einzelschritte in den Abschnitten unten bleiben als Weg von Hand erhalten.
+At the end, the complete output is in the clipboard and in `logs\<test>.log`. It only needs to be pasted into the chat. Close Explorer windows pointing at the PS5 beforehand.
 
-## S1 – Kann ein Payload TCP 445 belegen?
+Which test runs is set by `DEFAULT_TEST` in the script. Another test can be given directly: `tools\Run-Test.cmd S2 [PS5-IP]`. The individual steps in the sections below remain as the manual route.
 
-**Frage:** Darf ein Payload auf der PS5 den SMB-Port 445 (und den Ausweichport 4445) öffnen, und ist 445 nicht schon von etwas anderem belegt?
+## S1 – Can a payload bind TCP 445?
 
-**Was die Probe tut:**
+**Question:** May a payload on the PS5 open the SMB port 445 (and the fallback port 4445), and is 445 not already taken by something else?
 
-- Das Payload `prospero-s1-portprobe.elf` versucht, 445 und 4445 zu belegen, und zeigt das Ergebnis als PS5-Benachrichtigung an.
-- Auf jedem belegten Port beantwortet es einfache HTTP-Anfragen, mit dem Ergebnis für beide Ports und dem Fehlergrund.
-- Es schreibt **keine Dateien** und beendet sich nach 10 Minuten von selbst.
+**What the probe does:**
 
-**Bereits geprüft (E1, CI unter Linux):** derselbe Quellcode mit freien Ports, mit 445 durch einen Fremddienst belegt, und bei einem Neustart über eine laufende Instanz hinweg.
+- The payload `prospero-s1-portprobe.elf` tries to bind 445 and 4445 and shows the result as a PS5 notification.
+- On every port it bound, it answers simple HTTP requests with the result for both ports and the reason for any failure.
+- It writes **no files** and ends by itself after 10 minutes.
 
-### Ablauf auf deinem PC
+**Already verified (E1, CI on Linux):** the same source code with free ports, with 445 taken by another service, and on a restart over a running instance.
 
-1. Auf `dev` aktualisieren und den geprüften Build holen:
+### Procedure on your PC
+
+1. Update to `dev` and fetch the verified build:
    ```
    git pull
    tools\Get-DevBuild.cmd
    ```
-   Alle Zeilen müssen `OK` zeigen. Das Payload liegt danach in `dist\dev\`.
-2. **Vorher-Messung** (Payload noch nicht gestartet):
+   Every line must show `OK`. The payload is then in `dist\dev\`.
+2. **Before measurement** (payload not started yet):
    ```
    tests\spikes\S1-Check.cmd <PS5-IP>
    ```
-   Erwartet wird auf beiden Ports „Nichts lauscht“. Antwortet auf 445 schon jetzt etwas, ist das bereits ein Ergebnis: 445 ist belegt.
-3. **Payload starten:** so wie du sonst Payloads lädst, oder mit dem mitgelieferten Helfer an den ELF-Loader (Port 9021):
+   Expected on both ports: nothing listening. If something already answers on 445, that is a result in itself: 445 is taken.
+3. **Start the payload:** the way you normally load payloads, or with the included helper to the ELF loader (port 9021):
    ```
    tools\Send-Payload.cmd <PS5-IP> dist\dev\prospero-s1-portprobe.elf
    ```
-   Auf der PS5 erscheint `Prospero S1: 445 OK, 4445 OK (uid 0)` oder eine Fehlermeldung.
-4. **Nachher-Messung:**
+   The PS5 shows `Prospero S1: 445 OK, 4445 OK (uid 0)` or an error message.
+4. **After measurement:**
    ```
    tests\spikes\S1-Check.cmd <PS5-IP>
    ```
-5. Die komplette Ausgabe beider Messungen und den Text der PS5-Benachrichtigung zurückmelden.
+5. Report the complete output of both measurements and the text of the PS5 notification.
 
-### Auswertung
+### Evaluation
 
-| Ergebnis | Bedeutung | Konsequenz |
+| Result | Meaning | Consequence |
 |---|---|---|
-| Vorher: 445 „Nichts lauscht“; nachher: `bind 445: OK` auf beiden Ports | **S1 bestanden** | Primärpfad Port 445 |
-| `bind 445: FAIL … Address already in use` | Fremddienst auf 445 | Fallback-Entscheidung: Alternativport 4445 (nur Windows 11 24H2+) oder Fremddienst identifizieren |
-| `bind 445: FAIL … Permission denied` | Keine Rechte für Port < 1024 | Rechte im Payload anheben, erneut testen |
-| 4445 erreichbar, 445 läuft in Timeout | Port 445 wird unterwegs gefiltert (z. B. vom Router oder WLAN-Gerät) | Netz prüfen, Alternativport bewerten |
-| Beide Ports Timeout | PS5 nicht erreichbar oder Payload nicht gestartet | IP und Payload-Start prüfen |
+| Before: nothing listening on 445; after: `bind 445: OK` on both ports | **S1 passed** | primary path port 445 |
+| `bind 445: FAIL … Address already in use` | another service on 445 | fallback decision: alternative port 4445 (Windows 11 24H2+ only) or identify the other service |
+| `bind 445: FAIL … Permission denied` | no rights for ports < 1024 | raise privileges in the payload, test again |
+| 4445 reachable, 445 times out | port 445 is filtered on the way (e.g. by the router or a Wi-Fi device) | check the network, evaluate the alternative port |
+| both ports time out | PS5 not reachable or payload not started | check the IP and the payload start |
 
-### Ergebnis: bestanden (E3, 20.10.2026, Build `95dabbe`)
+### Result: passed (E3, 2026-10-20, build `95dabbe`)
 
-Nachher-Messung vom Windows-PC zur PS5 im WLAN, auf beiden Ports identisch bis auf `connected_port`:
+After measurement from the Windows PC to the PS5 over Wi-Fi, identical on both ports except for `connected_port`:
 
 ```
 PROSPERO-S1 OK
@@ -78,373 +80,373 @@ bind 4445: OK
 uid=1 euid=0
 ```
 
-**Bewertung:**
-- Das Payload belegt 445 mit effektiven Root-Rechten (`euid=0`), und Windows erreicht 445 über das WLAN, also ohne Filterung unterwegs.
-- Ein Fremddienst auf 445 ist ausgeschlossen. Selbst ein Dienst, der nur an die konkrete IP der PS5 gebunden wäre, hätte die Verbindung vor unserer Wildcard-Bindung bekommen.
-- **Konsequenz:** Port 445 ist der Primärpfad, der Alternativport entfällt. Für S3 notiert: Prüfen, mit welchem Besitzer und welchen Rechten neu angelegte Dateien entstehen (`uid=1`, `euid=0`).
+**Assessment:**
+- The payload binds 445 with effective root rights (`euid=0`), and Windows reaches 445 over Wi-Fi, so nothing filters it on the way.
+- Another service on 445 is ruled out. Even a service bound only to the PS5's specific IP would have received the connection before our wildcard binding.
+- **Consequence:** port 445 is the primary path; the alternative port is dropped. Noted for S3: check which owner and which permissions newly created files get (`uid=1`, `euid=0`).
 
-## S2 – Bedient die libsmb2-Server-Engine den Windows-Client korrekt?
+## S2 – Does the libsmb2 server engine serve the Windows client correctly?
 
-**Frage:** Liefert die libsmb2-Server-Engine mit unserem eigenen Dateisystem-Backend einen Ordner korrekt und vollständig an den eingebauten SMB-Client von Windows 11 aus, mit NTLMv2 und Pflicht-Signing? S2 prüft nur das Lesen; Schreiben folgt in S3.
+**Question:** Does the libsmb2 server engine with our own file system backend deliver a folder correctly and completely to the built-in SMB client of Windows 11, with NTLMv2 and mandatory signing? S2 checks reading only; writing follows in S3.
 
-**Was das Payload tut:**
+**What the payload does:**
 
-- `prospero-s2-smbserver.elf` legt einen **neuen** Testordner `/data/_ProsperoAutoDrive_Test_<Zeit>-<Zufall>` an und füllt ihn mit festen Testdateien, zusammen etwa 65 MB (Liste in `ps5/spikes/smbserver/testdata.c`).
-- Genau dieser Ordner wird **schreibgeschützt** als `\<PS5-IP>\s2` freigegeben. Benutzer `prospero`; das Passwort erscheint als PS5-Benachrichtigung.
-- Port 4445 zeigt den Status, auch die Anfragen, die das Backend noch nicht unterstützt (`unsupported:`), und warum die letzten Verbindungen endeten (`connection_end:`).
-- Es beendet sich nach 15 Minuten von selbst, früher mit `curl.exe http://<PS5-IP>:4445/quit`.
-- Außerhalb des neuen Testordners liest und schreibt es nichts. Der Testordner bleibt danach auf der PS5 liegen. Er wird nicht automatisch gelöscht; ob und wann er weg soll, entscheidest du.
+- `prospero-s2-smbserver.elf` creates a **new** test folder `/data/_ProsperoAutoDrive_Test_<time>-<random>` and fills it with fixed test files, about 65 MB in total (list in `ps5/spikes/smbserver/testdata.c`).
+- Exactly this folder is shared **read-only** as `\<PS5-IP>\s2`. User `prospero`; the password appears as a PS5 notification.
+- Port 4445 shows the status, including the requests the backend does not support yet (`unsupported:`) and why the last connections ended (`connection_end:`).
+- It ends by itself after 15 minutes, earlier with `curl.exe http://<PS5-IP>:4445/quit`.
+- Outside the new test folder it reads and writes nothing. The test folder stays on the PS5 afterwards. It is not deleted automatically; whether and when it goes is your decision.
 
-**Bereits geprüft (E1, CI unter Linux, Samba-`smbclient` mit Pflicht-Signing):** vollständiger rekursiver Download mit SHA-256-Vergleich, die Dialekte SMB 2.0.2 bis 3.1.1, eine Ordnerliste mit 1500 Einträgen, Groß-/Kleinschreibung, Ablehnung von Anlegen, Löschen und Umbenennen, keine Pfade aus der Freigabe heraus, falsches Passwort, unbekannte Freigabe, Datei- und Laufwerksinformationen.
+**Already verified (E1, CI on Linux, Samba `smbclient` with mandatory signing):** complete recursive download with SHA-256 comparison, the dialects SMB 2.0.2 to 3.1.1, a folder listing with 1500 entries, case handling, refusal of create, delete and rename, no paths out of the share, wrong password, unknown share, file and volume information.
 
-### Ablauf auf deinem PC
+### Procedure on your PC
 
-1. Auf `dev` aktualisieren und den geprüften Build holen:
+1. Update to `dev` and fetch the verified build:
    ```
    git pull
    tools\Get-DevBuild.cmd
    ```
-2. Payload starten:
+2. Start the payload:
    ```
    tools\Send-Payload.cmd <PS5-IP> dist\dev\prospero-s2-smbserver.elf
    ```
-   Auf der PS5 erscheint `Prospero S2 bereit: Freigabe s2 (nur lesen), Benutzer prospero, Passwort xxxx-xxxx-xxxx (15 min)`.
-3. Prüfskript starten und das Passwort eingeben, wenn es danach fragt:
+   The PS5 shows `Prospero S2 bereit: Freigabe s2 (nur lesen), Benutzer prospero, Passwort xxxx-xxxx-xxxx (15 min)`.
+3. Start the check script and enter the password when it asks:
    ```
    tests\spikes\S2-Check.cmd <PS5-IP>
    ```
-4. Bei Schritt 7 wartet das Skript. Jetzt im Explorer `\<PS5-IP>\s2` in die Adresszeile eingeben und:
-   - den Ordner `viele` öffnen und bis ans Ende scrollen (1500 Dateien),
-   - den `Ordner mit Leerzeichen` öffnen: Wird `Grüße äöü €.txt` richtig angezeigt?
-   - `hello.txt` per Doppelklick öffnen,
-   - `pattern-64MiB.bin` auf den Desktop kopieren, die Dauer grob notieren und die Kopie danach löschen,
-   - Rechtsklick auf `tief` → Eigenschaften,
-   - eine beliebige Datei vom Desktop in den Ordner ziehen: Das muss scheitern.
+4. At step 7 the script waits. Now enter `\<PS5-IP>\s2` in the Explorer address bar and:
+   - open the folder `viele` and scroll to the end (1500 files),
+   - open `Ordner mit Leerzeichen`: is `Grüße äöü €.txt` shown correctly?
+   - open `hello.txt` by double-clicking it,
+   - copy `pattern-64MiB.bin` to the desktop, note the rough duration and delete the copy afterwards,
+   - right-click `tief` → Properties,
+   - drag any file from the desktop into the folder: this must fail.
 
-   Danach im Skriptfenster eine Taste drücken.
-5. Die **komplette Skriptausgabe** und alles, was im Explorer auffällig war (Fehlermeldungen, Wartezeiten, falsche Anzeige), zurückmelden.
+   Then press a key in the script window.
+5. Report the **complete script output** and anything odd in Explorer (error messages, waiting times, wrong display).
 
-### Auswertung
+### Evaluation
 
-| Ergebnis | Bedeutung | Konsequenz |
+| Result | Meaning | Consequence |
 |---|---|---|
-| `S2-CHECK: ALLES OK`, Explorer unauffällig | **S2 bestanden** | weiter mit S3 (Schreiben) |
-| Schritt 1: Systemfehler 1326 | Anmeldung abgelehnt | Passwort prüfen. Wenn es stimmt: NTLMv2-Problem, analysieren |
-| Schritt 1: Systemfehler 53 oder 67 | Server oder Freigabe nicht gefunden | Läuft das Payload? IP prüfen |
-| Schritt 1: anderer Fehler | z. B. Signing- oder Dialekt-Problem | Fehlertext analysieren, Blocker für S2 |
-| `FALSCH` oder `FEHLT` bei den Prüfsummen | Daten kommen falsch an | Blocker |
-| `unsupported:`-Zeilen im Status | Windows fragt etwas, das das Backend nicht kann | einzeln bewerten |
-| sehr hoher Zähler bei `CHANGE_NOTIFY` | Explorer wiederholt die Änderungsüberwachung in einer Schleife | ausstehende Benachrichtigungen in S3 einbauen |
+| `S2-CHECK: ALL OK`, Explorer unremarkable | **S2 passed** | continue with S3 (writing) |
+| step 1: system error 1326 | logon refused | check the password. If it is right: NTLMv2 problem, analyse |
+| step 1: system error 53 or 67 | server or share not found | is the payload running? check the IP |
+| step 1: another error | e.g. a signing or dialect problem | analyse the error text, blocker for S2 |
+| `FAIL` or `MISSING` in the checksums | data arrives wrong | blocker |
+| `unsupported:` lines in the status | Windows asks for something the backend cannot do | assess one by one |
+| very high counter for `CHANGE_NOTIFY` | Explorer repeats change notification in a loop | add pending notifications in S3 |
 
-### Bekannte Grenzen dieses Prototyps
+### Known limits of this prototype
 
-- Änderungsbenachrichtigungen (`CHANGE_NOTIFY`) werden abgelehnt; der Explorer aktualisiert die Ansicht dann nur mit F5.
-- Nach einem falsch eingegebenen Passwort kann ein zweiter Versuch auf derselben Verbindung scheitern (libsmb2, SMB 3.1.1). Dann `net use \<PS5-IP>\s2 /delete` und neu verbinden.
-- libsmb2 schickt die Antworten auf zusammengesetzte Anfragen (Compound) einzeln statt gebündelt. Ob Windows das ohne Nachteile annimmt, zeigt erst dieser Test.
+- Change notifications (`CHANGE_NOTIFY`) are refused; Explorer then refreshes the view only with F5.
+- After a mistyped password, a second attempt on the same connection may fail (libsmb2, SMB 3.1.1). Then `net use \<PS5-IP>\s2 /delete` and connect again.
+- libsmb2 sends the replies to compound requests one by one instead of bundled. Only this test shows whether Windows accepts that without drawbacks.
 
-### Ergebnis: funktional bestanden (E3, 20.10.2026, Build `dc283f6`)
+### Result: functionally passed (E3, 2026-10-20, build `dc283f6`)
 
-Windows 11 Pro 25H2 (Build 26200) im WLAN, `S2-CHECK: ALLES OK`, Explorer-Test unauffällig.
+Windows 11 Pro 25H2 (build 26200) over Wi-Fi, `S2-CHECK: ALLES OK`, Explorer test unremarkable.
 
-**Bewertung:**
-- Die Anmeldung mit NTLMv2 funktioniert. Windows 11 Pro verlangt Signing, die Sitzung war also signiert. Das fehlende SPNEGO-mechListMIC stört Windows nicht, anders als Sambas `smbclient`.
-- Alle 1507 Dateien kamen mit korrekter SHA-256 an. Groß-/Kleinschreibung, Unicode-Namen und der Ordner mit 1500 Einträgen funktionieren, und alle Schreibversuche wurden abgelehnt.
-- Der Status zeigt `lost_replies=0` und keine abgebrochenen Verbindungen.
+**Assessment:**
+- Logon with NTLMv2 works. Windows 11 Pro requires signing, so the session was signed. The missing SPNEGO mechListMIC does not bother Windows, unlike Samba's `smbclient`.
+- All 1507 files arrived with the correct SHA-256. Case handling, Unicode names and the folder with 1500 entries work, and all write attempts were refused.
+- The status shows `lost_replies=0` and no aborted connections.
 
-**Was Windows zusätzlich anfragt (`unsupported:`):**
+**What Windows additionally asks for (`unsupported:`):**
 
-| Anfrage | Bedeutung | Bewertung |
+| Request | Meaning | Assessment |
 |---|---|---|
-| `QUERY_DIRECTORY class 0x51` ×16 | FileIdAllExtdBothDirectoryInformation (Windows 11) | Windows fällt sauber auf 0x25 zurück. Nachrüsten spart eine Anfrage je Ordner |
-| `QUERY_INFO type 3` ×1508 | Sicherheitsbeschreibung, robocopy fragt je Datei | unkritisch. Im Produkt eine einfache ACL liefern (Explorer-Reiter „Sicherheit“) |
-| `CREATE on IPC$ srvsvc` ×74, `wkssvc` ×6 | Freigabe- und Arbeitsstationsinfos per RPC | für ein Laufwerk unkritisch. Für das Produkt prüfen, denn 74 Fehlversuche kosten Wartezeit |
-| `CHANGE_NOTIFY` ×12 | Änderungsüberwachung des Explorers | **keine Schleife**: Windows akzeptiert die Ablehnung. Live-Aktualisierung später |
-| `IOCTL 0x000900C0` ×12 | FSCTL_CREATE_OR_GET_OBJECT_ID (Verknüpfungsverfolgung) | unkritisch |
-| `IOCTL 0x00094264` ×2 | FSCTL_OFFLOAD_READ (ODX-Kopierbeschleunigung) | unkritisch, Windows kopiert dann normal |
-| `IOCTL 0x00110018` ×1 | FSCTL_PIPE_WAIT auf IPC$ | unkritisch |
+| `QUERY_DIRECTORY class 0x51` ×16 | FileIdAllExtdBothDirectoryInformation (Windows 11) | Windows falls back cleanly to 0x25. Adding it saves one request per folder |
+| `QUERY_INFO type 3` ×1508 | security descriptor, robocopy asks per file | not critical. In the product, return a simple ACL (Explorer "Security" tab) |
+| `CREATE on IPC$ srvsvc` ×74, `wkssvc` ×6 | share and workstation information over RPC | not critical for a drive. Check for the product, as 74 failed attempts cost waiting time |
+| `CHANGE_NOTIFY` ×12 | Explorer's change notification | **no loop**: Windows accepts the refusal. Live refresh later |
+| `IOCTL 0x000900C0` ×12 | FSCTL_CREATE_OR_GET_OBJECT_ID (link tracking) | not critical |
+| `IOCTL 0x00094264` ×2 | FSCTL_OFFLOAD_READ (ODX copy offload) | not critical, Windows then copies normally |
+| `IOCTL 0x00110018` ×1 | FSCTL_PIPE_WAIT on IPC$ | not critical |
 
-**Geschwindigkeit: viel zu langsam.**
-- robocopy brauchte für alle 65 MB 5:38 min (≈ 0,2 MB/s). Ohne die 64-MiB-Datei sind das ≈ 180 ms je kleiner Datei.
-- Der Explorer brauchte für 64 MiB ≈ 65 s (≈ 1 MB/s, stark schwankend).
-- So ist Gate G1 nicht erreichbar. Deshalb kommt die Ursachenanalyse S2b vor S3.
+**Speed: far too slow.**
+- robocopy needed 5:38 min for all 65 MB (≈ 0.2 MB/s). Without the 64 MiB file that is ≈ 180 ms per small file.
+- Explorer needed ≈ 65 s for 64 MiB (≈ 1 MB/s, fluctuating strongly).
+- Gate G1 cannot be reached like this. That is why the root-cause analysis S2b comes before S3.
 
-**Notiert für S3:** Die Dateizeiten der PS5 passten nicht zur robocopy-Endzeit. Die Messung in S2b zeigt den Grund: Intern geht die PS5 1 Stunde vor (siehe dort). Für Zeitstempel beim Schreiben ist das wichtig.
+**Noted for S3:** The PS5's file times did not match robocopy's end time. The measurement in S2b shows why: internally the PS5 runs 1 hour ahead (see there). This matters for timestamps when writing.
 
-## S2b – Warum ist das Lesen so langsam?
+## S2b – Why is reading so slow?
 
-**Frage:** Liegt die Geschwindigkeit von S2 an zu kleinen Socket-Puffern auf der PS5, an der SMB3-Signatur (AES-CMAC, in libsmb2 ohne Hardwarebeschleunigung) oder am WLAN selbst?
+**Question:** Is the speed in S2 caused by socket buffers on the PS5 that are too small, by the SMB3 signature (AES-CMAC, in libsmb2 without hardware acceleration) or by the Wi-Fi itself?
 
-**Hintergrund:**
-- ftpsrv stellt für jede Datenverbindung 1 MiB Sende- und Empfangspuffer ein. Das deutet auf kleine Standardpuffer der PS5 hin.
-- libsmb2 berechnet AES-CMAC mit einer einfachen Software-AES und erweitert dabei den Schlüssel für jeden 16-Byte-Block neu. Das kostet viel Rechenzeit je MiB.
+**Background:**
+- ftpsrv sets 1 MiB send and receive buffers for every data connection. That points to small default buffers on the PS5.
+- libsmb2 computes AES-CMAC with a simple software AES and expands the key anew for every 16-byte block. That costs a lot of CPU time per MiB.
 
-**Was das neue Payload zusätzlich kann:** Über Port 4445 lässt es sich zwischen drei Profilen umschalten. Es zählt Rechenzeit (`cpu_user_ms`, `cpu_sys_ms`), Lesezeit von der SSD (`pread_ms`) und das Zeitfenster aller READs (`read_window_ms`).
+**What the new payload can do in addition:** over port 4445 it can be switched between three profiles. It counts CPU time (`cpu_user_ms`, `cpu_sys_ms`), read time from the SSD (`pread_ms`) and the time window of all READs (`read_window_ms`).
 
-| Profil | Socket | SMB-Version und Signatur |
+| Profile | Socket | SMB version and signature |
 |---|---|---|
-| a | Standard der PS5, genau wie in S2 | 3.1.1, AES-CMAC |
-| b | 1 MiB Puffer, TCP_NODELAY (wie ftpsrv) | 3.1.1, AES-CMAC |
-| c | wie b | 2.1, HMAC-SHA256 |
+| a | PS5 default, exactly as in S2 | 3.1.1, AES-CMAC |
+| b | 1 MiB buffers, TCP_NODELAY (as ftpsrv) | 3.1.1, AES-CMAC |
+| c | as b | 2.1, HMAC-SHA256 |
 
-**Bereits geprüft (E1, CI):** Umschalten aller Profile, ausgehandelter Dialekt (3.1.1 bzw. 2.1) und die Zähler.
+**Already verified (E1, CI):** switching all profiles, the negotiated dialect (3.1.1 or 2.1) and the counters.
 
-### Ablauf auf deinem PC
+### Procedure on your PC
 
-Am einfachsten mit `tools\Run-Test.cmd` (siehe oben), denn S2b ist der aktuelle Test. Von Hand:
+Easiest with `tools\Run-Test.cmd` (see above), as S2b is the current test. By hand:
 
-1. Auf `dev` aktualisieren und den Build holen:
+1. Update to `dev` and fetch the build:
    ```
    git pull
    tools\Get-DevBuild.cmd
    ```
-2. Das Payload **neu** starten, damit Profil a unverändert ist:
+2. Start the payload **anew**, so that profile a is unchanged:
    ```
    tools\Send-Payload.cmd <PS5-IP> dist\dev\prospero-s2-smbserver.elf
    ```
-3. Alle Explorer-Fenster schließen, die auf die PS5 zeigen. Dann das Messskript starten und das Passwort aus der PS5-Benachrichtigung eingeben:
+3. Close all Explorer windows pointing at the PS5. Then start the measurement script and enter the password from the PS5 notification:
    ```
    tests\spikes\S2-Speed.cmd <PS5-IP> [FTP-Port]
    ```
-   Der FTP-Port ist optional (Standard 2121, ftpsrv). Er gilt für den FTP-Server, der auf der PS5 schon läuft und die WLAN-Referenz liefert. Das Skript trennt zuerst alle bestehenden Verbindungen zur PS5. Windows lässt pro Server nur einen Benutzernamen zu (Systemfehler 1219).
+   The FTP port is optional (default 2121, ftpsrv). It is for the FTP server that already runs on the PS5 and provides the Wi-Fi reference. The script first closes all existing connections to the PS5. Windows allows only one user name per server (system error 1219).
 
-   Das dauert einige Minuten. Am PC und auf der PS5 in der Zeit möglichst nichts im Netz laden, keine Downloads und kein Streaming.
-4. Die komplette Ausgabe bis `S2-SPEED: FERTIG` zurückmelden.
+   This takes a few minutes. During that time, avoid network load on the PC and the PS5 as far as possible: no downloads and no streaming.
+4. Report the complete output up to `S2-SPEED: FERTIG`.
 
-### Auswertung
+### Evaluation
 
-| Beobachtung | Bedeutung | Konsequenz |
+| Observation | Meaning | Consequence |
 |---|---|---|
-| b deutlich schneller als a | Die Socket-Puffer bremsen | Profil b übernehmen |
-| c deutlich schneller als b, `cpu_user_ms` nahe `read_window_ms` | Die Signatur rechnet zu langsam | schnelle AES-CMAC (AES-NI) in libsmb2 einbauen, als Beitrag für upstream |
-| a, b und c ähnlich langsam wie die FTP-Referenz | Das WLAN begrenzt | Vergleich mit ftpsrv in S4 entscheidet |
-| alle deutlich langsamer als die FTP-Referenz, CPU niedrig | Wartezeiten im Protokollablauf | Ablauf genauer untersuchen |
+| b clearly faster than a | the socket buffers slow it down | adopt profile b |
+| c clearly faster than b, `cpu_user_ms` close to `read_window_ms` | the signature computes too slowly | build a fast AES-CMAC (AES-NI) into libsmb2, as a contribution upstream |
+| a, b and c about as slow as the FTP reference | the Wi-Fi is the limit | the comparison with ftpsrv in S4 decides |
+| all clearly slower than the FTP reference, CPU low | waiting times in the protocol flow | examine the flow more closely |
 
-### Ergebnis (E3, 20.10.2026, Build `5c2412e`, WLAN, je Profil 2 Läufe)
+### Result (E3, 2026-10-20, build `5c2412e`, Wi-Fi, 2 runs per profile)
 
-| Messung | FTP (ftpsrv) | a | b | c |
+| Measurement | FTP (ftpsrv) | a | b | c |
 |---|---|---|---|---|
-| 64 MiB, Lauf 1 | 5,2 MB/s (vorher) | 2,7 MB/s | 2,1 MB/s | 3,6 MB/s |
-| 64 MiB, Lauf 2 | 3,4 MB/s (nachher) | 0,8 MB/s | 3,8 MB/s | 2,9 MB/s |
-| 100 kleine Dateien | – | 15 s | 6 s | 8 s |
-| CPU je 64 MiB (`cpu_user_ms`) | – | ≈ 1,95 s | ≈ 1,9 s | ≈ 0,58 s |
-| SSD-Lesezeit je 64 MiB (`pread_ms`) | – | ≈ 50 ms | ≈ 50 ms | ≈ 60 ms |
+| 64 MiB, run 1 | 5.2 MB/s (before) | 2.7 MB/s | 2.1 MB/s | 3.6 MB/s |
+| 64 MiB, run 2 | 3.4 MB/s (after) | 0.8 MB/s | 3.8 MB/s | 2.9 MB/s |
+| 100 small files | – | 15 s | 6 s | 8 s |
+| CPU per 64 MiB (`cpu_user_ms`) | – | ≈ 1.95 s | ≈ 1.9 s | ≈ 0.58 s |
+| SSD read time per 64 MiB (`pread_ms`) | – | ≈ 50 ms | ≈ 50 ms | ≈ 60 ms |
 
-**Bewertung:**
-- **Kleine Dateien:** b ist 2,5-mal schneller als a, etwa 60 statt 150 ms je Datei. Das passt zu TCP_NODELAY: Ohne diese Option halten Nagle-Algorithmus und verzögerte Bestätigungen jede kleine Antwort auf. **Profil b wird übernommen.**
-- **Signatur:** AES-CMAC kostet gut dreimal so viel Rechenzeit wie HMAC-SHA256, etwa 30 ms je MiB. Das begrenzt bei rund 33 MB/s, im WLAN bremst es also noch nicht. Für G2 und kabelgebundenes Netz bleibt eine schnelle AES-CMAC nötig. SMB 3.1.1 bleibt.
-- **WLAN:** Die SSD bremst nicht. Das WLAN schwankt stark: Schon die FTP-Referenz fiel von 5,2 auf 3,4 MB/s. Mit zwei Läufen je Profil lässt sich der Abstand zu ftpsrv nicht belastbar angeben. Die SMB-Läufe mit b und c lagen bei 2,1 bis 3,8 MB/s, also grob 50 bis 90 % der FTP-Werte. Das klärt erst S4, mit ≥ 7 abwechselnden Läufen und Median.
-- **Uhr:** Die Uhr der PS5 (`now_utc`) geht gegenüber echter UTC (github.com) genau **1 Stunde vor**, PC und Anzeige der PS5 stimmen. Vermutlich rechnet die PS5 die Sommerzeit nur in die Anzeige ein. Für S3 wichtig, denn Zeitstempel, die die PS5 selbst setzt, lägen in der Sommerzeit 1 Stunde daneben.
+**Assessment:**
+- **Small files:** b is 2.5 times faster than a, about 60 instead of 150 ms per file. That fits TCP_NODELAY: without this option, the Nagle algorithm and delayed acknowledgements hold back every small reply. **Profile b is adopted.**
+- **Signature:** AES-CMAC costs a good three times as much CPU time as HMAC-SHA256, about 30 ms per MiB. That caps at around 33 MB/s, so over Wi-Fi it does not slow things down yet. For G2 and wired networks a fast AES-CMAC remains necessary. SMB 3.1.1 stays.
+- **Wi-Fi:** The SSD does not slow things down. The Wi-Fi fluctuates strongly: even the FTP reference fell from 5.2 to 3.4 MB/s. With two runs per profile the gap to ftpsrv cannot be stated reliably. The SMB runs with b and c were at 2.1 to 3.8 MB/s, roughly 50 to 90 % of the FTP values. Only S4 settles this, with ≥ 7 alternating runs and the median.
+- **Clock:** The PS5's clock (`now_utc`) runs exactly **1 hour ahead** of real UTC (github.com); the PC and the PS5's display are right. Presumably the PS5 applies daylight saving time only to the display. Important for S3, because timestamps the PS5 sets itself would be 1 hour off during daylight saving time.
 
-## S3 – Schreibt Windows korrekt auf die PS5?
+## S3 – Does Windows write correctly to the PS5?
 
-**Frage:** Kann der Windows-Client über unser Backend Dateien und Ordner auf der PS5 anlegen, schreiben, überschreiben, umbenennen, verschieben und löschen? Kommen alle Bytes und die Änderungszeiten richtig an? Wem gehören neu angelegte Dateien, und welche Uhrzeit bekommen sie?
+**Question:** Can the Windows client create, write, overwrite, rename, move and delete files and folders on the PS5 through our backend? Do all bytes and modification times arrive correctly? Who owns newly created files, and which time do they get?
 
-**Was das Payload tut:**
+**What the payload does:**
 
-- `prospero-s3-smbserver.elf` legt wie in S2 einen **neuen** Testordner `/data/_ProsperoAutoDrive_Test_<Zeit>-<Zufall>` mit denselben Testdateien an. Diesen Ordner gibt es als `\<PS5-IP>\s3` frei, **zum Lesen und Schreiben**.
-- Geschrieben wird nur innerhalb dieses Ordners, denn Namen, die aus der Freigabe hinausführen, lehnt der Server ab. Der Ordner bleibt danach liegen. Ob und wann er weg soll, entscheidest du.
-- Socket-Einstellungen wie Profil b aus S2b. Das Payload läuft 30 Minuten.
-- Nicht in diesem Prototyp:
-  - Freigabemodi und Bereichssperren werden angenommen, aber nicht durchgesetzt.
-  - Attribute außer Ordner und Archiv sowie die Erstellungszeit werden nicht gespeichert, nur gezählt.
-  - Alternative Datenströme gibt es nicht.
+- `prospero-s3-smbserver.elf` creates, as in S2, a **new** test folder `/data/_ProsperoAutoDrive_Test_<time>-<random>` with the same test files. It shares this folder as `\<PS5-IP>\s3`, **for reading and writing**.
+- Writes happen only inside this folder, because the server refuses names that lead out of the share. The folder stays afterwards. Whether and when it goes is your decision.
+- Socket settings as profile b from S2b. The payload runs for 30 minutes.
+- Not in this prototype:
+  - Share modes and byte-range locks are accepted but not enforced.
+  - Attributes other than directory and archive, and the creation time, are not stored, only counted.
+  - There are no alternate data streams.
 
-**Bereits geprüft (E1, CI unter Linux, Samba-`smbclient`, SMB 3.1.1 mit Signing):**
+**Already verified (E1, CI on Linux, Samba `smbclient`, SMB 3.1.1 with signing):**
 
-- Hochladen aller 1507 Testdateien mit SHA-256-Vergleich auf dem Server
-- Überschreiben kürzt die Datei, die vorhandene Schreibweise bleibt erhalten
-- Ordner anlegen, auch die Ablehnung eines Ordners, der sich nur in Groß-/Kleinschreibung unterscheidet
-- Nicht leere Ordner werden nicht gelöscht, ein Ordnerbaum lässt sich löschen
-- Umbenennen, auch nur der Groß-/Kleinschreibung, Verschieben, Ersetzen nur auf Wunsch, Ordner umbenennen
-- Löschen
-- Vom Client gesetzte Änderungszeit
-- Kein Schreiben außerhalb der Freigabe, keine ungültigen Namen
-- Besitzer neuer Dateien
+- uploading all 1507 test files with SHA-256 comparison on the server
+- overwriting truncates the file; the existing spelling is kept
+- creating folders, including refusing a folder that differs only in case
+- non-empty folders are not deleted; a folder tree can be deleted
+- renaming, including a change of case only, moving, replacing only on request, renaming folders
+- deleting
+- modification time set by the client
+- no writes outside the share, no invalid names
+- owner of new files
 
-### Ablauf auf deinem PC
+### Procedure on your PC
 
-`tools\Run-Test.cmd` starten (siehe oben), denn S3 ist der aktuelle Test. Explorer-Fenster zur PS5 vorher schließen. Der Lauf dauert etwa 10 Minuten.
+Start `tools\Run-Test.cmd` (see above), as S3 is the current test. Close Explorer windows pointing at the PS5 beforehand. The run takes about 10 minutes.
 
-Was `tests\spikes\S3-Check.cmd` dabei prüft:
+What `tests\spikes\S3-Check.cmd` checks:
 
-1. **Vorlage holen:** Die Testdateien werden auf den PC kopiert.
-2. **Hochladen:** Mit robocopy geht alles in den neuen Ordner `hochgeladen`.
-3. **Größen und Zeiten:** Größe und Änderungszeit jeder Datei müssen stimmen. Das prüft ein Probelauf von robocopy.
-4. **Byte für Byte:** Alles wird wieder heruntergeladen und mit den Prüfsummen verglichen.
-5. **Bearbeiten im Ordner `ops`:** anlegen, anhängen, überschreiben, innerhalb der Freigabe kopieren, umbenennen, nur die Groß-/Kleinschreibung ändern, verschieben, Ordner umbenennen und löschen. Ein nicht leerer Ordner darf nicht gelöscht werden. Ein kleiner Ordnerbaum, den der Test gerade selbst angelegt hat, wird rekursiv gelöscht.
-6. **Uhrzeit:** Eine neue Datei bekommt ihre Zeit von der Uhr der PS5. Das Skript zeigt sie neben der PC-Zeit und neben UTC von github.com.
-7. **Tempo:** 64 MiB werden per SMB und zum Vergleich per FTP (ftpsrv, Port 2121) in den Testordner geschrieben.
+1. **Fetch the template:** the test files are copied to the PC.
+2. **Upload:** robocopy puts everything into the new folder `hochgeladen`.
+3. **Sizes and times:** size and modification time of every file must match. A robocopy dry run checks this.
+4. **Byte by byte:** everything is downloaded again and compared with the checksums.
+5. **Editing in the folder `ops`:** create, append, overwrite, copy within the share, rename, change only the case, move, rename and delete a folder. A non-empty folder must not be deleted. A small folder tree the test just created itself is deleted recursively.
+6. **Time:** a new file gets its time from the PS5's clock. The script shows it next to the PC time and next to UTC from github.com.
+7. **Speed:** 64 MiB are written into the test folder via SMB and, for comparison, via FTP (ftpsrv, port 2121).
 
-### Auswertung
+### Evaluation
 
-| Ergebnis | Bedeutung | Konsequenz |
+| Result | Meaning | Consequence |
 |---|---|---|
-| `S3-CHECK: ALLES OK` | **S3 funktional bestanden** | Zeitstempel und Tempo bewerten, weiter mit S4 |
-| Fehler beim Hochladen oder `FALSCH` bei Bytes, Größen oder Zeiten | Daten oder Zeiten kommen falsch an | Blocker, analysieren |
-| einzelne `FALSCH` in Schritt 5 | Ein Dateivorgang verhält sich anders als unter Windows | einzeln bewerten |
-| Uhrzeit der neuen Datei 1 Stunde daneben | Die Uhr der PS5 schlägt durch, siehe S2b | Ausgleich im Server entwerfen |
-| `unsupported:`- oder `delete_failures`-Zeilen im Status | Windows fragt etwas, das das Backend nicht kann | einzeln bewerten |
+| `S3-CHECK: ALL OK` | **S3 functionally passed** | assess timestamps and speed, continue with S4 |
+| error while uploading or `FAIL` for bytes, sizes or times | data or times arrive wrong | blocker, analyse |
+| single `FAIL` in step 5 | a file operation behaves differently than on Windows | assess one by one |
+| time of the new file 1 hour off | the PS5's clock shows through, see S2b | design a correction in the server |
+| `unsupported:` or `delete_failures` lines in the status | Windows asks for something the backend cannot do | assess one by one |
 
-### Erster Lauf (E3, 20.10.2026, Build `1ec44bd`, WLAN)
+### First run (E3, 2026-10-20, build `1ec44bd`, Wi-Fi)
 
-Build `20de186` blieb nach dem Start stumm: Die PS5 zeigte „bereit“, doch auf Port 4445 kam keine Antwort. Wahrscheinliche Ursache war `localtime_r()`, die einzige neue Bibliotheksfunktion auf diesem Weg. Seit `1ec44bd` ist sie entfernt, und das Payload antwortet. Das bestätigt die Vermutung nicht sicher, passt aber dazu.
+Build `20de186` stayed silent after starting: the PS5 showed "ready", but port 4445 did not answer. The likely cause was `localtime_r()`, the only new library function on this path. It has been removed since `1ec44bd`, and the payload answers. That does not prove the suspicion, but it fits.
 
-**Funktioniert:**
-- Alle 1507 Dateien kamen hochgeladen und wieder heruntergeladen Byte für Byte gleich an.
-- Alle 13 Dateivorgänge in `ops` liefen wie unter Windows, auch die Änderung nur der Groß-/Kleinschreibung, das Verschieben, die Ablehnung beim Löschen eines nicht leeren Ordners und das rekursive Löschen.
-- Kopieren innerhalb der Freigabe klappt: Windows fällt nach der abgelehnten serverseitigen Kopie (`IOCTL 0x00140078`) auf Lesen und Schreiben zurück.
-- **Tempo Schreiben, 64 MiB, ein Lauf:** SMB 6,9 MB/s, FTP (ftpsrv) 6,8 MB/s.
+**Works:**
+- All 1507 files arrived byte for byte identical, uploaded and downloaded again.
+- All 13 file operations in `ops` behaved as on Windows, including the change of case only, moving, the refusal to delete a non-empty folder and the recursive delete.
+- Copying within the share works: after the refused server-side copy (`IOCTL 0x00140078`), Windows falls back to reading and writing.
+- **Write speed, 64 MiB, one run:** SMB 6.9 MB/s, FTP (ftpsrv) 6.8 MB/s.
 
-**Nicht bestanden: Änderungszeiten.** Keine einzige der 1507 Zeiten wurde übernommen (`times_set=0`).
-- **Ursache:** Das SDK liefert `utimensat()` nur als nackten FreeBSD-Systemaufruf. libkernel der PS5 hat diese Funktion nicht, auf der Konsole kann die Nummer etwas anderes bedeuten, und das Ergebnis landet nicht in `errno`. Darum stand im Status ein veraltetes `errno 35`.
-- **Behoben:** Seit dem nächsten Build nutzt das Backend `utimes()` aus libkernel. Damit sind die Zeiten auf die Mikrosekunde genau, Windows rechnet mit 100 ns. Deshalb vergleicht die Prüfung mit 2 Sekunden Toleranz (`/FFT`) und zeigt die genaue Abweichung zusätzlich an.
-- **Absicherung:** Die CI bricht jetzt ab, sobald unser Code oder libsmb2 einen solchen nackten Systemaufruf verwendet (`.github/scripts/check-raw-syscalls.sh`).
+**Failed: modification times.** Not a single one of the 1507 times was applied (`times_set=0`).
+- **Cause:** The SDK provides `utimensat()` only as a bare FreeBSD system call. The PS5's libkernel does not have this function, on the console the number may mean something else, and the result does not end up in `errno`. That is why the status showed a stale `errno 35`.
+- **Fixed:** From the next build on, the backend uses `utimes()` from libkernel. Times are then accurate to the microsecond, while Windows works in 100 ns. That is why the check compares with a 2-second tolerance (`/FFT`) and additionally shows the exact deviation.
+- **Safeguard:** The CI now fails as soon as our code or libsmb2 uses such a bare system call (`.github/scripts/check-raw-syscalls.sh`).
 
-**Uhrzeit bestätigt:** Eine neue Datei, die ohne Zeitangabe geschrieben wird, bekommt die Zeit der PS5. Im Explorer liegt sie genau **1 Stunde in der Zukunft**: robocopy zeigt 18:47:01 UTC, github.com 17:47:00 UTC. Das muss der Server ausgleichen. `GET /clock` fragt dafür ab, was die PS5 über ihre Zeitzone weiß.
+**Time confirmed:** A new file written without a time gets the PS5's time. In Explorer it is exactly **1 hour in the future**: robocopy shows 18:47:01 UTC, github.com 17:47:00 UTC. The server must correct this. For that, `GET /clock` asks what the PS5 knows about its time zone.
 
-**Weitere Befunde:**
-- Neue Dateien gehören `uid=0 gid=0` und haben die Rechte `0666`. Es gibt also keine umask, alle dürfen lesen und schreiben.
-- Neu in `unsupported:` ist `IOCTL 0x00140078`, die serverseitige Kopie. Die Sicherheitsabfrage (`QUERY_INFO type 3`) kam 3015-mal, robocopy fragt sie je Datei ab. Beide sind für das Produkt nachzurüsten.
+**Further findings:**
+- New files are owned by `uid=0 gid=0` and have the permissions `0666`. So there is no umask; everyone may read and write.
+- New in `unsupported:` is `IOCTL 0x00140078`, the server-side copy. The security query (`QUERY_INFO type 3`) came 3015 times; robocopy asks for it per file. Both are to be added for the product.
 
-### Ergebnis: bestanden (E3, 20.10.2026, Build `46a55e4`, WLAN)
+### Result: passed (E3, 2026-10-20, build `46a55e4`, Wi-Fi)
 
 `S3-CHECK: ALLES OK`.
 
-- Bytes, alle 13 Dateivorgänge und die Kopie innerhalb der Freigabe stimmen wie im ersten Lauf.
-- **Änderungszeiten:** Alle 1507 stimmen, sogar ohne Toleranz (`times_set=3030`, zwei Aufrufe je Datei). Die Zeiten der PS5 haben ohnehin nur Mikrosekunden-Auflösung, deshalb verliert `utimes()` hier nichts.
-- **Tempo Schreiben, 64 MiB, ein Lauf:** SMB 7,7 MB/s, FTP 7,2 MB/s. Für 1507 Dateien mit 65 MB brauchte das Hochladen 1:40 min, also etwa 66 ms je Datei.
-- **Uhr der PS5:** Neue Dateien liegen wieder genau 1 Stunde in der Zukunft. Laut `GET /clock` meldet der Kernel `tz_minuteswest=0` und `tz_dsttime=60`, und `sceKernelGettimezone` liefert dieselben Werte. Die PS5 führt ihre Kernel-Zeit also als „UTC“ und kennt dazu 60 Minuten Sommerzeit. Ihre Uhr geht genau um diese 60 Minuten vor.
-  - **Vermutung:** Die Sommerzeit steckt in der Kernel-Uhr selbst. Dann verschwindet die Abweichung nach dem Ende der Sommerzeit am 25.10.2026. Prüfbar ist das mit einem Lauf ab dem 26.10.
-  - **Sicher ist:** Die Abweichung ist konstant und lässt sich messen.
-- **Für das Produkt** muss der Server die Abweichung in beide Richtungen ausgleichen: abziehen, wenn er Zeiten meldet, und addieren, wenn ein Client Zeiten setzt. So bleiben die Zeiten auf der Platte im Zeitbezug der PS5, passend zu ftpsrv und anderen Programmen, und Windows sieht echte Zeiten. Woher der Server die Abweichung kennt, ist noch zu entscheiden.
+- Bytes, all 13 file operations and the copy within the share are right, as in the first run.
+- **Modification times:** all 1507 are right, even without tolerance (`times_set=3030`, two calls per file). The PS5's times only have microsecond resolution anyway, so `utimes()` loses nothing here.
+- **Write speed, 64 MiB, one run:** SMB 7.7 MB/s, FTP 7.2 MB/s. Uploading 1507 files with 65 MB took 1:40 min, about 66 ms per file.
+- **PS5 clock:** New files are again exactly 1 hour in the future. According to `GET /clock` the kernel reports `tz_minuteswest=0` and `tz_dsttime=60`, and `sceKernelGettimezone` returns the same values. So the PS5 keeps its kernel time as "UTC" and knows about 60 minutes of daylight saving time. Its clock runs ahead by exactly these 60 minutes.
+  - **Assumption:** daylight saving time is part of the kernel clock itself. Then the deviation disappears after daylight saving time ends on 2026-10-25. This can be checked with a run from 2026-10-26 on.
+  - **Certain:** the deviation is constant and can be measured.
+- **For the product** the server must correct the deviation in both directions: subtract it when it reports times, and add it when a client sets times. That way the times on disk stay in the PS5's time reference, matching ftpsrv and other programs, and Windows sees real times. Where the server learns the deviation from is still to be decided.
 
-## S4 – Reicht der Durchsatz?
+## S4 – Is the throughput sufficient?
 
-**Frage:** Erreicht SMB im WLAN mindestens 70 % des Durchsatzes von ftpsrv, in beiden Richtungen (Gate G1)? Was kostet die Signatur, und wie lange wartet eine kleine Anfrage, während eine große Kopie läuft?
+**Question:** Does SMB over Wi-Fi reach at least 70 % of ftpsrv's throughput in both directions (gate G1)? What does the signature cost, and how long does a small request wait while a large copy is running?
 
-**Was das Payload tut:** `prospero-s4-smbserver.elf` legt wie in S3 einen **neuen** Testordner an und gibt ihn als `\<PS5-IP>\s4` zum Lesen und Schreiben frei. Dazu kommt die Datei `pattern-256MiB.bin`. Profil b wie in S3. Das Payload läuft höchstens 90 Minuten.
+**What the payload does:** `prospero-s4-smbserver.elf` creates, as in S3, a **new** test folder and shares it as `\<PS5-IP>\s4` for reading and writing. In addition there is the file `pattern-256MiB.bin`. Profile b as in S3. The payload runs for at most 90 minutes.
 
-**Bereits geprüft (E1, CI unter Linux, Samba-`smbclient`):** 256-MiB-Datei mit richtiger Prüfsumme, Lesen und zweimaliges Überschreiben per SMB, Umschalten auf Profil c mit SMB 2.1, Zähler für CPU und Bytes. Gemessen wird dort nichts.
+**Already verified (E1, CI on Linux, Samba `smbclient`):** 256 MiB file with the correct checksum, reading and overwriting twice via SMB, switching to profile c with SMB 2.1, counters for CPU and bytes. Nothing is measured there.
 
-### Ablauf auf deinem PC
+### Procedure on your PC
 
-`tools\Run-Test.cmd` starten, denn S4 ist der aktuelle Test. Explorer-Fenster zur PS5 vorher schließen. ftpsrv muss auf Port 2121 laufen. Der Lauf dauert etwa 30 Minuten, bei schwachem WLAN bis zu einer Stunde. Das Skript schätzt die Dauer nach der ersten Kopie. In der Zeit am PC und auf der PS5 möglichst nichts im Netz laden.
+Start `tools\Run-Test.cmd`, as S4 is the current test. Close Explorer windows pointing at the PS5 beforehand. ftpsrv must be running on port 2121. The run takes about 30 minutes, up to an hour with weak Wi-Fi. The script estimates the duration after the first copy. During that time, avoid network load on the PC and the PS5 as far as possible.
 
-Was `tests\spikes\S4-Check.cmd` dabei misst:
+What `tests\spikes\S4-Check.cmd` measures:
 
-1. **Vorbereitung:** prüft, ob ftpsrv antwortet, holt die Datei einmal per SMB und prüft ihre SHA-256.
-2. **Kleine Datei lesen:** 20-mal `hello.txt`, einmal ohne Last und einmal während einer großen Kopie.
-3. **7 Runden mit Profil b** (SMB 3.1.1, AES-CMAC): je Runde SMB lesen, FTP lesen, SMB schreiben und FTP schreiben. Die Reihenfolge wechselt jede Runde, damit Schwankungen im WLAN beide gleich treffen. In Runde 1 werden die gelesenen Dateien zusätzlich Byte für Byte verglichen.
-4. **3 Runden mit Profil c** (SMB 2.1, HMAC-SHA256), nur SMB.
-5. **Auswertung:** Median je Richtung, SMB in Prozent von FTP, CPU-Zeit der PS5 je MiB.
+1. **Preparation:** checks that ftpsrv answers, fetches the file once via SMB and checks its SHA-256.
+2. **Reading a small file:** `hello.txt` 20 times, once without load and once during a large copy.
+3. **7 rounds with profile b** (SMB 3.1.1, AES-CMAC): per round SMB read, FTP read, SMB write and FTP write. The order alternates every round, so that Wi-Fi fluctuations hit both equally. In round 1 the files read are also compared byte by byte.
+4. **3 rounds with profile c** (SMB 2.1, HMAC-SHA256), SMB only.
+5. **Evaluation:** median per direction, SMB as a percentage of FTP, the PS5's CPU time per MiB.
 
-Geschrieben wird nur `schreiben-smb.bin` und `schreiben-ftp.bin` im neuen Testordner, jede Runde neu überschrieben. Schlägt eine Übertragung fehl, endet die Messung ohne Wiederholung.
+Only `schreiben-smb.bin` and `schreiben-ftp.bin` in the new test folder are written, overwritten anew every round. If a transfer fails, the measurement ends without a retry.
 
-### Auswertung
+### Evaluation
 
-| Ergebnis | Bedeutung | Konsequenz |
+| Result | Meaning | Consequence |
 |---|---|---|
-| `S4-CHECK: G1 BESTANDEN` | Median SMB ≥ 70 % von FTP in beiden Richtungen | S4 bestanden, weiter mit S5 |
-| `G1 NICHT ERREICHT`, Profil c deutlich schneller | Die Signatur bremst | schnelle AES-CMAC, dann neu messen |
-| `G1 NICHT ERREICHT`, Profil c ähnlich, CPU niedrig | Wartezeiten im Protokoll oder im Server | Ablauf untersuchen, z. B. mehr parallele Anfragen |
-| kleine Datei während der Kopie sehr langsam (Sekunden) | Kleine Antworten warten hinter den großen (Risiko R4) | in Phase 2 Kredite begrenzen, nötigenfalls Worker-Threads |
-| `S4-CHECK: FEHLER` | Eine Übertragung ist fehlgeschlagen | Ausgabe analysieren, nichts automatisch wiederholen |
+| `S4-CHECK: G1 PASSED` | median SMB ≥ 70 % of FTP in both directions | S4 passed, continue with S5 |
+| `G1 NOT REACHED`, profile c clearly faster | the signature slows it down | fast AES-CMAC, then measure again |
+| `G1 NOT REACHED`, profile c similar, CPU low | waiting times in the protocol or in the server | examine the flow, e.g. more parallel requests |
+| small file very slow during the copy (seconds) | small replies wait behind the large ones (risk R4) | in phase 2 limit credits, worker threads if needed |
+| `S4-CHECK: FEHLER` | a transfer failed | analyse the output, retry nothing automatically |
 
-### Ergebnis: G1 bestanden (E3, 20.10.2026, Build `299cb3d`, WLAN)
+### Result: G1 passed (E3, 2026-10-20, build `299cb3d`, Wi-Fi)
 
-`S4-CHECK: G1 BESTANDEN`. 7 abwechselnde Runden je Richtung mit 256 MiB. Byte für Byte verglichen wurden die erste Kopie (SHA-256) und die beiden Lesedateien aus Runde 1. Bei allen anderen Läufen, auch bei allen Schreibläufen, prüft das Skript nur die Größe.
+`S4-CHECK: G1 BESTANDEN`. 7 alternating rounds per direction with 256 MiB. Compared byte by byte were the first copy (SHA-256) and the two files read in round 1. For all other runs, including all write runs, the script checks only the size.
 
-| Richtung | SMB 3.1.1 (Median) | ftpsrv (Median) | Verhältnis der Mediane | Median der Verhältnisse je Runde | Spanne der Verhältnisse |
+| Direction | SMB 3.1.1 (median) | ftpsrv (median) | ratio of the medians | median of the per-round ratios | range of the ratios |
 |---|---|---|---|---|---|
-| Lesen | 3,90 MB/s | 4,06 MB/s | **96 %** | 100 % | 70–119 % |
-| Schreiben | 7,10 MB/s | 7,20 MB/s | **98 %** | 99 % | 96–101 % |
+| read | 3.90 MB/s | 4.06 MB/s | **96 %** | 100 % | 70–119 % |
+| write | 7.10 MB/s | 7.20 MB/s | **98 %** | 99 % | 96–101 % |
 
-Das Verhältnis je Runde vergleicht SMB mit dem FTP-Lauf direkt daneben. So fällt die Drift des WLANs heraus. Das Skript wertet nur das Verhältnis der Mediane aus. Die beiden rechten Spalten sind von Hand aus der Ausgabe nachgerechnet.
+The per-round ratio compares SMB with the FTP run right next to it, which removes the Wi-Fi drift. The script evaluates only the ratio of the medians. The two right-hand columns were recalculated by hand from the output.
 
-**Bewertung:**
-- **G1 (≥ 70 %) ist in beiden Richtungen klar erreicht.**
-- **Schreiben:** SMB ist gleichauf mit FTP, in jeder Runde zwischen 96 und 101 %. Beide fallen in Runde 6 und 7 gemeinsam ab, dort begrenzt das WLAN.
-- **Lesen:** Im Median auch gleichauf, aber die Einzelrunden streuen stark, von 70 bis 119 %. Mit 7 Runden liegt das Leseverhältnis nur auf etwa ±8 % genau fest. Zweimal fiel SMB-Lesen auf etwa 2,7 MB/s (Runde 7, Profil c Runde 2), FTP-Lesen nie unter 3,38 MB/s. Bei so wenigen Läufen ist das nicht belastbar, aber im Blick zu behalten.
-- **Lesen ist bei beiden Protokollen nur gut halb so schnell wie Schreiben.** Am Protokoll liegt das also nicht. Woran sonst, ist offen, zum Beispiel an der Funkstrecke, am Router oder am PC.
-- **Signatur:** SMB 2.1 mit HMAC-SHA256 war nicht schneller (Lesen 4,00, Schreiben 6,56 MB/s, je 3 Läufe). Belastbar ist dieser Vergleich nicht: Die 3 Läufe kamen am Ende, ohne FTP-Lauf daneben, und das WLAN war da schon schwächer. Das stärkere Argument: SMB 3.1.1 erreicht ohnehin fast die FTP-Werte, die Signatur kann im WLAN also kaum bremsen. **SMB 3.1.1 bleibt.**
-- **CPU der PS5 (ganzer Prozess, getrusage):** 36 bis 39 ms je MiB mit SMB 3.1.1, 16 bis 18 ms mit SMB 2.1. **AES-CMAC kostet also etwa 20 ms je MiB mehr als HMAC-SHA256.**
-  - Der Server läuft in einem einzigen Thread. Bei 36 bis 39 ms je MiB kommt er höchstens auf etwa 26 bis 27 MiB/s, mit HMAC auf etwa 56 MiB/s.
-  - Im WLAN war der Prozess zu 14 % (Lesen) und 26 % (Schreiben) ausgelastet. Der Aufpreis von AES-CMAC macht davon etwa 7 und 14 Prozentpunkte aus.
-  - Eine Rolle spielt das erst im Kabelnetz.
-- **Wartezeit unter Last: 2925 ms** je kleine Datei während einer großen Kopie, gegenüber 44 ms ohne Last. Es ist eine Messung mit 20 Lesevorgängen. Für G1 zählt sie nicht, wohl aber für das Gefühl im Explorer: Ein Ordner öffnet sich während einer Kopie vermutlich erst nach Sekunden.
-  - Je kleine Datei schickt Windows mehrere Anfragen (öffnen, lesen, schließen). Jede Anfrage wartet also grob 0,7 bis 1 s.
-  - **Belegt (Code von libsmb2):** Der Server gewährt jeden Kredit, den der Client verlangt (`lib/pdu.c`). Er liest immer weitere Anfragen, ohne zu bremsen (`smb2_which_events` in `lib/socket.c`), und hängt jede Antwort hinten an die Sendeschlange an (`SMB2_LIST_ADD_END`). Eine kleine Antwort wartet also hinter allen großen Leseantworten, die schon in der Schlange stehen.
-  - **Nicht belegt:** wie viel der Wartezeit von dieser Schlange kommt. Weitere Puffer stehen in derselben Reihe: der Sendepuffer von 1 MiB aus Profil b, bei 4 MB/s etwa 0,25 s, dazu die Puffer in WLAN und Router. Wie viele Lesevorgänge Windows gleichzeitig offen hält, ist ebenfalls nicht gemessen.
-  - **Nächster Schritt:** Erst messen, dann beheben. Der Server soll ausgeben, wie lange eine Anfrage bei ihm liegt und wie voll die Sendeschlange ist. Verglichen werden dabei Sendepuffer mit 1 MiB gegen den Standard und Kredite unbegrenzt gegen begrenzt. Erst danach wird entschieden, ob Kredite begrenzt, kleine Antworten vorgezogen oder Worker-Threads gebaut werden. Worker-Threads allein lösen einen Stau in der Sendeschlange nicht.
-- **Uhr:** unverändert 1 Stunde vor (Kernel-UTC 22:35:56, github.com 21:35:59). Die Prüfung ab dem 26.10. steht noch aus.
-- Im Status stehen wie in S3 nur bekannte `unsupported:`-Zeilen (Verzeichnisklasse 0x51, Sicherheitsabfrage, Offload-Lesen). Das `connection_end` kommt vom Umschalten auf Profil c.
+**Assessment:**
+- **G1 (≥ 70 %) is clearly reached in both directions.**
+- **Writing:** SMB is level with FTP, between 96 and 101 % in every round. Both drop together in rounds 6 and 7; there the Wi-Fi is the limit.
+- **Reading:** level in the median as well, but the single rounds scatter strongly, from 70 to 119 %. With 7 rounds the read ratio is only known to about ±8 %. Twice SMB reading dropped to about 2.7 MB/s (round 7, profile c round 2); FTP reading never went below 3.38 MB/s. With so few runs this is not conclusive, but worth keeping an eye on.
+- **Reading is only a good half as fast as writing with both protocols.** So it is not the protocol. What else causes it is open, for example the radio link, the router or the PC.
+- **Signature:** SMB 2.1 with HMAC-SHA256 was not faster (read 4.00, write 6.56 MB/s, 3 runs each). This comparison is not conclusive: the 3 runs came at the end, without an FTP run next to them, and the Wi-Fi was already weaker by then. The stronger argument: SMB 3.1.1 reaches almost the FTP values anyway, so the signature can hardly slow things down over Wi-Fi. **SMB 3.1.1 stays.**
+- **PS5 CPU (whole process, getrusage):** 36 to 39 ms per MiB with SMB 3.1.1, 16 to 18 ms with SMB 2.1. **So AES-CMAC costs about 20 ms per MiB more than HMAC-SHA256.**
+  - The server runs in a single thread. At 36 to 39 ms per MiB it reaches at most about 26 to 27 MiB/s, with HMAC about 56 MiB/s.
+  - Over Wi-Fi the process was 14 % (reading) and 26 % (writing) busy. The extra cost of AES-CMAC accounts for about 7 and 14 percentage points of that.
+  - It only matters on a wired network.
+- **Waiting time under load: 2925 ms** per small file during a large copy, compared with 44 ms without load. It is one measurement with 20 reads. It does not count for G1, but it does for how Explorer feels: a folder probably opens only after seconds during a copy.
+  - For each small file Windows sends several requests (open, read, close). So each request waits roughly 0.7 to 1 s.
+  - **Proven (libsmb2 code):** the server grants every credit the client asks for (`lib/pdu.c`). It keeps reading further requests without throttling (`smb2_which_events` in `lib/socket.c`), and appends every reply to the end of the send queue (`SMB2_LIST_ADD_END`). So a small reply waits behind all large read replies already in the queue.
+  - **Not proven:** how much of the waiting time comes from this queue. Further buffers sit in the same line: the 1 MiB send buffer of profile b, about 0.25 s at 4 MB/s, plus the buffers in the Wi-Fi and the router. How many reads Windows keeps open at the same time has not been measured either.
+  - **Next step:** measure first, then fix. The server is to report how long a request sits with it and how full the send queue is. Compared are a 1 MiB send buffer against the default, and unlimited against limited credits. Only then is it decided whether to limit credits, prefer small replies or build worker threads. Worker threads alone do not resolve a jam in the send queue.
+- **Clock:** still 1 hour ahead (kernel UTC 22:35:56, github.com 21:35:59). The check from 2026-10-26 on is still pending.
+- As in S3, the status shows only known `unsupported:` lines (directory class 0x51, security query, offload read). The `connection_end` comes from switching to profile c.
 
-## S6 – Lässt sich der Server in der CI mit echten Clients testen?
+## S6 – Can the server be tested with real clients in the CI?
 
-**Frage:** Können der echte SMB-Client von Windows und der Linux-Kernel-Client in der CI gegen unseren echten Servercode laufen, ohne MSVC und ohne PS5?
+**Question:** Can the real SMB client of Windows and the Linux kernel client run against our real server code in the CI, without MSVC and without a PS5?
 
-**Aufbau (Jobs in `.github/workflows/ci.yml`):**
+**Setup (jobs in `.github/workflows/ci.yml`):**
 
-- Die CI baut den Server zusätzlich statisch für Linux (`host-servers`). Es ist derselbe Code wie auf der PS5, nur mit der Plattform Linux statt PS5.
+- The CI additionally builds the server statically for Linux (`host-servers`). It is the same code as on the PS5, only with Linux as the platform instead of the PS5.
 - **`windows-client` (windows-2025):**
-  - Der Server läuft in WSL 1, in einem minimalen Alpine-Rootfs, das per Prüfsumme gepinnt ist. WSL 1 teilt sich das Netz mit Windows.
-  - Port 445 belegt Windows selbst, deshalb hört der Server auf 4450. Der Client verbindet sich mit `net use ... /TCPPORT:4450`.
-  - Dann läuft **dasselbe `S3-Check.cmd` wie auf der PS5** (Umgebungsvariable `PROSPERO_SMB_PORT`).
+  - The server runs in WSL 1, in a minimal Alpine rootfs pinned by checksum. WSL 1 shares the network with Windows.
+  - Windows itself occupies port 445, so the server listens on 4450. The client connects with `net use ... /TCPPORT:4450`.
+  - Then **the same `S3-Check.cmd` as on the PS5** runs (environment variable `PROSPERO_SMB_PORT`).
 - **`linux-cifs` (ubuntu-24.04):**
-  - Kernel-Mount per `mount -t cifs`, SMB 3.1.1 mit Signing. Alle Prüfsummen werden gelesen, eine Datei wird geschrieben.
-  - Dazu eine Auswahl aus `smbtorture`, verglichen mit [`smbtorture-pass.txt`](smbtorture-pass.txt): Fällt ein Teiltest aus dieser Liste durch, schlägt die CI fehl. Neu bestandene meldet der Job, sie werden von Hand ergänzt.
-- `dev-build` wird nur veröffentlicht, wenn beide Jobs grün sind.
+  - Kernel mount with `mount -t cifs`, SMB 3.1.1 with signing. All checksums are read, one file is written.
+  - Plus a selection from `smbtorture`, compared with [`smbtorture-pass.txt`](smbtorture-pass.txt): if a subtest from this list fails, the CI fails. The job reports newly passing ones; they are added by hand.
+- `dev-build` is only published when both jobs are green.
 
-### Ergebnis: bestanden (E2, 21.10.2026, Builds `b26d89c` und `e3e1b99`)
+### Result: passed (E2, 2026-10-21, builds `b26d89c` and `e3e1b99`)
 
-- **Windows-Client:** `S3-CHECK: ALLES OK` mit Windows Server 2025, Signing Pflicht, Gastzugang aus. Bytes, Größen, Zeiten und alle 13 Dateivorgänge stimmen. Die `unsupported:`-Zeilen sind dieselben wie live auf der PS5, bis auf die Anzahl (Verzeichnisklasse 0x51, Sicherheitsabfrage 3015-mal, die beiden IOCTLs).
-- **Linux-cifs:** Einhängen, Lesen mit Prüfsummen und Schreiben funktionieren.
-- **smbtorture:** 13 von 43 Teiltests bestehen und stehen jetzt in der Liste. Die 30 übrigen zeigen, was in Phase 2 fehlt, vor allem Freigabemodi und Delete-on-Close (`smb2.delete-on-close-perms`, `smb2.rename`), Dateiinformationen (`smb2.getinfo`, `smb2.setinfo`) und `smb2.connect`.
+- **Windows client:** `S3-CHECK: ALLES OK` with Windows Server 2025, signing mandatory, guest access off. Bytes, sizes, times and all 13 file operations are right. The `unsupported:` lines are the same as live on the PS5, except for the counts (directory class 0x51, security query 3015 times, the two IOCTLs).
+- **Linux cifs:** mounting, reading with checksums and writing work.
+- **smbtorture:** 13 of 43 subtests pass and are now on the list. The remaining 30 show what is missing in phase 2, above all share modes and delete-on-close (`smb2.delete-on-close-perms`, `smb2.rename`), file information (`smb2.getinfo`, `smb2.setinfo`) and `smb2.connect`.
 
-**Was die CI nicht abdeckt (dafür bleibt E3):**
+**What the CI does not cover (E3 remains for that):**
 
-- Port 445: In der CI läuft alles über den Alternativport.
-- das Dateisystem der PS5: In der CI ist es das von WSL 1 bzw. Linux. Zum Beispiel haben neue Dateien dort die Rechte `0644`, auf der PS5 `0666`.
-- der PS5-Build selbst, Ruhemodus, WLAN, Durchsatz
+- port 445: in the CI everything goes through the alternative port.
+- the PS5's file system: in the CI it is that of WSL 1 or Linux. For example, new files there have the permissions `0644`, on the PS5 `0666`.
+- the PS5 build itself, rest mode, Wi-Fi, throughput
 
-**Kleiner Unterschied:** Auf der PS5 stimmten alle Zeiten exakt, in der CI weichen ohne Toleranz etwa 1350 von 1507 ab. Die Testdateien entstehen dort mit Nanosekunden, `utimes()` setzt nur Mikrosekunden. Mit 2 s Toleranz stimmen alle.
+**Small difference:** On the PS5 all times matched exactly; in the CI about 1350 of 1507 differ without tolerance. The test files are created there with nanoseconds, while `utimes()` sets only microseconds. With a 2 s tolerance all of them match.
 
-## S7 – Findet ein Windows-Programm die PS5 ohne Firewall-Dialog?
+## S7 – Does a Windows program find the PS5 without a firewall dialog?
 
-**Frage:** Findet ein Programm, das als normaler Benutzer läuft, die PS5 im WLAN per UDP, gezielt (Unicast) und per Rundruf (Broadcast), ohne dass Windows ein Firewall-Fenster zeigt? Und kann der Server dabei aus der PC-Zeit seine Uhrabweichung messen (Variante 1)?
+**Question:** Does a program running as a normal user find the PS5 over Wi-Fi via UDP, directly (unicast) and by broadcast, without Windows showing a firewall window? And can the server measure its clock deviation from the PC time at the same time (variant 1)?
 
-**Was die Teile tun:**
+**What the parts do:**
 
-- `prospero-s7-smbserver.elf` legt wie in S2 einen **neuen** Testordner an und gibt ihn als `\<PS5-IP>\s7` **nur zum Lesen** frei. Zusätzlich beantwortet es UDP-Anfragen auf Port 4446 (`ps5/spikes/smbserver/discovery.c`). Es läuft 30 Minuten.
-- `prospero-s7-discover.exe` ist das erste Windows-Programm, C++ mit llvm-mingw, statisch gelinkt. Es schickt die Anfrage mit der UTC-Zeit des PCs, zuerst an die IP der PS5, dann als Broadcast in jedes Netz des PCs. Es bindet keinen festen Port, sondern bekommt wie jeder Client einen zufälligen.
-- **Protokoll** (eine Textzeile je Paket):
-  - Anfrage: `PROSPERO-DISCOVER 1 nonce=<hex> utc_ms=<PC-Zeit>`
-  - Antwort: `PROSPERO-HERE 1 nonce=<hex> id=<Server-ID> smb_port=<Port> utc_ms=<Serverzeit> skew_ms=<Abweichung> name=<Name>`
-  - Alles andere bleibt unbeantwortet.
+- `prospero-s7-smbserver.elf` creates, as in S2, a **new** test folder and shares it as `\<PS5-IP>\s7` **read-only**. In addition it answers UDP requests on port 4446 (`ps5/spikes/smbserver/discovery.c`). It runs for 30 minutes.
+- `prospero-s7-discover.exe` is the first Windows program, C++ with llvm-mingw, statically linked. It sends the request with the PC's UTC time, first to the PS5's IP, then as a broadcast into every network of the PC. It binds no fixed port but, like any client, gets a random one.
+- **Protocol** (one text line per packet):
+  - Request: `PROSPERO-DISCOVER 1 nonce=<hex> utc_ms=<PC time>`
+  - Reply: `PROSPERO-HERE 1 nonce=<hex> id=<server ID> smb_port=<port> utc_ms=<server time> skew_ms=<deviation> name=<name>`
+  - Anything else gets no answer.
 
-**Bereits geprüft:**
-- **E1 (Linux):** gültige und ungültige Anfragen, gemessene Abweichung, Zähler, Freigabe läuft daneben
-- **E2 (windows-2025):** Unicast über Loopback gegen den Server in WSL 1. Ob ein Firewall-Fenster erscheint, zeigt die CI nicht, denn der Runner läuft mit Adminrechten und ohne Bildschirm. Das prüft nur dein Lauf.
+**Already verified:**
+- **E1 (Linux):** valid and invalid requests, measured deviation, counters, share running alongside
+- **E2 (windows-2025):** unicast over loopback against the server in WSL 1. Whether a firewall window appears is not shown by the CI, because the runner runs with admin rights and without a screen. Only your run checks that.
 
-### Ablauf auf deinem PC
+### Procedure on your PC
 
-`tools\Run-Test.cmd` starten, denn S7 ist der aktuelle Test. Die Konsole bitte **nicht** als Administrator öffnen. Der Lauf dauert etwa eine Minute. Erscheint ein Fenster der Windows-Firewall, auf **Abbrechen** klicken. Am Ende fragt das Skript, ob ein solches Fenster erschienen ist: `j` oder `n` eingeben.
+Start `tools\Run-Test.cmd`, as S7 is the current test. Please do **not** open the console as administrator. The run takes about a minute. If a Windows Firewall window appears, click **Cancel**. At the end the script asks whether such a window appeared: enter `j` (yes) or `n` (no).
 
-### Auswertung
+### Evaluation
 
-| Ergebnis | Bedeutung | Konsequenz |
+| Result | Meaning | Consequence |
 |---|---|---|
-| `S7-CHECK: BESTANDEN` | Unicast und Broadcast kommen an, kein Fenster | S7 bestanden, G1 entscheiden |
-| Unicast OK, Broadcast keine Antwort | Rundruf geht im WLAN oder durch den Router nicht durch | Programm findet die PS5 über die gespeicherte IP, Suche per Broadcast nur als Hilfe beim Einrichten |
-| Firewall-Fenster erschienen | Windows sieht das Programm als Server | Ablauf ändern, etwa nur Unicast oder TCP |
-| keine Antwort, `ICMP meldet Port nicht erreichbar` | Das Payload hört nicht auf UDP 4446 | Payload-Status prüfen |
-| `discovery_skew_ms` etwa 3600000 | Uhr der PS5 1 Stunde vor, gemessen aus der PC-Zeit | Variante 1 funktioniert |
+| `S7-CHECK: PASSED` | unicast and broadcast arrive, no window | S7 passed, decide G1 |
+| unicast OK, broadcast no answer | the broadcast does not get through the Wi-Fi or the router | the program finds the PS5 through the saved IP; search by broadcast only as an aid during setup |
+| firewall window appeared | Windows sees the program as a server | change the approach, e.g. unicast only or TCP |
+| no answer, `ICMP reports the port unreachable` | the payload does not listen on UDP 4446 | check the payload status |
+| `discovery_skew_ms` about 3600000 | PS5 clock 1 hour ahead, measured from the PC time | variant 1 works |
 
-### Ergebnis: bestanden (E3, 21.10.2026, Build `ff9d50a`, WLAN, Windows 11 25H2)
+### Result: passed (E3, 2026-10-21, build `ff9d50a`, Wi-Fi, Windows 11 25H2)
 
-`S7-CHECK: BESTANDEN`. Konsole ohne Administratorrechte, aktives Firewall-Profil **Öffentlich**, also das strengste, mit eingeschalteten Benachrichtigungen.
+`S7-CHECK: BESTANDEN`. Console without administrator rights, active firewall profile **Public**, i.e. the strictest, with notifications switched on.
 
-- **Unicast:** 3 von 3 Anfragen beantwortet, nach 4 bis 5 ms.
-- **Broadcast:** In jedem der 3 Versuche kamen 2 Antworten, nach 26 bis 100 ms. Sowohl der Rundruf ins eigene Netz (192.168.188.255) als auch der allgemeine (255.255.255.255) erreichten die PS5. Das Netz der WSL-Schnittstelle bekam erwartungsgemäß keine Antwort. Das Payload zählte 9 Anfragen und 9 Antworten, keine ungültigen.
-- **Kein Firewall-Fenster.** Windows lässt die Antworten auf eigene Anfragen durch, auch auf einen Broadcast, ohne dass das Programm einen festen Port belegt.
-- **Uhr (Variante 1):** Die PS5 geht gegenüber der Uhr dieses PCs 3596,5 s vor, also 1 Stunde minus 3,5 s. Zwischen den 9 Messungen streute der Wert um weniger als 0,1 s. Gegenüber github.com geht die PS5 weiterhin etwa 3599 s vor. Die PC-Uhr weicht also selbst um einige Sekunden ab. Für das Laufwerk ist das richtig so: Die Zeiten sollen zur Uhr des PCs passen, mit der Windows arbeitet.
+- **Unicast:** 3 of 3 requests answered, after 4 to 5 ms.
+- **Broadcast:** In each of the 3 attempts 2 replies came, after 26 to 100 ms. Both the broadcast into the local network (the subnet's broadcast address) and the general one (255.255.255.255) reached the PS5. As expected, the network of the WSL interface got no answer. The payload counted 9 requests and 9 replies, none invalid.
+- **No firewall window.** Windows lets the replies to its own requests through, even to a broadcast, without the program binding a fixed port.
+- **Clock (variant 1):** The PS5 runs 3596.5 s ahead of this PC's clock, i.e. 1 hour minus 3.5 s. Across the 9 measurements the value scattered by less than 0.1 s. Compared with github.com the PS5 still runs about 3599 s ahead. So the PC clock itself deviates by a few seconds. For the drive this is right: the times are meant to match the clock of the PC that Windows works with.

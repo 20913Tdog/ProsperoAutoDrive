@@ -4,11 +4,11 @@ rem Optional helper; any loader you already use works just as well.
 setlocal EnableExtensions
 
 if "%~2"=="" (
-  echo Aufruf: %~nx0 ^<PS5-IP^> ^<datei.elf^> [port]
+  echo Usage: %~nx0 ^<PS5-IP^> ^<file.elf^> [port]
   exit /b 2
 )
 if not exist "%~2" (
-  echo FEHLER: Datei nicht gefunden: %~2
+  echo ERROR: file not found: %~2
   exit /b 2
 )
 
@@ -25,9 +25,9 @@ powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ^
   "$s=$c.GetStream(); $s.Write($b,0,$b.Length); $s.Flush();" ^
   "$c.Client.Shutdown([Net.Sockets.SocketShutdown]::Send);" ^
   "Start-Sleep -Milliseconds 500; $c.Close();" ^
-  "Write-Output ('Gesendet: {0} Bytes an {1}:{2}' -f $b.Length,$env:PAYLOAD_HOST,$env:PAYLOAD_PORT)"
+  "Write-Output ('Sent {0} bytes to {1}:{2}' -f $b.Length,$env:PAYLOAD_HOST,$env:PAYLOAD_PORT)"
 if errorlevel 1 (
-  echo FEHLER: Senden fehlgeschlagen. Laeuft ein ELF-Loader auf Port %PAYLOAD_PORT%?
+  echo ERROR: sending failed. Is an ELF loader running on port %PAYLOAD_PORT%?
   exit /b 1
 )
 exit /b 0

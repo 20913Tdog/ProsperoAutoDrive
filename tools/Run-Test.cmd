@@ -25,22 +25,22 @@ copy /y "%~f0" "%TEMP%\prospero-run-test.cmd" >nul || exit /b 1
 for %%R in ("%~f2\..") do set "ROOT=%%~fR"
 where git >nul 2>&1
 if errorlevel 1 (
-  echo FEHLER: git wurde nicht gefunden.
+  echo ERROR: git was not found.
   pause
   exit /b 1
 )
 set "BRANCH="
 for /f "delims=" %%B in ('git -C "%ROOT%" rev-parse --abbrev-ref HEAD') do set "BRANCH=%%B"
 if /i not "%BRANCH%"=="dev" (
-  echo FEHLER: Der Ordner %ROOT% steht auf "%BRANCH%" statt auf dev.
-  echo Bitte einmal "git checkout dev" ausfuehren und neu starten.
+  echo ERROR: The folder %ROOT% is on branch "%BRANCH%" instead of dev.
+  echo Run "git checkout dev" once and start again.
   pause
   exit /b 1
 )
-echo Hole den neuesten Stand von dev ...
+echo Fetching the latest state of dev ...
 git -C "%ROOT%" pull --ff-only
 if errorlevel 1 (
-  echo FEHLER: git pull ist fehlgeschlagen, Meldung siehe oben.
+  echo ERROR: git pull failed, see the message above.
   pause
   exit /b 1
 )
@@ -60,13 +60,13 @@ if not defined PS5 if exist "%INI%" (
   for /f "usebackq tokens=1,* delims==" %%A in ("%INI%") do if /i "%%A"=="ip" set "PS5=%%B"
 )
 if not defined PS5 (
-  set /p "PS5=IP-Adresse der PS5: "
+  set /p "PS5=IP address of the PS5: "
   if not defined PS5 exit /b 2
   > "%INI%" echo ip=!PS5!
 )
 
 set "ELF="
-set "DURATION=einige Minuten"
+set "DURATION=a few minutes"
 if /i "%TEST%"=="S2" (
   set "ELF=prospero-s2-smbserver.elf"
   set "SCRIPT=S2-Check.cmd"
@@ -86,13 +86,13 @@ if /i "%TEST%"=="S4" (
   set "ELF=prospero-s4-smbserver.elf"
   set "SCRIPT=S4-Check.cmd"
   set "TAG=PROSPERO-S4"
-  set "DURATION=etwa 30 bis 60 Minuten"
+  set "DURATION=about 30 to 60 minutes"
 )
 if /i "%TEST%"=="S7" (
   set "ELF=prospero-s7-smbserver.elf"
   set "SCRIPT=S7-Check.cmd"
   set "TAG=PROSPERO-S7"
-  set "DURATION=etwa 1 Minute, am Ende kommt eine Frage"
+  set "DURATION=about 1 minute, with a question at the end"
 )
 rem Product server: it replaces a running instance by itself and refuses a
 rem quit from the network, it has no folder but an instance ID per start,
@@ -106,7 +106,7 @@ if /i "%TEST%"=="P22" (
   set "TAG=PROSPERO-SMBD"
   set "PRODUCT=1"
   set "KEY=instance"
-  set "DURATION=etwa 1 Minute"
+  set "DURATION=about 1 minute"
 )
 if /i "%TEST%"=="P24" (
   set "ELF=prospero-smbd.elf"
@@ -114,7 +114,7 @@ if /i "%TEST%"=="P24" (
   set "TAG=PROSPERO-SMBD"
   set "PRODUCT=1"
   set "KEY=instance"
-  set "DURATION=etwa 10 Minuten"
+  set "DURATION=about 10 minutes"
 )
 if /i "%TEST%"=="P32" (
   set "ELF=prospero-smbd.elf"
@@ -122,7 +122,7 @@ if /i "%TEST%"=="P32" (
   set "TAG=PROSPERO-SMBD"
   set "PRODUCT=1"
   set "KEY=instance"
-  set "DURATION=etwa 2 Minuten, mittendrin kommen Fragen"
+  set "DURATION=about 2 minutes, with questions on the way"
 )
 if /i "%TEST%"=="P30" (
   set "ELF=prospero-smbd.elf"
@@ -130,7 +130,7 @@ if /i "%TEST%"=="P30" (
   set "TAG=PROSPERO-SMBD"
   set "PRODUCT=1"
   set "KEY=instance"
-  set "DURATION=etwa 3 Minuten"
+  set "DURATION=about 3 minutes"
 )
 if /i "%TEST%"=="P34" (
   set "ELF=prospero-smbd.elf"
@@ -138,10 +138,10 @@ if /i "%TEST%"=="P34" (
   set "TAG=PROSPERO-SMBD"
   set "PRODUCT=1"
   set "KEY=instance"
-  set "DURATION=etwa 10 Minuten"
+  set "DURATION=about 10 minutes"
 )
 if not defined ELF (
-  echo FEHLER: Unbekannter Test "%TEST%". Bekannt sind S2, S2b, S3, S4, S7, P22, P24, P30, P32 und P34.
+  echo ERROR: Unknown test "%TEST%". Known tests: S2, S2b, S3, S4, S7, P22, P24, P30, P32 and P34.
   exit /b 2
 )
 
@@ -151,8 +151,8 @@ set "LOG=%ROOT%\logs\%TEST%.log"
 if not exist "%ROOT%\logs" mkdir "%ROOT%\logs"
 
 echo.
-echo Test %TEST% mit der PS5 %PS5%. Explorer-Fenster zur PS5 bitte schliessen.
-echo Die Ausgabe erscheint am Ende gesammelt.
+echo Test %TEST% with the PS5 at %PS5%. Please close Explorer windows showing the PS5.
+echo The complete output is shown at the end.
 echo.
 call :steps > "%LOG%" 2>&1
 set "RC=%errorlevel%"
@@ -161,24 +161,24 @@ type "%LOG%"
 clip < "%LOG%"
 echo.
 echo ================================================================
-echo Die komplette Ausgabe steht in der Zwischenablage und in
+echo The complete output is in the clipboard and in
 echo %LOG%
-echo Bitte im Chat einfach mit Strg+V einfuegen.
+echo Paste it into the chat with Ctrl+V.
 echo ================================================================
 exit /b %RC%
 
 
 :steps
-echo ===== Testlauf %TEST%, PS5 %PS5% =====
+echo ===== Test run %TEST%, PS5 %PS5% =====
 echo Start: %date% %time%
 ver
 git -C "%ROOT%" log -1 --oneline
 
 echo.
-call :say 1/6 Build holen und pruefen
+call :say 1/6 Fetch and verify the build
 call "%ROOT%\tools\Get-DevBuild.cmd"
 if errorlevel 1 (
-  call :fail "Der Build ist nicht abrufbar oder fehlerhaft."
+  call :fail "The build cannot be fetched or is damaged."
   exit /b 1
 )
 set "BUILD_COMMIT="
@@ -188,12 +188,12 @@ for /f "usebackq tokens=1,* delims==" %%A in ("%ROOT%\dist\dev\BUILD-INFO.txt") 
 set "HEAD_COMMIT="
 for /f "delims=" %%C in ('git -C "%ROOT%" rev-parse HEAD') do set "HEAD_COMMIT=%%C"
 if /i not "%BUILD_COMMIT%"=="%HEAD_COMMIT%" (
-  call :fail "Der neueste gruene Build ist %BUILD_COMMIT:~0,7%, dein Stand ist %HEAD_COMMIT:~0,7%. Die CI laeuft vermutlich noch. Bitte in ein paar Minuten noch einmal starten."
+  call :fail "The latest green build is %BUILD_COMMIT:~0,7%, your checkout is %HEAD_COMMIT:~0,7%. The CI is probably still running. Please start again in a few minutes."
   exit /b 1
 )
 
 echo.
-call :say 2/6 Alte Verbindungen trennen und altes Payload beenden
+call :say 2/6 Drop old connections and end the old payload
 call :disconnect
 set "OLD_FOLDER="
 del /q "%STATUS%" 2>nul
@@ -204,7 +204,7 @@ if exist "%STATUS%" (
   )
 )
 if defined PRODUCT (
-  echo Das neue Payload loest ein laufendes selbst ab.
+  echo The new payload replaces a running one by itself.
   goto :gone
 )
 curl.exe -s --connect-timeout 3 --max-time 5 "%CTL%/quit"
@@ -214,22 +214,22 @@ set /a N+=1
 curl.exe -s --connect-timeout 2 --max-time 3 -o nul "%CTL%/"
 if errorlevel 1 goto :gone
 if %N% geq 10 (
-  call :fail "Das alte Payload beendet sich nicht."
+  call :fail "The old payload does not end."
   exit /b 1
 )
 ping -n 2 127.0.0.1 >nul
 goto :wait_gone
 :gone
-echo Port 4445 ist frei.
+echo Port 4445 is free.
 
 echo.
-call :say 3/6 Payload senden
+call :say 3/6 Send the payload
 set "MAXN=36"
 call "%ROOT%\tools\Send-Payload.cmd" %PS5% "%ROOT%\dist\dev\%ELF%"
 if errorlevel 1 call :manual_load
 
 echo.
-call :say 4/6 Warten, bis das Payload bereit ist
+call :say 4/6 Wait until the payload is ready
 set "N=0"
 :wait_ready
 set /a N+=1
@@ -245,26 +245,26 @@ if not errorlevel 1 (
 if defined FOLDER if not "%FOLDER%"=="%OLD_FOLDER%" goto :ready
 if %N% geq %MAXN% (
   rem "refused" means the payload has ended, a timeout that it hangs.
-  echo Letzter Versuch im Detail:
+  echo Last try in detail:
   curl.exe -sS --connect-timeout 3 --max-time 5 -o nul "%CTL%/"
-  call :fail "Das Payload meldet sich nicht auf Port 4445."
+  call :fail "The payload does not answer on port 4445."
   exit /b 1
 )
 ping -n 3 127.0.0.1 >nul
 goto :wait_ready
 :ready
-echo Bereit nach %N% Abfrage^(n^): %FOLDER%
+echo Ready after %N% request^(s^): %FOLDER%
 rem Clock check for S3: the console's UTC, the PC's local time and the Date
 rem header of github.com as a reference, taken within about a second.
-echo Uhrvergleich:
+echo Clock comparison:
 findstr /b /c:"now_utc=" "%STATUS%"
 echo pc_local=%date% %time%
 curl.exe -sSI --max-time 5 https://github.com 2>&1 | findstr /b /i /c:"date:"
 
 echo.
-call :say 5/6 Passwort holen
+call :say 5/6 Get the password
 if defined PRODUCT (
-  echo Entfaellt: Das Testprogramm koppelt selbst.
+  echo Not needed: the test program pairs by itself.
   goto :have_pw
 )
 del /q "%STATUS%" 2>nul
@@ -277,36 +277,36 @@ if exist "%STATUS%" (
 )
 if not defined PROSPERO_PW (
   if exist "%STATUS%" type "%STATUS%"
-  call :fail "Das Payload hat kein Passwort geliefert."
+  call :fail "The payload did not return a password."
   exit /b 1
 )
-echo Passwort erhalten.
+echo Password received.
 :have_pw
 
 echo.
-call :say 6/6 Test %TEST% laeuft, das dauert %DURATION%
+call :say 6/6 Test %TEST% running, this takes %DURATION%
 set "PROSPERO_AUTO=1"
 call "%ROOT%\tests\spikes\%SCRIPT%" %PS5%
 set "TEST_RC=%errorlevel%"
 set "PROSPERO_PW="
 
 echo.
-echo ===== Uhr der PS5 =====
+echo ===== Clock of the PS5 =====
 rem After the test on purpose: if this request fails, the results stand.
 curl.exe -sS --connect-timeout 3 --max-time 5 "%CTL%/clock"
 curl.exe -sSI --max-time 5 https://github.com 2>&1 | findstr /b /i /c:"date:"
 
 echo.
-echo ===== Aufraeumen =====
+echo ===== Clean-up =====
 call :disconnect
 if defined PRODUCT (
-  echo Das Payload laeuft weiter.
+  echo The payload keeps running.
 ) else (
   curl.exe -s --connect-timeout 3 --max-time 5 "%CTL%/quit"
 )
 echo.
-echo Ende: %date% %time%
-echo RUN-TEST: %TEST% beendet, Exitcode %TEST_RC%
+echo End: %date% %time%
+echo RUN-TEST: %TEST% finished, exit code %TEST_RC%
 exit /b %TEST_RC%
 
 
@@ -314,13 +314,13 @@ rem Without an ELF loader on 9021 the owner starts the payload by hand, for
 rem example with a payload manager in the browser. The script opens the
 rem folder with the file and the usual manager address, then waits longer.
 :manual_load
-echo Kein ELF-Loader auf Port 9021, das Payload muss von Hand gestartet werden.
+echo No ELF loader on port 9021, the payload must be started by hand.
 >con echo.
->con echo Kein ELF-Loader auf Port 9021. Bitte jetzt von Hand starten:
+>con echo No ELF loader on port 9021. Please start it by hand now:
 >con echo   %ROOT%\dist\dev\%ELF%
->con echo zum Beispiel ueber den Payload-Manager http://%PS5%:8084
->con echo hochladen und starten. Der Ordner mit der Datei und der Browser
->con echo werden geoeffnet. Das Skript wartet bis zu 10 Minuten.
+>con echo for example: upload and start it in the payload manager at
+>con echo http://%PS5%:8084 . The folder with the file and the browser
+>con echo are opened for you. The script waits for up to 10 minutes.
 >con echo.
 start "" explorer.exe /select,"%ROOT%\dist\dev\%ELF%"
 start "" "http://%PS5%:8084"
@@ -336,9 +336,9 @@ goto :eof
 
 :fail
 echo.
-echo FEHLER: %~1
->con echo FEHLER: %~1
-echo RUN-TEST: %TEST% ABGEBROCHEN
+echo ERROR: %~1
+>con echo ERROR: %~1
+echo RUN-TEST: %TEST% ABORTED
 goto :eof
 
 rem Windows refuses a second user name for the same server (system error

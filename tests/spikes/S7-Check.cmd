@@ -11,7 +11,7 @@ setlocal EnableExtensions EnableDelayedExpansion
 chcp 65001 >nul
 
 if "%~1"=="" (
-  echo Aufruf: %~nx0 ^<PS5-IP^>
+  echo Usage: %~nx0 ^<PS5-IP^>
   exit /b 2
 )
 set "PS5=%~1"
@@ -20,81 +20,80 @@ set "EXE=%~dp0..\..\dist\dev\prospero-s7-discover.exe"
 set "STATUS=%TEMP%\prospero-s7-status.txt"
 set "FAIL=0"
 
-echo ===== 0. Payload-Status und PC =====
+echo ===== 0. Payload status and PC =====
 curl.exe -s --connect-timeout 3 --max-time 5 -o "%STATUS%" "%CTL%/"
 findstr /b /c:"PROSPERO-S7 OK" "%STATUS%" >nul 2>&1
 if errorlevel 1 (
-  echo FEHLER: Das S7-Payload antwortet nicht auf Port 4445. Laeuft es noch?
+  echo ERROR: the S7 payload does not answer on port 4445. Is it still running?
   exit /b 1
 )
 findstr /b /c:"folder=" /c:"now_utc=" /c:"discovery_" "%STATUS%"
 if not exist "%EXE%" (
-  echo FEHLER: %EXE% fehlt. Bitte tools\Get-DevBuild.cmd ausfuehren.
+  echo ERROR: %EXE% is missing. Run tools\Get-DevBuild.cmd first.
   exit /b 1
 )
 rem Standard user or administrator: an elevated token would hide a prompt.
 "%SystemRoot%\System32\whoami.exe" /groups | findstr /c:"S-1-16-12288" >nul && (
-  echo HINWEIS: Die Konsole laeuft mit Administratorrechten. Fuer S7 bitte als normaler Benutzer starten.
+  echo NOTE: this console runs with administrator rights. For S7, start it as a standard user.
 ) || (
-  echo OK      Konsole ohne Administratorrechte
+  echo OK      console without administrator rights
 )
-echo Aktives Firewall-Profil:
+echo Active firewall profile:
 netsh advfirewall show currentprofile 2>nul | findstr /i /r /c:"profil" /c:"profile" /c:"state" /c:"status" /c:"inbound" /c:"eingehend"
 
 echo.
-echo ===== 1. Suchen per UDP =====
+echo ===== 1. Discovery over UDP =====
 >con echo.
->con echo   Gleich sucht ein Testprogramm die PS5. Falls ein Fenster der
->con echo   Windows-Firewall erscheint: auf "Abbrechen" klicken und am Ende
->con echo   mit j antworten.
+>con echo   A test program now searches for the PS5. If a Windows Firewall
+>con echo   window appears: click "Cancel" and answer y at the end.
 >con echo.
 ping -n 3 127.0.0.1 >nul
 "%EXE%" %PS5%
 set "RC=%errorlevel%"
-echo Exitcode %RC%
+echo Exit code %RC%
 
 echo.
-echo ===== 2. Was das Payload gemessen hat =====
+echo ===== 2. What the payload measured =====
 curl.exe -s --connect-timeout 3 --max-time 5 -o "%STATUS%" "%CTL%/"
 findstr /b /c:"now_utc=" /c:"discovery_" "%STATUS%"
-echo Referenz UTC ^(github.com^):
+echo Reference UTC ^(github.com^):
 curl.exe -sSI --max-time 5 https://github.com 2>&1 | findstr /b /i /c:"date:"
 
 echo.
-echo ===== 3. Firewall-Fenster? =====
+echo ===== 3. Firewall window? =====
 rem The question goes to the console, the answer into the output.
 ping -n 4 127.0.0.1 >nul
 set "FW="
 if defined PROSPERO_AUTO (
   >con echo.
-  >con set /p "FW=  Ist ein Fenster der Windows-Firewall erschienen? (j/n): " <con
+  >con set /p "FW=  Did a Windows Firewall window appear? (y/n): " <con
 ) else (
-  set /p "FW=Ist ein Fenster der Windows-Firewall erschienen? (j/n): "
+  set /p "FW=Did a Windows Firewall window appear? (y/n): "
 )
-echo Antwort: "!FW!"
+echo Answer: "!FW!"
 
 echo.
-set "UNI=FALSCH"
-set "BRO=FALSCH"
+set "UNI=FAIL"
+set "BRO=FAIL"
 set /a "U=RC & 1, B=RC & 2"
 if %RC% geq 3 set "FAIL=1"
 if "%U%"=="0" (set "UNI=OK") else (set "FAIL=1")
 if "%B%"=="0" (set "BRO=OK") else (set "FAIL=1")
-echo %UNI%  Unicast-Antwort
-echo %BRO%  Broadcast-Antwort
+echo %UNI%  unicast answer
+echo %BRO%  broadcast answer
 if /i "!FW!"=="n" (
-  echo OK  kein Firewall-Fenster
-) else if /i "!FW!"=="j" (
-  echo FALSCH  Firewall-Fenster erschienen
+  echo OK  no firewall window
+) else if /i "!FW!"=="y" (
+  echo FAIL    a firewall window appeared
   set "FAIL=1"
 ) else (
-  echo FALSCH  keine eindeutige Antwort zum Firewall-Fenster
+  echo FAIL    no clear answer about the firewall window
   set "FAIL=1"
 )
 echo.
 if "%FAIL%"=="0" (
-  echo S7-CHECK: BESTANDEN
+  echo S7-CHECK: PASSED
 ) else (
-  echo S7-CHECK: NICHT BESTANDEN, Ausgabe bitte komplett zurueckmelden
+  echo S7-CHECK: FAILED, please send back the complete output
 )
 exit /b %FAIL%

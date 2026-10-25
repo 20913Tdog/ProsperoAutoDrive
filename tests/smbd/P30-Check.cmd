@@ -13,7 +13,7 @@ setlocal EnableExtensions EnableDelayedExpansion
 chcp 65001 >nul
 
 if "%~1"=="" (
-  echo Aufruf: %~nx0 ^<PS5-IP^>
+  echo Usage: %~nx0 ^<PS5-IP^>
   exit /b 2
 )
 set "PS5=%~1"
@@ -21,31 +21,31 @@ set "CTL=http://%PS5%:4445"
 set "EXE=%~dp0..\..\dist\dev\prospero-probe.exe"
 set "SECONDS=120"
 
-echo ===== 1. Netzwerk der PS5 =====
->con echo   Netzwerk der PS5 abfragen
+echo ===== 1. Network of the PS5 =====
+>con echo   Asking the PS5 for its network
 curl.exe -sS --connect-timeout 3 --max-time 10 "%CTL%/net"
 if errorlevel 1 (
-  echo FEHLER: keine Antwort auf /net. Laeuft das Payload noch?
+  echo ERROR: no answer to /net. Is the payload still running?
   curl.exe -sS --connect-timeout 3 --max-time 5 -o nul "%CTL%/"
-  if errorlevel 1 echo Das Payload antwortet gar nicht mehr, vermutlich beim Abfragen abgestuerzt.
+  if errorlevel 1 echo The payload does not answer at all any more, it probably crashed during the request.
   exit /b 1
 )
 
 echo.
-echo ===== 2. Leerlauf: Rechenzeit =====
+echo ===== 2. Idle: CPU time =====
 if not exist "%EXE%" (
-  echo FEHLER: %EXE% fehlt. Bitte tools\Get-DevBuild.cmd ausfuehren.
+  echo ERROR: %EXE% is missing. Run tools\Get-DevBuild.cmd first.
   exit /b 1
 )
->con echo   Leerlauf messen, etwa 2,5 Minuten, Fortschritt unten. PC und PS5 bitte nicht benutzen.
+>con echo   Measuring idle load, about 2.5 minutes, progress below. Please do not use the PC or the PS5.
 "%EXE%" %PS5% --no-broadcast --idle-test %SECONDS%
 set "RC=%errorlevel%"
-echo Exitcode %RC%
+echo Exit code %RC%
 
 echo.
 if "%RC%"=="0" (
-  echo P30-CHECK: BESTANDEN
+  echo P30-CHECK: PASSED
 ) else (
-  echo P30-CHECK: FEHLER, Ausgabe bitte komplett zurueckmelden
+  echo P30-CHECK: FAILED, please send back the complete output
 )
 exit /b %RC%

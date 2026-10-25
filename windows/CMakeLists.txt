@@ -3,6 +3,10 @@ enable_language(CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 add_compile_definitions(WIN32_LEAN_AND_MEAN UNICODE _UNICODE _WIN32_WINNT=0x0A00)
+# No symbols or debug info in the published programs: the toolchain's
+# runtime would otherwise carry the paths of the machine it was built on.
+# A fixed PE time stamp keeps builds of the same sources byte-identical.
+add_link_options(-s -Wl,--no-insert-timestamp)
 
 # Client side of discovery and service channel, shared by the probe and
 # later ProsperoAutoDrive.exe.

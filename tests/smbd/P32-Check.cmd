@@ -15,7 +15,7 @@ setlocal EnableExtensions EnableDelayedExpansion
 chcp 65001 >nul
 
 if "%~1"=="" (
-  echo Aufruf: %~nx0 ^<PS5-IP^>
+  echo Usage: %~nx0 ^<PS5-IP^>
   exit /b 2
 )
 set "PS5=%~1"
@@ -24,7 +24,7 @@ set "APP=%DIST%\ProsperoAutoDrive.exe"
 set "STATE=%TEMP%\prospero-p32"
 set "LOG=%STATE%\log.txt"
 if not exist "%APP%" (
-  echo FEHLER: %APP% fehlt. Bitte tools\Get-DevBuild.cmd ausfuehren.
+  echo ERROR: %APP% is missing. Run tools\Get-DevBuild.cmd first.
   exit /b 1
 )
 "%APP%" --stop >nul
@@ -33,54 +33,54 @@ if exist "%STATE%" rmdir /s /q "%STATE%"
 rem The probe pairs this PC if it is not paired yet.
 "%DIST%\prospero-probe.exe" %PS5% --no-broadcast >nul
 if errorlevel 1 (
-  echo FEHLER: Das Testprogramm konnte nicht koppeln, Ausgabe:
+  echo ERROR: the test program could not pair, its output:
   "%DIST%\prospero-probe.exe" %PS5% --no-broadcast
   exit /b 1
 )
 
-echo ===== 1. Programm starten =====
->con echo   Programm starten, das Laufwerk sollte gleich erscheinen
+echo ===== 1. Start the program =====
+>con echo   Starting the program, the drive should appear shortly
 echo %time% Start
 start "ProsperoAutoDrive" /min "%APP%" --ip %PS5% --state-dir "%STATE%"
-call :wait_for "MELDUNG: Server verbunden" 10 || (
-  echo FEHLER: kein Laufwerk nach 10 s
+call :wait_for " connected as " 10 || (
+  echo ERROR: no drive after 10 s
   goto :end
 )
 
 echo.
-echo ===== 2. Payload neu senden (ordentliches Ende und Neustart) =====
->con echo   Payload neu senden, das Laufwerk sollte kurz verschwinden und wiederkommen
-echo %time% Payload senden
+echo ===== 2. Send the payload again (orderly end and restart) =====
+>con echo   Sending the payload again, the drive should vanish briefly and come back
+echo %time% Payload sent
 call "%~dp0..\..\tools\Send-Payload.cmd" %PS5% "%DIST%\prospero-smbd.elf" >nul
-call :wait_count "MELDUNG: Server verbunden" 2 20 || echo FEHLER: das Laufwerk kam nicht wieder
+call :wait_count " connected as " 2 20 || echo ERROR: the drive did not come back
 
 echo.
-echo ===== 3. Netzwerkkabel der PS5 (auf Wunsch) =====
+echo ===== 3. Network cable of the PS5 (optional) =====
 >con echo.
->con echo   Jetzt bitte das Netzwerkkabel an der PS5 ziehen und Enter druecken.
->con set /p "SKIP=  (Wer das nicht moechte: n und Enter) " <con
+>con echo   Now unplug the network cable of the PS5 and press Enter.
+>con set /p "SKIP=  (To skip this step: n and Enter) " <con
 if /i "!SKIP!"=="n" (
-  echo uebersprungen
+  echo skipped
   goto :end
 )
-echo %time% Kabel gezogen
->con echo   Warte 20 s ...
+echo %time% Cable unplugged
+>con echo   Waiting 20 s ...
 ping -n 21 127.0.0.1 >nul
->con echo   Jetzt das Kabel wieder einstecken und Enter druecken.
+>con echo   Now plug the cable in again and press Enter.
 >con set /p "X=" <con
-echo %time% Kabel eingesteckt
->con echo   Warte, bis das Laufwerk wieder da ist (bis 60 s) ...
-call :wait_count "MELDUNG: Server verbunden" 3 60 || echo FEHLER: das Laufwerk kam nach 60 s nicht wieder
+echo %time% Cable plugged in
+>con echo   Waiting until the drive is back (up to 60 s) ...
+call :wait_count " connected as " 3 60 || echo ERROR: the drive did not come back within 60 s
 
 :end
 echo.
-echo ===== Programm beenden =====
+echo ===== End the program =====
 "%APP%" --stop
 echo.
-echo ===== Log des Programms =====
+echo ===== Log of the program =====
 type "%LOG%"
 echo.
-echo P32-CHECK: DURCHGELAUFEN, die Zeiten stehen im Log
+echo P32-CHECK: COMPLETED, the times are in the log
 exit /b 0
 
 rem :wait_for <text> <seconds>: until the log has the text.

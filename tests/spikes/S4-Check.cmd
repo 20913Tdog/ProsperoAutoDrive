@@ -9,13 +9,13 @@ rem while a large copy runs (the server handles requests one at a time).
 rem Writes only schreiben-smb.bin and schreiben-ftp.bin in the new test
 rem folder, overwriting them each round. After a failed transfer it stops
 rem measuring and only reads the status: no retry.
-rem   S4-Check.cmd <PS5-IP> [FTP-Port] [Runden]
+rem   S4-Check.cmd <PS5-IP> [FTP port] [rounds]
 rem Windows built-ins only (net, copy, certutil, fc, sort, curl.exe).
 setlocal EnableExtensions EnableDelayedExpansion
 chcp 65001 >nul
 
 if "%~1"=="" (
-  echo Aufruf: %~nx0 ^<PS5-IP^> [FTP-Port] [Runden]
+  echo Usage: %~nx0 ^<PS5-IP^> [FTP port] [rounds]
   exit /b 2
 )
 set "PS5=%~1"
@@ -35,18 +35,18 @@ set "STATUS=%TEMP%\prospero-s4-status.txt"
 set "SORT=%SystemRoot%\System32\sort.exe"
 set "FAIL=0"
 set "STOP=0"
-set "N_smb_lesen=SMB lesen     "
-set "N_ftp_lesen=FTP lesen     "
-set "N_smb_schreiben=SMB schreiben "
-set "N_ftp_schreiben=FTP schreiben "
-set "N_c_lesen=SMB2.1 lesen  "
-set "N_c_schreiben=SMB2.1 schreib"
+set "N_smb_lesen=SMB read      "
+set "N_ftp_lesen=FTP read      "
+set "N_smb_schreiben=SMB write     "
+set "N_ftp_schreiben=FTP write     "
+set "N_c_lesen=SMB2.1 read   "
+set "N_c_schreiben=SMB2.1 write  "
 
-echo ===== 0. Payload-Status =====
+echo ===== 0. Payload status =====
 curl.exe -s --connect-timeout 3 --max-time 5 -o "%STATUS%" "%CTL%/"
 findstr /b /c:"PROSPERO-S4 OK" "%STATUS%" >nul 2>&1
 if errorlevel 1 (
-  echo FEHLER: Das S4-Payload antwortet nicht auf Port 4445. Laeuft es noch?
+  echo ERROR: the S4 payload does not answer on port 4445. Is it still running?
   exit /b 1
 )
 type "%STATUS%"
@@ -57,29 +57,29 @@ rem tools\Run-Test.cmd passes the password in PROSPERO_PW.
 if defined PROSPERO_PW (
   set "PW=%PROSPERO_PW%"
 ) else (
-  set /p "PW=Passwort aus der PS5-Benachrichtigung: "
+  set /p "PW=Password from the PS5 notification: "
 )
 mkdir "%OUT%" "%RES%"
 echo Start: %date% %time%
-echo Datei %BIG% ^(%BYTES% Bytes^), %ROUNDS% Runden je Richtung, FTP-Port %FTPPORT%
+echo File %BIG% ^(%BYTES% bytes^), %ROUNDS% rounds per direction, FTP port %FTPPORT%
 
 echo.
-echo ===== 1. FTP-Referenz erreichbar? =====
+echo ===== 1. FTP reference reachable? =====
 curl.exe -sS --connect-timeout 5 --max-time 30 -o "%OUT%\hello.txt" "ftp://%PS5%:%FTPPORT%%FOLDER%/hello.txt"
 if errorlevel 1 (
-  echo FEHLER: ftpsrv antwortet nicht auf Port %FTPPORT%. Ohne Referenz laesst sich G1 nicht bewerten.
+  echo ERROR: ftpsrv does not answer on port %FTPPORT%. Without the reference G1 cannot be judged.
   set "FAIL=1"
   goto :report
 )
-echo OK      ftpsrv liefert Dateien aus dem Testordner
+echo OK      ftpsrv serves files from the test folder
 
 echo.
-echo ===== 2. Verbinden und Datei einmal holen =====
+echo ===== 2. Connect and fetch the file once =====
 call :connect || goto :report
 call :now T0
 copy /y /b "%SHARE%\%BIG%" "%OUT%\quelle.bin" >nul
 if errorlevel 1 (
-  echo FEHLER: Die 256-MiB-Datei liess sich nicht per SMB lesen.
+  echo ERROR: the 256 MiB file could not be read over SMB.
   set "FAIL=1"
   goto :report
 )
@@ -87,35 +87,35 @@ call :now T1
 call :elapsed T0 T1 WARM
 call :sha "%OUT%\quelle.bin"
 if /i "!GOT!"=="%BIG_SHA%" (
-  echo OK      SHA-256 der Datei stimmt
+  echo OK      SHA-256 of the file matches
 ) else (
-  echo FALSCH  SHA-256 der Datei: !GOT!
+  echo FAIL    SHA-256 of the file: !GOT!
   set "FAIL=1"
   goto :report
 )
 set /a "EST=WARM*(4*ROUNDS+2*C_ROUNDS+2)/6000+1"
-echo Erster Durchlauf: !WARM! cs. Geschaetzte Dauer: etwa !EST! Minuten.
->con echo   S4 misst jetzt, geschaetzt etwa !EST! Minuten. Bitte PC und PS5 in Ruhe lassen.
+echo First run: !WARM! cs. Estimated duration: about !EST! minutes.
+>con echo   S4 is measuring now, about !EST! minutes. Please leave the PC and the PS5 alone.
 
 echo.
-echo ===== 3. Kleine Datei lesen, ohne und mit Last =====
+echo ===== 3. Read a small file, without and with load =====
 call :small IDLE
-echo Ohne Last:               !IDLE! ms je Datei ^(20x hello.txt^)
+echo Without load:            !IDLE! ms per file ^(20x hello.txt^)
 > "%OUT%\last.cmd" (
   echo @copy /y /b "%SHARE%\%BIG%" "%OUT%\last.bin" ^>nul
-  echo @echo fertig^> "%OUT%\last.done"
+  echo @echo done^> "%OUT%\last.done"
 )
 rem cmd /c, because start alone keeps a batch file's cmd open (/K).
 start "" /b cmd /c ""%OUT%\last.cmd""
 ping -n 4 127.0.0.1 >nul
 call :small BUSY
-echo Waehrend einer Kopie:    !BUSY! ms je Datei
+echo During a copy:           !BUSY! ms per file
 set "N=0"
 :wait_load
 if exist "%OUT%\last.done" goto :load_done
 set /a N+=1
 if %N% geq 600 (
-  echo FALSCH  Die Kopie im Hintergrund endet nicht. Messung wird beendet.
+  echo FAIL    the background copy does not end. The measurement stops.
   set "FAIL=1"
   goto :report
 )
@@ -125,19 +125,19 @@ goto :wait_load
 set "TF=%OUT%\last.bin"
 call :size_of
 if not "!SIZE!"=="%BYTES%" (
-  echo FALSCH  Die Kopie im Hintergrund ist unvollstaendig ^(!SIZE!^).
+  echo FAIL    the background copy is incomplete ^(!SIZE!^).
   set "FAIL=1"
   goto :report
 )
 del /q "%OUT%\last.bin" 2>nul
 
 echo.
-echo ===== 4. %ROUNDS% Runden mit Profil b ^(SMB 3.1.1, AES-CMAC^) =====
+echo ===== 4. %ROUNDS% rounds with profile b ^(SMB 3.1.1, AES-CMAC^) =====
 for /l %%R in (1,1,%ROUNDS%) do call :round %%R
 if "%STOP%"=="1" goto :evaluate
 
 echo.
-echo ===== 5. %C_ROUNDS% Runden mit Profil c ^(SMB 2.1, HMAC-SHA256^) =====
+echo ===== 5. %C_ROUNDS% rounds with profile c ^(SMB 2.1, HMAC-SHA256^) =====
 call :disconnect
 curl.exe -s --max-time 5 "%CTL%/profile/c"
 ping -n 3 127.0.0.1 >nul
@@ -149,46 +149,46 @@ for /l %%R in (1,1,%C_ROUNDS%) do (
 
 :evaluate
 echo.
-echo ===== 6. Auswertung ^(Median^) =====
+echo ===== 6. Evaluation ^(median^) =====
 for %%K in (smb_lesen ftp_lesen smb_schreiben ftp_schreiben c_lesen c_schreiben) do (
   call :median %%K
   call :median cpu_%%K
 )
 set "G1=1"
-call :verdict lesen Lesen
-call :verdict schreiben Schreiben
+call :verdict lesen Read
+call :verdict schreiben Write
 call :mbs "!MED_c_lesen!" CL
 call :mbs "!MED_c_schreiben!" CW
-echo SMB 2.1 mit HMAC-SHA256: lesen !CL! MB/s, schreiben !CW! MB/s ^(!CNT_c_lesen! und !CNT_c_schreiben! Laeufe^)
-echo CPU der PS5 je MiB in ms, gemessen mit getrusage:
+echo SMB 2.1 with HMAC-SHA256: read !CL! MB/s, write !CW! MB/s ^(!CNT_c_lesen! and !CNT_c_schreiben! runs^)
+echo CPU time of the PS5 per MiB in ms, measured with getrusage:
 for %%K in (smb_lesen smb_schreiben c_lesen c_schreiben) do (
   set "M=!MED_cpu_%%K!"
   if defined M (
     set /a "W=M*10/256, WI=W/10, WF=W%%10"
-    echo   !N_%%K!  !WI!,!WF!
+    echo   !N_%%K!  !WI!.!WF!
   )
 )
-echo Kleine Datei lesen: ohne Last !IDLE! ms, waehrend einer grossen Kopie !BUSY! ms
+echo Small file read: without load !IDLE! ms, during a large copy !BUSY! ms
 
 :report
 echo.
-echo ===== Payload-Status danach =====
+echo ===== Payload status after =====
 curl.exe -s --connect-timeout 3 --max-time 5 "%CTL%/"
 
 call :disconnect
 if exist "%OUT%" rmdir /s /q "%OUT%"
 
 echo.
-echo Ende: %date% %time%
+echo End: %date% %time%
 if not "%FAIL%"=="0" (
-  echo S4-CHECK: FEHLER, Ausgabe bitte komplett zurueckmelden
+  echo S4-CHECK: FAILED, please send back the complete output
   exit /b 1
 )
 if "%G1%"=="1" (
-  echo S4-CHECK: G1 BESTANDEN ^(Lesen !PCT_lesen! %%, Schreiben !PCT_schreiben! %% von ftpsrv^)
+  echo S4-CHECK: G1 PASSED ^(read !PCT_lesen! %%, write !PCT_schreiben! %% of ftpsrv^)
   exit /b 0
 )
-echo S4-CHECK: G1 NICHT ERREICHT ^(Lesen !PCT_lesen! %%, Schreiben !PCT_schreiben! %% von ftpsrv, Ziel 70 %%^)
+echo S4-CHECK: G1 NOT REACHED ^(read !PCT_lesen! %%, write !PCT_schreiben! %% of ftpsrv, goal 70 %%^)
 exit /b 1
 
 
@@ -219,9 +219,9 @@ set "XRC=!errorlevel!"
 call :now T1
 call :elapsed T0 T1 CS
 call :size_%1
-if not "!XRC!"=="0" set "SIZE=Exitcode !XRC!"
+if not "!XRC!"=="0" set "SIZE=exit code !XRC!"
 if not "!SIZE!"=="%BYTES%" (
-  echo FALSCH  Runde %2 !N_%1!: fehlgeschlagen ^(!SIZE!^). Die Messung endet hier, ohne Wiederholung.
+  echo FAIL    round %2 !N_%1!: failed ^(!SIZE!^). The measurement ends here, without a retry.
   set "FAIL=1"
   set "STOP=1"
   goto :eof
@@ -236,7 +236,7 @@ if not "%1"=="ftp_lesen" if not "%1"=="ftp_schreiben" (
   >>"%RES%\cpu_%1.txt" echo !CPU!
   set "CPUTXT=  CPU !CPU! ms"
 )
-echo Runde %2  !N_%1!  !SI!,!SF! s  !TXT! MB/s!CPUTXT!
+echo round %2  !N_%1!  !SI!.!SF! s  !TXT! MB/s!CPUTXT!
 rem Round 1 also compares the bytes; outside the timed part.
 if "%2"=="1" if "%1"=="smb_lesen" call :same "%OUT%\smb-lesen.bin"
 if "%2"=="1" if "%1"=="ftp_lesen" call :same "%OUT%\ftp-lesen.bin"
@@ -275,7 +275,7 @@ goto :size_of
 :size_ftp_schreiben
 set "TF=%SHARE%\schreiben-ftp.bin"
 :size_of
-set "SIZE=fehlt"
+set "SIZE=missing"
 if exist "%TF%" for %%F in ("%TF%") do set "SIZE=%%~zF"
 goto :eof
 
@@ -283,11 +283,11 @@ rem :same <file>: byte comparison with the first SMB copy.
 :same
 fc /b "%~1" "%OUT%\quelle.bin" >nul 2>&1
 if errorlevel 1 (
-  echo FALSCH  %~nx1 unterscheidet sich von der ersten Kopie
+  echo FAIL    %~nx1 differs from the first copy
   set "FAIL=1"
   set "STOP=1"
 ) else (
-  echo OK      %~nx1 Byte fuer Byte gleich
+  echo OK      %~nx1 identical byte by byte
 )
 goto :eof
 
@@ -324,7 +324,7 @@ if not defined V (
 )
 set /a "MI=V/1000, MF=(V%%1000)/10"
 if !MF! lss 10 set "MF=0!MF!"
-set "%2=!MI!,!MF!"
+set "%2=!MI!.!MF!"
 goto :eof
 
 :cpu
@@ -375,7 +375,7 @@ if defined SV if defined FV (
   set /a "PCT_%1=SV*100/FV"
   if !PCT_%1! lss 70 set "G1=0"
 )
-echo %2: SMB !ST! MB/s, FTP !FT! MB/s, SMB = !PCT_%1! %% von FTP ^(Ziel 70 %%, !CNT_smb_%1!/!CNT_ftp_%1! Laeufe^)
+echo %2: SMB !ST! MB/s, FTP !FT! MB/s, SMB = !PCT_%1! %% of FTP ^(goal 70 %%, !CNT_smb_%1!/!CNT_ftp_%1! runs^)
 goto :eof
 
 :sha
@@ -389,7 +389,7 @@ goto :eof
 :connect
 net use "%SHARE%" "%PW%" /user:prospero /persistent:no >nul
 if errorlevel 1 (
-  echo FEHLER: Verbindung fehlgeschlagen. Bestehende Verbindungen:
+  echo ERROR: connecting failed. Existing connections:
   net use
   set "FAIL=1"
   exit /b 1

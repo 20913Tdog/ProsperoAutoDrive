@@ -36,6 +36,34 @@ std::string Ini(const std::wstring &file, const wchar_t *key) {
   return Narrow(buf);
 }
 
+// "error 53 (The network path was not found.)": the number with Windows'
+// own text, in English where Windows has it, else in its own language.
+std::string WinError(DWORD rc) {
+  char buf[256] = {};
+  DWORD flags = FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS;
+  HMODULE netmsg = nullptr;
+  DWORD n = FormatMessageA(flags, nullptr, rc, MAKELANGID(LANG_ENGLISH, SUBLANG_ENGLISH_US), buf, sizeof buf, nullptr);
+  if (!n) n = FormatMessageA(flags, nullptr, rc, 0, buf, sizeof buf, nullptr);
+  if (!n && rc >= 2100 && rc < 2999) {
+    // NERR_* codes of NetUseDel live in netmsg.dll.
+    netmsg = LoadLibraryExW(L"netmsg.dll", nullptr, LOAD_LIBRARY_AS_DATAFILE);
+    if (netmsg) n = FormatMessageA(FORMAT_MESSAGE_FROM_HMODULE | FORMAT_MESSAGE_IGNORE_INSERTS, netmsg, rc, 0, buf,
+                                   sizeof buf, nullptr);
+  }
+  if (netmsg) FreeLibrary(netmsg);
+  while (n && (buf[n - 1] == '\r' || buf[n - 1] == '\n' || buf[n - 1] == ' ')) buf[--n] = '\0';
+  return "error " + std::to_string(rc) + (n ? " (" + std::string(buf) + ")" : "");
+}
+
+// "GOODBYE 1 reason=remote" in words.
+std::string Goodbye(const std::string &line) {
+  size_t p = line.find("reason=");
+  std::string why = p == std::string::npos ? "" : line.substr(p + 7, line.find(' ', p) - p - 7);
+  if (why == "remote") return "it was shut down from a paired PC";
+  if (why == "replaced") return "a new instance of the server replaced it";
+  return why.empty() ? "no reason given" : "reason: " + why;
+}
+
 void CALLBACK OnNetChange(PVOID ctx, PMIB_IPINTERFACE_ROW, MIB_NOTIFICATION_TYPE) {
   SetEvent(static_cast<HANDLE>(ctx));
 }
@@ -116,8 +144,9 @@ int Agent::Run(HANDLE stop, HANDLE search) {
   core::Machine m(t, s_.server_id, creds);
   m_ = &m;
   // With admin rights the drive would be invisible to the Explorer.
-  Log("Start: Server %s unter %s:%u, %s", s_.server_id.empty() ? "(noch keiner)" : s_.server_id.c_str(),
-      s_.ip.c_str(), s_.port, setup::Elevated() ? "MIT Adminrechten" : "ohne Adminrechte");
+  Log("Started: server %s at %s, control channel port %u, %s",
+      s_.server_id.empty() ? "not paired yet" : s_.server_id.c_str(), s_.ip.empty() ? "?" : s_.ip.c_str(),
+      s_.port, setup::Elevated() ? "WITH administrator rights" : "without administrator rights");
   Report("", false);
   Do(m.Start(Now()));
   HANDLE never = CreateEventW(nullptr, TRUE, FALSE, nullptr);
@@ -131,7 +160,7 @@ int Agent::Run(HANDLE stop, HANDLE search) {
     }
     DWORD r = WaitForMultipleObjects(6, hs, FALSE, to);
     if (r == WAIT_OBJECT_0) {
-      Log("Ende angefordert");
+      Log("Exit requested");
       Do(m.Handle(Event(Event::kShutdown), Now()));
       break;
     }
@@ -142,10 +171,12 @@ int Agent::Run(HANDLE stop, HANDLE search) {
       std::string goodbye;
       int pongs = ch_.Poll(&closed, &goodbye);
       if (pongs) last_pong_ = Now();
-      if (!goodbye.empty()) Log("Server verabschiedet sich: %s", goodbye.c_str());
+      if (!goodbye.empty()) {
+        Log("Server said goodbye: %s (%s)", Goodbye(goodbye).c_str(), goodbye.c_str());
+      }
       for (int i = 0; i < pongs; i++) Do(m.Handle(Event(Event::kPong), Now()));
       if (closed) {
-        Log("Dienstkanal vom Server geschlossen");
+        Log("Control channel: closed by the server");
         ch_.Close();
         Do(m.Handle(Event(Event::kChannelClosed), Now()));
       }
@@ -160,7 +191,8 @@ int Agent::Run(HANDLE stop, HANDLE search) {
       std::string other = m.other_server();
       if (!other.empty()) {
         // The old pairing goes for good: that server is gone for this PC.
-        Log("neuer Server %s statt %s, wird gekoppelt", other.c_str(), s_.server_id.c_str());
+        Log("Pairing with the new server %s instead of %s (confirmed by the user)", other.c_str(),
+            s_.server_id.c_str());
         if (!s_.server_id.empty()) DeleteCredential(s_.server_id);
         cred_ = Credential();
         s_.server_id = other;
@@ -171,19 +203,19 @@ int Agent::Run(HANDLE stop, HANDLE search) {
       }
     } else if (r == WAIT_OBJECT_0 + 5) {
       ResetEvent(retry_event_);
-      Log("Neu koppeln angefordert");
+      Log("Pair again: requested by the user");
       Do(m.Handle(Event(Event::kRetry), Now()));
       Report("", false);
     } else if (r == WAIT_TIMEOUT) {
       Do(m.Handle(Event(Event::kTick), Now()));
     } else {
-      Log("Warten fehlgeschlagen, Fehler %lu", GetLastError());
+      Log("Waiting for events failed, %s", WinError(GetLastError()).c_str());
       Sleep(1000);
     }
   }
   CloseHandle(never);
   m_ = nullptr;
-  Log("beendet");
+  Log("Stopped");
   return 0;
 }
 
@@ -220,15 +252,19 @@ Agent::Event Agent::Exec(const Action &a, bool *answered) {
         if (StoreCredential(hello_.server_id, c, &err)) {
           cred_ = c;
           e.ok = true;
-          Log("gekoppelt, Zugangsdaten in der Anmeldeinformationsverwaltung");
+          Log("Paired with server %s; user name and password stored in the Windows Credential Manager",
+              hello_.server_id.c_str());
         } else {
-          Log("Zugangsdaten nicht gespeichert: %s", err.c_str());
+          Log("Paired, but the credentials could not be stored: %s", err.c_str());
         }
       } else {
         // Tried every 10 s while refused: only a change goes into the log.
         static std::string last;
         std::string why = refused.empty() ? err : refused;
-        if (why != last) Log("Koppeln: %s", why.c_str());
+        if (why != last) {
+          Log("Pairing refused by the server (%s)%s", why.c_str(),
+              why == "closed" ? ": pairing is closed; restarting the server opens it for 2 minutes" : "");
+        }
         last = why;
       }
       return e;
@@ -240,7 +276,7 @@ Agent::Event Agent::Exec(const Action &a, bool *answered) {
       break;
     case Action::kSendPing:
       if (!ch_.SendPing(cred_.password, sock_event_, &err)) {
-        Log("PING: %s", err.c_str());
+        Log("Heartbeat could not be sent: %s", err.c_str());
         ch_.Close();
         return Event(Event::kChannelClosed);
       }
@@ -250,14 +286,17 @@ Agent::Event Agent::Exec(const Action &a, bool *answered) {
       unsigned short port = hello_.smb_port ? hello_.smb_port : 445;
       e.ok = Probe(port);
       // When the last PONG came tells how long the server has been gone.
-      Log("Test Port %u: %s, letzte Antwort auf ein Lebenszeichen vor %lld ms", port,
-          e.ok ? "antwortet" : "keine Antwort",
-          static_cast<long long>(last_pong_ ? Now() - last_pong_ : -1));
+      if (last_pong_) {
+        Log("SMB port %u check: %s; last heartbeat reply %lld ms ago", port,
+            e.ok ? "reachable" : "no answer", static_cast<long long>(Now() - last_pong_));
+      } else {
+        Log("SMB port %u check: %s; no heartbeat reply so far", port, e.ok ? "reachable" : "no answer");
+      }
       return e;
     }
     case Action::kBroadcast: {
       // Up to 30 s, one request every 2 s, until the server answers.
-      Log("Suche im Netz");
+      Log("Network search: broadcasting for up to 30 s");
       std::vector<in_addr> targets;
       for (auto &t : BroadcastTargets()) targets.push_back(t.first);
       for (int round = 0; round < 15; round++) {
@@ -265,15 +304,15 @@ Agent::Event Agent::Exec(const Action &a, bool *answered) {
         if (!Discover(targets, s_.port, 2000, &found, &err)) break;
         for (const Here &h : found) {
           if (s_.server_id.empty() || h.id == s_.server_id) {
-            Log("gefunden: %s unter %s", h.id.c_str(), h.ip.c_str());
+            Log("Network search: found server %s at %s", h.id.c_str(), h.ip.c_str());
             s_.ip = h.ip;
             s_.Save();
             return Event(Event::kFound);
           }
         }
       }
-      Log("Suche: nichts gefunden");
-      Report(s_.name.empty() ? "Server nicht gefunden" : s_.name + " nicht gefunden", true);
+      Log("Network search: nothing found");
+      Report((s_.name.empty() ? std::string("Server") : s_.name) + " not found on the network", true);
       break;
     }
     case Action::kNotify:
@@ -291,7 +330,7 @@ Agent::Event Agent::Connect() {
   std::string err;
   if (!ch_.Connect(s_.ip, s_.port, 1000, &err) || !ch_.SayHello(&hello_, &err)) {
     ch_.Close();
-    if (err != last_err) Log("Dienstkanal: %s", err.c_str());
+    if (err != last_err) Log("Control channel to %s:%u: %s", s_.ip.c_str(), s_.port, err.c_str());
     last_err = err;
     last_up.clear();
     return Event(Event::kChannelFailed);
@@ -305,9 +344,9 @@ Agent::Event Agent::Connect() {
     if (LoadCredential(hello_.server_id, &c)) cred_ = c;
   }
   e.ok = !cred_.password.empty();
-  std::string up = hello_.server_id + " (" + hello_.name + "), Verbindung " +
-                   (hello_.link.empty() ? "unbekannt" : hello_.link);
-  if (up != last_up) Log("Dienstkanal: %s", up.c_str());
+  std::string up = "connected to server " + hello_.server_id + " (" + hello_.name + "), its network link: " +
+                   (hello_.link.empty() ? "unknown" : hello_.link);
+  if (up != last_up) Log("Control channel: %s", up.c_str());
   last_up = up;
   return e;
 }
@@ -350,16 +389,17 @@ Agent::Event Agent::Map() {
     e.reason = (rc == ERROR_LOGON_FAILURE || rc == ERROR_ACCESS_DENIED || rc == ERROR_INVALID_PASSWORD)
                    ? Event::kAuth
                    : Event::kOther;
-    e.text = "Windows-Fehler " + std::to_string(rc);
+    e.text = "Windows " + WinError(rc);
     if (rc != last_map_err_) {
-      Log("%s -> %s: Windows-Fehler %lu", Narrow(chosen).c_str(), Narrow(remote).c_str(), rc);
+      Log("Drive %s -> %s not connected: Windows %s", Narrow(chosen).c_str(), Narrow(remote).c_str(),
+          WinError(rc).c_str());
     }
     last_map_err_ = rc;
     return e;
   }
   last_map_err_ = 0;
   letter_ = chosen;
-  Log("%s -> %s verbunden in %lld ms", Narrow(chosen).c_str(), Narrow(remote).c_str(),
+  Log("Drive %s -> %s connected in %lld ms", Narrow(chosen).c_str(), Narrow(remote).c_str(),
       static_cast<long long>(Now() - t0));
   if (s_.server_id != hello_.server_id || s_.name != hello_.name) {
     s_.server_id = hello_.server_id;
@@ -369,7 +409,7 @@ Agent::Event Agent::Map() {
   SYSTEMTIME lt;
   GetLocalTime(&lt);
   char seen[40];
-  snprintf(seen, sizeof seen, "%02u.%02u.%04u %02u:%02u", lt.wDay, lt.wMonth, lt.wYear, lt.wHour,
+  snprintf(seen, sizeof seen, "%04u-%02u-%02u %02u:%02u", lt.wYear, lt.wMonth, lt.wDay, lt.wHour,
            lt.wMinute);
   last_seen_ = seen;
   Event e(Event::kMapped);
@@ -389,8 +429,8 @@ void Agent::Unmap() {
     how = "WNetCancelConnection2";
     rc = WNetCancelConnection2W(letter_.c_str(), 0, TRUE);
   }
-  Log("%s getrennt in %lld ms (%s)%s", Narrow(letter_).c_str(), static_cast<long long>(Now() - t0),
-      how, rc == NO_ERROR ? "" : (", Windows-Fehler " + std::to_string(rc)).c_str());
+  Log("Drive %s disconnected in %lld ms (%s)%s", Narrow(letter_).c_str(), static_cast<long long>(Now() - t0),
+      how, rc == NO_ERROR ? "" : (", Windows " + WinError(rc)).c_str());
   letter_.clear();
 }
 
@@ -406,36 +446,36 @@ void Agent::Notify(core::Note n, const std::string &text) {
   bool problem = true;
   switch (n) {
     case core::Note::kConnected:
-      msg = who + " verbunden als " + text;
+      msg = who + " connected as " + text;
       problem = false;
       break;
     case core::Note::kDisconnected:
-      msg = who + " getrennt";
+      msg = who + " disconnected";
       problem = false;
       break;
     case core::Note::kOtherServer:
-      msg = "Unter " + s_.ip + " antwortet ein anderer Server (" + text +
-            "). Wurde er neu eingerichtet: im Tray-Menue \"Mit neuem Server koppeln\".";
+      msg = "A different server answers at " + s_.ip + " (server ID " + text +
+            "). If it was set up again: tray menu \"Pair with the new server\".";
       break;
     case core::Note::kPairRefused:
-      msg = who + " gefunden, aber Koppeln nicht moeglich (vermutlich eine alte Kopplung). "
-            "Den Server neu starten, dann im Tray \"Neu koppeln\".";
+      msg = who + " found, but pairing is not possible (probably an old pairing). "
+            "Restart the server, then choose \"Pair again\" in the tray menu.";
       break;
     case core::Note::kLoginRefused:
-      msg = who + ": Anmeldung an der Freigabe abgelehnt";
+      msg = who + ": the share refused the sign-in";
       break;
     case core::Note::kLetterBusy:
-      msg = "P: ist belegt, das Laufwerk heisst " + text;
+      msg = "P: is in use, the drive is " + text + " instead";
       problem = false;
       break;
     case core::Note::kNoLetter:
-      msg = "Kein Laufwerksbuchstabe frei";
+      msg = "No free drive letter";
       break;
     case core::Note::kMapFailed:
-      msg = "Laufwerk nicht verbunden: " + text;
+      msg = "Drive not connected: " + text;
       break;
   }
-  Log("MELDUNG: %s", msg.c_str());
+  Log("Notification: %s", msg.c_str());
   Report(msg, problem);
 }
 
@@ -466,28 +506,28 @@ std::string Agent::OpenPairing() {
   Hello h;
   std::string err;
   int seconds = 0;
-  if (cred_.password.empty()) return "Noch nicht gekoppelt";
+  if (cred_.password.empty()) return "Not paired yet";
   if (!c.Connect(s_.ip, s_.port, 2000, &err) || !c.SayHello(&h, &err) ||
       !c.OpenPairing(cred_.password, &seconds, &err)) {
-    Log("Weiteren PC koppeln: %s", err.c_str());
-    return "Koppeln nicht geoeffnet: " + err;
+    Log("Pair another PC: failed, %s", err.c_str());
+    return "Pairing not opened: " + err;
   }
-  Log("Weiteren PC koppeln: %d s offen", seconds);
-  return "Ein weiterer PC kann sich jetzt " + std::to_string(seconds / 60) +
-         " Minuten lang koppeln: dort ProsperoAutoDrive installieren.";
+  Log("Pair another PC: the server accepts one more PC for %d s", seconds);
+  return "Another PC can pair for the next " + std::to_string(seconds / 60) +
+         " minutes: install ProsperoAutoDrive there.";
 }
 
 std::string Agent::QuitServer() {
   Channel c;
   Hello h;
   std::string err;
-  if (cred_.password.empty()) return "Noch nicht gekoppelt";
+  if (cred_.password.empty()) return "Not paired yet";
   if (!c.Connect(s_.ip, s_.port, 2000, &err) || !c.SayHello(&h, &err) || !c.Quit(cred_.password, &err)) {
-    Log("Server beenden: %s", err.c_str());
-    return "Server nicht beendet: " + err;
+    Log("Shut down server: failed, %s", err.c_str());
+    return "Server not shut down: " + err;
   }
   // The drive goes once the server's GOODBYE and close arrive.
-  Log("Server beenden: angefordert, der Server hat zugestimmt");
+  Log("Shut down server: requested, the server agreed");
   return "";
 }
 

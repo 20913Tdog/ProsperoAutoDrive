@@ -327,7 +327,7 @@ void TestPairAfterRestart() {
   s.RunTo(71000);
   CHECK(s.m().mapped());
   CHECK(!s.m().pair_refused());
-  // "Neu koppeln" tries at once, and a refusal is shown again.
+  // "Pair again" tries at once, and a refusal is shown again.
   Sim r("", false);
   r.w.pair_ok = false;
   r.RunTo(1000);
