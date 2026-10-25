@@ -132,8 +132,16 @@ if /i "%TEST%"=="P30" (
   set "KEY=instance"
   set "DURATION=etwa 3 Minuten"
 )
+if /i "%TEST%"=="P34" (
+  set "ELF=prospero-smbd.elf"
+  set "SCRIPT=..\smbd\P34-Check.cmd"
+  set "TAG=PROSPERO-SMBD"
+  set "PRODUCT=1"
+  set "KEY=instance"
+  set "DURATION=etwa 10 Minuten"
+)
 if not defined ELF (
-  echo FEHLER: Unbekannter Test "%TEST%". Bekannt sind S2, S2b, S3, S4, S7, P22, P24, P30 und P32.
+  echo FEHLER: Unbekannter Test "%TEST%". Bekannt sind S2, S2b, S3, S4, S7, P22, P24, P30, P32 und P34.
   exit /b 2
 )
 
