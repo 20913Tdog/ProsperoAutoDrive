@@ -240,7 +240,7 @@ Entwurf: [`entwurf-phase3.md`](entwurf-phase3.md).
 
 ## Phase 4 – Härtung
 
-- **Smart App Control (SAC):** Auf einem Windows 11 mit eingeschaltetem SAC startet eine unsignierte exe gar nicht. Der Test-PC hat SAC aus (lässt sich ohne Neuinstallation nicht wieder einschalten), P3.3 prüft also nur den Fall ohne SAC. Mit der Signierung muss ein Test auf einem Windows mit SAC ein folgen, etwa in einer frisch installierten VM.
+- **Smart App Control (SAC):** Auf einem Windows 11 mit eingeschaltetem SAC startet eine unsignierte exe gar nicht. Der Test-PC hat SAC aus (lässt sich ohne Neuinstallation nicht wieder einschalten), P3.3 prüft also nur den Fall ohne SAC. Mit der Signierung muss ein Test auf einem Windows mit SAC folgen, etwa in einer frisch installierten VM.
 - **CHANGE_NOTIFY:** Der Explorer aktualisiert sich selbst.
 - **Ereignisse:** PC-Standby, WLAN-Wechsel, IP-Wechsel
 - **Worker-Threads** für READ/WRITE, nur falls die Maßnahmen aus Phase 2 die Antwortzeit unter Last nicht genug senken
