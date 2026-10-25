@@ -151,6 +151,7 @@ static const profile_t PROFILES[] = {
 typedef struct dir_entry {
   char *name;
   struct stat st;
+  int have_st;            /* st is filled; else stat() when it is sent */
 } dir_entry_t;
 
 typedef struct handle {
@@ -1773,6 +1774,19 @@ read_cmd(struct smb2_server *srv, struct smb2_context *smb2,
 
 /* ---------------------------------------------------- directory listings */
 
+/* A pattern without wildcards names one entry. */
+static int
+is_literal(const char *pattern) {
+  return !strpbrk(pattern, "*?<>\"");
+}
+
+
+/* The snapshot holds names only; each entry is stat()ed when a reply
+ * carries it (encode_listed). A folder of 100,000 files then costs one
+ * readdir() pass, not 100,000 stat() calls in a single request, which
+ * stalled the whole server loop (live, 25.10.2026). A name without
+ * wildcards, as the Explorer sends before it deletes a file, is looked
+ * up directly instead of by reading the whole folder. */
 static int
 list_directory(handle_t *h, const char *pattern) {
   struct dirent *e;
@@ -1783,6 +1797,31 @@ list_directory(handle_t *h, const char *pattern) {
   h->listed = 1;
   if(!(h->entries=calloc(cap, sizeof *h->entries))) {
     return -ENOMEM;
+  }
+  if(is_literal(pattern) && strcmp(pattern, ".") && strcmp(pattern, "..")) {
+    char actual[256];
+    char path[PATH_SIZE];
+    dir_entry_t *ent = &h->entries[0];
+
+    if(!valid_component(pattern) || strlen(pattern) >= sizeof actual) {
+      return 0;
+    }
+    snprintf(actual, sizeof actual, "%s", pattern);
+    if(snprintf(path, sizeof path, "%s%s%s", h->path, sep(h->path), actual) >= (int)sizeof path) {
+      return 0;
+    }
+    if(stat(path, &ent->st) != 0) {
+      if(errno != ENOENT || !find_ci(h->path, pattern, actual, sizeof actual) ||
+         snprintf(path, sizeof path, "%s%s%s", h->path, sep(h->path), actual) >= (int)sizeof path ||
+         stat(path, &ent->st) != 0) {
+        return 0;
+      }
+    }
+    if((ent->name=strdup(actual))) {
+      ent->have_st = 1;
+      h->nentries = 1;
+    }
+    return 0;
   }
   if(!(d=opendir(h->path))) {
     return -errno;
@@ -1800,11 +1839,11 @@ list_directory(handle_t *h, const char *pattern) {
     }
     if(stat(parent, &h->entries[h->nentries].st) == 0 &&
        (h->entries[h->nentries].name=strdup(name))) {
+      h->entries[h->nentries].have_st = 1;
       h->nentries++;
     }
   }
   while((e=readdir(d))) {
-    char path[PATH_SIZE];
     dir_entry_t *ent;
 
     if(!strcmp(e->d_name, ".") || !strcmp(e->d_name, "..") ||
@@ -1820,14 +1859,32 @@ list_directory(handle_t *h, const char *pattern) {
       cap *= 2;
     }
     ent = &h->entries[h->nentries];
-    if(snprintf(path, sizeof path, "%s%s%s", h->path, sep(h->path), e->d_name) >= (int)sizeof path ||
-       stat(path, &ent->st) != 0 || !(ent->name=strdup(e->d_name))) {
+    if(strlen(h->path) + 1 + strlen(e->d_name) >= PATH_SIZE || !(ent->name=strdup(e->d_name))) {
       continue;
     }
+    ent->have_st = 0;
     h->nentries++;
   }
   closedir(d);
   return 0;
+}
+
+
+/* Fills in st of a listed entry. Returns 0 if it is gone since the
+ * snapshot, then the entry is skipped. */
+static int
+stat_listed(const handle_t *h, dir_entry_t *ent) {
+  char path[PATH_SIZE];
+
+  if(ent->have_st) {
+    return 1;
+  }
+  if(snprintf(path, sizeof path, "%s%s%s", h->path, sep(h->path), ent->name) >= (int)sizeof path ||
+     stat(path, &ent->st) != 0) {
+    return 0;
+  }
+  ent->have_st = 1;
+  return 1;
 }
 
 
@@ -1939,6 +1996,10 @@ query_directory_cmd(struct smb2_server *srv, struct smb2_context *smb2,
     if(off && start >= room) {
       break;
     }
+    if(!stat_listed(h, &h->entries[h->pos])) {
+      h->pos++;
+      continue;
+    }
     size = encode_entry(req->file_information_class, &h->entries[h->pos],
                         buf + start, room - start);
     if(!size) {
@@ -1956,6 +2017,10 @@ query_directory_cmd(struct smb2_server *srv, struct smb2_context *smb2,
   }
   if(!off) {
     free(buf);
+    if(h->pos >= h->nentries) {
+      /* Everything left was deleted since the snapshot. */
+      return fresh ? defer_status(smb2, SMB2_QUERY_DIRECTORY, SMB2_STATUS_NO_SUCH_FILE) : 0;
+    }
     return defer_status(smb2, SMB2_QUERY_DIRECTORY, SMB2_STATUS_INFO_LENGTH_MISMATCH);
   }
 

@@ -272,6 +272,24 @@ smb -c 'ls' > "$WORK/ls.txt"
 need grep -q "$TEST" "$WORK/ls.txt"
 echo "case 3 passed"
 
+echo "== case 3b: a name without wildcards is looked up, not listed"
+for i in $(seq 1 50); do : > "$ROOT/$TEST/n$i.txt"; done
+: > "$ROOT/$TEST/MixedCase.TXT"
+out=$(smb -c "cd $TEST; ls n7.txt")
+need grep -q ' n7.txt ' <<<"$out"
+need [ "$(grep -c '\.txt ' <<<"$out")" = 1 ]
+# Another spelling finds the entry as it is on disk.
+out=$(smb -c "cd $TEST; ls mixedcase.txt")
+need grep -q ' MixedCase.TXT ' <<<"$out"
+out=$(smb -c "cd $TEST; ls missing.txt" 2>&1 || true)
+need grep -q 'NO_SUCH_FILE' <<<"$out"
+# The full listing still has every entry with its size.
+printf '12345' > "$ROOT/$TEST/n3.txt"
+out=$(smb -c "cd $TEST; ls")
+need [ "$(grep -c ' n[0-9]*\.txt ' <<<"$out")" = 50 ]
+need grep -Eq ' n3\.txt +[A-Z]* +5 ' <<<"$out"
+echo "case 3b passed"
+
 echo "== case 3a: TUNE sets send buffer and credit limit"
 rep=$(svc 127.0.0.1 "HELLO 1" "TUNE 1 seq=1 sndbuf=131072 credits=16 mac=0000" \
   "TUNE 1 seq=2 sndbuf=-1 credits=16 mac=@MAC" "TUNE 1 seq=3 sndbuf=0 credits=9000 mac=@MAC" \
