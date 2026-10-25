@@ -285,7 +285,7 @@ All write tests run only in the newly created test folder:
 
 ## Open across phases
 
-- **Clock:** measurement from 2026-10-26 whether the offset disappears with the end of daylight saving time ([decision](decisions.md#clock-skew-the-pc-provides-the-reference-time))
+- **Clock:** resolved 2026-10-25, the hour came from a wrong time zone in the PS5's settings ([decision](decisions.md#clock-skew-the-pc-provides-the-reference-time)). For the setup documentation: set the PS5's time zone correctly and the time by hand; the program corrects the remaining seconds.
 - **libsmb2:** report bugs found upstream, only after the project owner's approval
 - **Windows 10 22H2:** best effort, check live at least once before 1.0.0
 - **Risks:**
