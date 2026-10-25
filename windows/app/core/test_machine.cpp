@@ -278,6 +278,37 @@ void TestOtherServer() {
   CHECK(!s.m().mapped());
   CHECK(s.Count(Action::kMap) == 0);
   CHECK(s.Notes(Note::kOtherServer) == 1);
+  CHECK(s.m().other_server() == "other");
+}
+
+void TestAdopt() {
+  std::printf("server set up anew: offered, taken only on request, then paired\n");
+  Sim s("abc123", true);
+  Event adopt{Event::kAdopt};
+  s.Send(adopt);              // nothing to take yet
+  s.RunTo(5000);
+  CHECK(s.m().mapped());
+  CHECK(s.m().other_server().empty());
+  // It ends in order and comes back with a new ID (state folder deleted).
+  ServerEnds(s, true);
+  s.RunTo(6000);
+  s.w.server_up = true;
+  s.w.share_up = true;
+  s.w.id = "fresh";
+  s.RunTo(20000);
+  CHECK(!s.m().mapped());
+  CHECK(s.m().other_server() == "fresh");
+  CHECK(s.Count(Action::kPair) == 0);
+  CHECK(s.Notes(Note::kOtherServer) == 1);
+  s.Send(adopt);
+  s.RunTo(23000);
+  CHECK(s.m().server_id() == "fresh");
+  CHECK(s.m().other_server().empty());
+  CHECK(s.Count(Action::kPair) == 1);
+  CHECK(s.m().mapped());
+  int64_t t = s.DriveAt(true, 20000);
+  std::printf("  drive %lld ms after the confirmation\n", static_cast<long long>(t - 20000));
+  CHECK(t >= 20000 && t - 20000 <= 3000);
 }
 
 void TestChannelOnly() {
@@ -370,6 +401,7 @@ int main() {
   TestDropout("wifi", 9000);
   TestWrongPassword();
   TestOtherServer();
+  TestAdopt();
   TestChannelOnly();
   TestQuiet();
   TestNetworkChange();

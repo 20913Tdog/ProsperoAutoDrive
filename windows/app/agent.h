@@ -41,6 +41,7 @@ struct Status {
   std::string last_seen;         // local time of the last connection, or empty
   std::string message;           // a notification to show now, or empty
   bool problem = false;          // message is a problem, not news
+  std::string other_server;      // ID of another server at the address, or empty
 };
 
 class Agent {
@@ -58,6 +59,10 @@ class Agent {
   // Asks the server to accept one more PC for a while, over a channel of
   // its own; blocks for at most a few seconds. Returns the message to show.
   std::string OpenPairing();
+
+  // The user confirmed Status::other_server: forget the paired server and
+  // pair with that one. Any thread; the agent's thread does the work.
+  void Adopt() { SetEvent(adopt_event_); }
 
   void Log(const char *fmt, ...);
 
@@ -84,11 +89,13 @@ class Agent {
   HANDLE sock_event_ = nullptr;
   HANDLE net_event_ = nullptr;
   HANDLE net_notify_ = nullptr;
+  HANDLE adopt_event_ = nullptr;
   std::wstring letter_;          // "P:" while mapped
   DWORD last_map_err_ = 0;       // logged once while it repeats
   int64_t last_pong_ = 0;        // GetTickCount64 of the last PONG
   std::string last_seen_;        // local time of the last connect
   bool reported_connected_ = false;
+  std::string reported_other_;
   std::mutex log_lock_;
   core::Machine *m_ = nullptr;
 };

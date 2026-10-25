@@ -81,6 +81,7 @@ struct Event {
     kNetworkChanged,    // network change or resume from standby
     kSearch,            // the user asked for a network search
     kFound,             // the search found our server
+    kAdopt,             // the user confirmed: take the other server instead
     kShutdown,
   };
   enum Reason { kAuth, kLetterBusy, kNoLetter, kOther };
@@ -108,6 +109,9 @@ class Machine {
   bool mapped() const { return mapped_; }
   const std::string &server_id() const { return server_id_; }
   const std::string &link() const { return link_; }
+  // The ID of another server that answered at the saved address; empty
+  // when there is none or ours answered since. Adopt takes it.
+  const std::string &other_server() const { return other_; }
 
  private:
   void Search(int64_t at);
@@ -128,6 +132,7 @@ class Machine {
   bool in_flight_ = false;          // kReconnecting: channel attempt running
   bool retried_ = false;            // kReconnecting failed once since Online
   std::string link_ = "unknown";
+  std::string other_;
   std::vector<Note> shown_;         // problems shown since the last connect
 };
 

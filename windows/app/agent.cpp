@@ -70,6 +70,7 @@ Agent::Agent(Settings s, bool console) : s_(std::move(s)), console_(console) {
   log_ = _wfopen(file.c_str(), L"ab");
   sock_event_ = WSACreateEvent();
   net_event_ = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+  adopt_event_ = CreateEventW(nullptr, TRUE, FALSE, nullptr);
   NotifyIpInterfaceChange(AF_UNSPEC, OnNetChange, net_event_, FALSE, &net_notify_);
 }
 
@@ -78,6 +79,7 @@ Agent::~Agent() {
   ch_.Close();
   if (sock_event_) WSACloseEvent(sock_event_);
   if (net_event_) CloseHandle(net_event_);
+  if (adopt_event_) CloseHandle(adopt_event_);
   if (log_) fclose(log_);
 }
 
@@ -115,14 +117,14 @@ int Agent::Run(HANDLE stop, HANDLE search) {
   Do(m.Start(Now()));
   HANDLE never = CreateEventW(nullptr, TRUE, FALSE, nullptr);
   for (;;) {
-    HANDLE hs[4] = {stop, sock_event_, net_event_, search ? search : never};
+    HANDLE hs[5] = {stop, sock_event_, net_event_, search ? search : never, adopt_event_};
     int64_t wake = m.NextWakeMs();
     DWORD to = INFINITE;
     if (wake >= 0) {
       int64_t d = wake - Now();
       to = d > 0 ? static_cast<DWORD>(d) : 0;
     }
-    DWORD r = WaitForMultipleObjects(4, hs, FALSE, to);
+    DWORD r = WaitForMultipleObjects(5, hs, FALSE, to);
     if (r == WAIT_OBJECT_0) {
       Log("Ende angefordert");
       Do(m.Handle(Event(Event::kShutdown), Now()));
@@ -146,6 +148,20 @@ int Agent::Run(HANDLE stop, HANDLE search) {
     } else if (r == WAIT_OBJECT_0 + 3) {
       ResetEvent(search);
       Do(m.Handle(Event(Event::kSearch), Now()));
+    } else if (r == WAIT_OBJECT_0 + 4) {
+      ResetEvent(adopt_event_);
+      std::string other = m.other_server();
+      if (!other.empty()) {
+        // The old pairing goes for good: that server is gone for this PC.
+        Log("neuer Server %s statt %s, wird gekoppelt", other.c_str(), s_.server_id.c_str());
+        if (!s_.server_id.empty()) DeleteCredential(s_.server_id);
+        cred_ = Credential();
+        s_.server_id = other;
+        s_.name.clear();
+        s_.Save();
+        Do(m.Handle(Event(Event::kAdopt), Now()));
+        Report("", false);
+      }
     } else if (r == WAIT_TIMEOUT) {
       Do(m.Handle(Event(Event::kTick), Now()));
     } else {
@@ -382,7 +398,8 @@ void Agent::Notify(core::Note n, const std::string &text) {
       problem = false;
       break;
     case core::Note::kOtherServer:
-      msg = "Unter " + s_.ip + " antwortet ein anderer Server (" + text + ")";
+      msg = "Unter " + s_.ip + " antwortet ein anderer Server (" + text +
+            "). Wurde er neu eingerichtet: im Tray-Menue \"Mit neuem Server koppeln\".";
       break;
     case core::Note::kPairRefused:
       msg = who + " hat das Koppeln abgelehnt. Auf einem schon gekoppelten PC "
@@ -415,8 +432,13 @@ void Agent::Report(const std::string &message, bool problem) {
   st.last_seen = last_seen_;
   st.message = message;
   st.problem = problem;
-  if (on_status && (!message.empty() || st.connected != reported_connected_ || !m_)) on_status(st);
+  if (m_) st.other_server = m_->other_server();
+  if (on_status && (!message.empty() || st.connected != reported_connected_ || !m_ ||
+                    st.other_server != reported_other_)) {
+    on_status(st);
+  }
   reported_connected_ = st.connected;
+  reported_other_ = st.other_server;
 }
 
 std::string Agent::OpenPairing() {

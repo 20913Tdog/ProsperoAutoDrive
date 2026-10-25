@@ -522,4 +522,9 @@ bool StoreCredential(const std::string &server_id, const Credential &cred, std::
   return true;
 }
 
+void DeleteCredential(const std::string &server_id) {
+  std::wstring target = kCredPrefix + Wide(server_id);
+  CredDeleteW(target.c_str(), CRED_TYPE_GENERIC, 0);
+}
+
 }  // namespace prospero

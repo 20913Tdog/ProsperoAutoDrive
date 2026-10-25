@@ -153,5 +153,6 @@ struct Credential {
 
 bool LoadCredential(const std::string &server_id, Credential *out);
 bool StoreCredential(const std::string &server_id, const Credential &c, std::string *err);
+void DeleteCredential(const std::string &server_id);
 
 }  // namespace prospero

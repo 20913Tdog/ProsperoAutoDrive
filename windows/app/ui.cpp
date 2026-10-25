@@ -317,7 +317,7 @@ LRESULT CALLBACK AskProc(HWND w, UINT msg, WPARAM wp, LPARAM lp) {
 
 // ---------------------------------------------------------------- tray
 
-enum { kOpen = 300, kFind, kPairOther, kAuto, kLog, kQuit, kInfo };
+enum { kOpen = 300, kFind, kPairOther, kAdopt, kAuto, kLog, kQuit, kInfo };
 
 // A round icon with a "P" in it, drawn at run time.
 HICON MakeIcon(COLORREF fill, int size) {
@@ -435,6 +435,7 @@ void ShowMenu(HWND w, TrayState *t) {
   AppendMenuW(m, MF_STRING | (t->st.connected ? 0 : MF_GRAYED), kOpen, L"Laufwerk oeffnen");
   AppendMenuW(m, MF_STRING, kFind, (Wide(t->st.name) + L" im Netz suchen (30 s)").c_str());
   AppendMenuW(m, MF_STRING | (t->st.connected ? 0 : MF_GRAYED), kPairOther, L"Weiteren PC koppeln");
+  if (!t->st.other_server.empty()) AppendMenuW(m, MF_STRING, kAdopt, L"Mit neuem Server koppeln...");
   AppendMenuW(m, MF_STRING | (setup::AutostartOn() ? MF_CHECKED : 0), kAuto, L"Mit Windows starten");
   AppendMenuW(m, MF_STRING, kLog, L"Protokoll anzeigen");
   AppendMenuW(m, MF_SEPARATOR, 0, nullptr);
@@ -460,6 +461,20 @@ void ShowMenu(HWND w, TrayState *t) {
         st->name = "-";       // only a message, the status stays
         if (!PostMessageW(w, kStatusMsg, 1, reinterpret_cast<LPARAM>(st))) delete st;
       }).detach();
+      break;
+    }
+    case kAdopt: {
+      // Never silently: a foreign device at the same address would become
+      // the drive the user writes to.
+      std::wstring text =
+          L"Unter der gespeicherten Adresse antwortet ein anderer Server als der gekoppelte "
+          L"(Kennung " + Wide(t->st.other_server) + L").\n\n"
+          L"Das ist normal, wenn der Server neu eingerichtet oder seine Einstellungen "
+          L"geloescht wurden. Nur bestaetigen, wenn es das eigene Geraet ist.\n\n"
+          L"Mit diesem Server koppeln? Die alte Kopplung wird geloescht.";
+      if (MessageBoxW(w, text.c_str(), kTitle, MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2) == IDYES) {
+        t->agent->Adopt();
+      }
       break;
     }
     case kAuto:

@@ -78,6 +78,22 @@ std::vector<Action> Machine::Handle(const Event &e, int64_t now) {
     out.push_back(Do(Action::kBroadcast));
     return out;
   }
+  if (e.kind == Event::kAdopt) {
+    // Only reached while searching: the other server ends every attempt.
+    // Its credentials come from pairing, unless the PC knows it already.
+    if (other_.empty()) return out;
+    server_id_ = other_;
+    other_.clear();
+    have_credentials_ = false;
+    shown_.clear();
+    if (state_ == State::kSearching) {
+      state_ = State::kConnecting;
+      wake_ = -1;
+      attempt_ = now;
+      out.push_back(Do(Action::kConnectChannel));
+    }
+    return out;
+  }
 
   switch (state_) {
     case State::kSearching:
@@ -115,6 +131,7 @@ std::vector<Action> Machine::Handle(const Event &e, int64_t now) {
         }
       } else if (e.kind == Event::kChannelUp) {
         if (!server_id_.empty() && e.server_id != server_id_) {
+          other_ = e.server_id;
           Problem(&out, Note::kOtherServer, e.server_id);
           out.push_back(Do(Action::kCloseChannel));
           if (state_ == State::kReconnecting) {
@@ -125,6 +142,7 @@ std::vector<Action> Machine::Handle(const Event &e, int64_t now) {
           break;
         }
         server_id_ = e.server_id;
+        other_.clear();
         link_ = e.link.empty() ? "unknown" : e.link;
         if (e.ok) have_credentials_ = true;
         if (state_ == State::kReconnecting) {
