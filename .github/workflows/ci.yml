@@ -341,6 +341,9 @@ jobs:
             if ($LASTEXITCODE) { throw "net use (many files) failed: $LASTEXITCODE" }
             $many = .\binaries\prospero-probe.exe 127.0.0.1 --no-broadcast --share-host prosperotest --many-files-test data 5000
             $many
+            # As annotations, readable without a login.
+            $many | Select-String -Pattern '(anlegen|suchen|auflisten|loeschen):|Lebenszeichen ' |
+              ForEach-Object { "::notice title=many files::$($_.Line.Trim())" }
             if (-not ($many -match '^\S+\s+loeschen: 5000 Dateien') -or ($many -match 'Abbruch')) { throw "probe many-files test did not run" }
             net use $share $spw /user:prospero /TCPPORT:$env:SMB_PORT
             if ($LASTEXITCODE) { throw "net use (after many files) failed: $LASTEXITCODE" }
