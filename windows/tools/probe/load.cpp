@@ -14,7 +14,8 @@
 // does, so every byte crosses the network with several requests in flight.
 // The source for writing is a local file in %TEMP%, deleted at the end, as
 // is the local copy of each read. On the share everything is created in a
-// new test folder; nothing there is deleted.
+// new test folder; nothing there is deleted, except by ManyFilesTest, which
+// deletes the files it created itself, by name.
 
 #include "load.h"
 
@@ -24,6 +25,9 @@
 #include <atomic>
 #include <cstdio>
 #include <cstdlib>
+#include <cwchar>
+#include <map>
+#include <mutex>
 #include <thread>
 #include <vector>
 
@@ -566,6 +570,252 @@ int IdleTest(const std::string &ip, const std::string &unc_host, unsigned short 
   int quiet = seconds / 2 < 30 ? seconds / 2 : 30;
   if (quiet > 0 && !IdlePhase("ohne Lebenszeichen", false, quiet, ch, cred.password)) failures++;
   if (!IdlePhase("Lebenszeichen jede Sekunde", true, seconds, ch, cred.password)) failures++;
+  ch.Close();
+  WNetCancelConnection2W(share.c_str(), 0, TRUE);
+  return failures;
+}
+
+namespace {
+
+// A PING every 200 ms on a connection of its own, while the main thread
+// works on the share; the slowest answer per phase.
+class Pinger {
+ public:
+  Pinger(const std::string &ip, unsigned short port, const std::string &key)
+      : ip_(ip), port_(port), key_(key), thread_([this] { Loop(); }) {}
+  ~Pinger() {
+    stop_ = true;
+    thread_.join();
+  }
+  // Starts a new phase and returns the slowest PING of the one before
+  // (a PING without answer counts as kNoAnswer).
+  int64_t Next() {
+    std::lock_guard<std::mutex> hold(lock_);
+    int64_t worst = worst_;
+    worst_ = 0;
+    return worst;
+  }
+  static constexpr int64_t kNoAnswer = 99999;
+
+ private:
+  void Loop() {
+    prospero::Channel ch;
+    std::string err;
+    bool open = false;
+    while (!stop_) {
+      int64_t t0 = NowMs();
+      int64_t rtt;
+      if (!open) {
+        prospero::Hello h;
+        open = ch.Connect(ip_, port_, 3000, &err) && ch.SayHello(&h, &err);
+      }
+      prospero::Pong p;
+      if (open && ch.Ping(key_, &p, &err)) {
+        rtt = NowMs() - t0;
+      } else {
+        rtt = kNoAnswer;
+        ch.Close();
+        open = false;
+      }
+      {
+        std::lock_guard<std::mutex> hold(lock_);
+        if (rtt > worst_) worst_ = rtt;
+      }
+      int64_t wait = t0 + 200 - NowMs();
+      if (wait > 0) Sleep(static_cast<DWORD>(wait));
+    }
+  }
+  std::string ip_;
+  unsigned short port_;
+  std::string key_;
+  std::atomic<bool> stop_{false};
+  std::mutex lock_;
+  int64_t worst_ = 0;
+  std::thread thread_;
+};
+
+std::wstring ManyName(const std::wstring &dir, int i) {
+  wchar_t name[32];
+  std::swprintf(name, 32, L"\\f%06d.txt", i);
+  return dir + name;
+}
+
+// Mean time per file of the first and the last tenth (at most 500 each).
+void Ends(const std::vector<int64_t> &us, double *first_ms, double *last_ms) {
+  size_t n = us.size() / 10;
+  if (n > 500) n = 500;
+  if (n == 0) n = us.size();
+  double a = 0, b = 0;
+  for (size_t i = 0; i < n; i++) {
+    a += us[i];
+    b += us[us.size() - 1 - i];
+  }
+  *first_ms = n ? a / n / 1000.0 : 0;
+  *last_ms = n ? b / n / 1000.0 : 0;
+}
+
+int64_t NowUs() {
+  static LARGE_INTEGER f = [] {
+    LARGE_INTEGER x;
+    QueryPerformanceFrequency(&x);
+    return x;
+  }();
+  LARGE_INTEGER c;
+  QueryPerformanceCounter(&c);
+  return c.QuadPart * 1000000 / f.QuadPart;
+}
+
+bool Exists(const std::wstring &path) {
+  WIN32_FIND_DATAW fd;
+  HANDLE f = FindFirstFileW(path.c_str(), &fd);
+  if (f == INVALID_HANDLE_VALUE) return false;
+  FindClose(f);
+  return true;
+}
+
+}  // namespace
+
+int ManyFilesTest(const std::string &ip, const std::string &unc_host, unsigned short port,
+                  const prospero::Hello &hello, const prospero::Credential &cred,
+                  const std::string &folder, const std::string &test_dir, int count) {
+  std::wstring share = L"\\\\" + Wide(unc_host) + L"\\" + Wide(hello.share);
+  std::wstring user = Wide(cred.user);
+  std::wstring password = Wide(cred.password);
+  NETRESOURCEW nr{};
+  nr.dwType = RESOURCETYPE_DISK;
+  nr.lpRemoteName = share.data();
+  DWORD rc = WNetAddConnection2W(&nr, password.c_str(), user.c_str(), CONNECT_TEMPORARY);
+  if (rc != NO_ERROR) {
+    std::printf("FALSCH  Verbindung zur Freigabe, Windows-Fehler %lu\n", rc);
+    return 1;
+  }
+  std::wstring dir = share + L"\\" + Wide(folder) + L"\\" + Wide(test_dir);
+  std::string dir_text(dir.begin(), dir.end());
+  if (!CreateDirectoryW(dir.c_str(), nullptr)) {
+    std::printf("FALSCH  Testordner anlegen %s, Windows-Fehler %lu\n", dir_text.c_str(), GetLastError());
+    WNetCancelConnection2W(share.c_str(), 0, TRUE);
+    return 1;
+  }
+  std::printf("OK      Testordner angelegt: %s\n", dir_text.c_str());
+  prospero::Channel ch;
+  prospero::Hello h2;
+  std::string err;
+  bool status = ch.Connect(ip, port, 3000, &err) && ch.SayHello(&h2, &err);
+  int failures = 0;
+  Pinger pinger(ip, port, cred.password);
+
+  // Prints one phase: time per file at the start and end, the slowest PING,
+  // the server's longest loop gap.
+  auto report = [&](const char *title, const std::vector<int64_t> &us, int64_t total_ms) {
+    int64_t worst = pinger.Next();
+    double first = 0, last = 0;
+    Ends(us, &first, &last);
+    std::map<std::string, std::string> st;
+    std::string gap = "?";
+    if (status && ch.Status(&st, &err)) gap = Max(st, "diag_loop_gap_ms");
+    g_bar.Clear();
+    bool ok = worst <= 1000;
+    if (!ok) failures++;
+    std::printf("%s %s: %zu Dateien in %.1f s, je Datei %.2f ms am Anfang, %.2f ms am Ende\n",
+                ok ? "OK     " : "FALSCH ", title, us.size(), total_ms / 1000.0, first, last);
+    std::printf("          langsamstes Lebenszeichen %s, laengste Pause der Server-Schleife %s ms "
+                "(Ziel: Lebenszeichen unter 1000 ms)\n",
+                worst >= Pinger::kNoAnswer ? "ohne Antwort" : (std::to_string(worst) + " ms").c_str(),
+                gap.c_str());
+    if (status) ch.ResetStats(&err);
+  };
+  auto progress = [&](const char *title, int done, int want) {
+    if (done % 100) return;
+    char line[120];
+    std::snprintf(line, sizeof line, "  %s: %d von %d", title, done, want);
+    g_bar.Show(line);
+  };
+  if (status) ch.ResetStats(&err);
+  pinger.Next();
+
+  // 1. Create: each new name is first looked up without regard to case.
+  std::vector<int64_t> us;
+  int created = 0;
+  int64_t t0 = NowMs();
+  for (int i = 0; i < count; i++) {
+    int64_t a = NowUs();
+    HANDLE h = CreateFileW(ManyName(dir, i).c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW,
+                           FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (h == INVALID_HANDLE_VALUE) {
+      g_bar.Clear();
+      std::printf("FALSCH  Datei %d anlegen, Windows-Fehler %lu; Abbruch\n", i, GetLastError());
+      failures++;
+      break;
+    }
+    CloseHandle(h);
+    us.push_back(NowUs() - a);
+    created++;
+    progress("anlegen", created, count);
+  }
+  report("anlegen", us, NowMs() - t0);
+
+  // 2. Look up single names, as the Explorer does for each file it deletes.
+  us.clear();
+  int step = created > 1000 ? created / 1000 : 1;
+  t0 = NowMs();
+  for (int i = 0; i < created; i += step) {
+    int64_t a = NowUs();
+    if (!Exists(ManyName(dir, i))) {
+      g_bar.Clear();
+      std::printf("FALSCH  Datei %d nicht gefunden\n", i);
+      failures++;
+      break;
+    }
+    us.push_back(NowUs() - a);
+    progress("suchen", static_cast<int>(us.size()), created / step);
+  }
+  report("einzeln suchen", us, NowMs() - t0);
+
+  // 3. List the whole folder.
+  us.clear();
+  t0 = NowMs();
+  {
+    int64_t a = NowUs();
+    WIN32_FIND_DATAW fd;
+    HANDLE f = FindFirstFileW((dir + L"\\*").c_str(), &fd);
+    int seen = 0;
+    if (f != INVALID_HANDLE_VALUE) {
+      do {
+        if (fd.cFileName[0] != L'.') seen++;
+      } while (FindNextFileW(f, &fd));
+      FindClose(f);
+    }
+    us.push_back(NowUs() - a);
+    if (seen != created) {
+      std::printf("FALSCH  Auflisten: %d statt %d Dateien\n", seen, created);
+      failures++;
+    }
+  }
+  report("auflisten", us, NowMs() - t0);
+
+  // 4. Delete what this run created, by name; the first failure stops.
+  us.clear();
+  int deleted = 0;
+  t0 = NowMs();
+  for (int i = 0; i < created; i++) {
+    std::wstring path = ManyName(dir, i);
+    int64_t a = NowUs();
+    if (!Exists(path) || !DeleteFileW(path.c_str())) {
+      g_bar.Clear();
+      std::printf("FALSCH  Datei %d loeschen, Windows-Fehler %lu; Abbruch, der Rest bleibt\n", i,
+                  GetLastError());
+      failures++;
+      break;
+    }
+    us.push_back(NowUs() - a);
+    deleted++;
+    progress("loeschen", deleted, created);
+  }
+  report("loeschen", us, NowMs() - t0);
+  if (deleted == created && !RemoveDirectoryW(dir.c_str())) {
+    std::printf("FALSCH  Testordner entfernen, Windows-Fehler %lu\n", GetLastError());
+    failures++;
+  }
   ch.Close();
   WNetCancelConnection2W(share.c_str(), 0, TRUE);
   return failures;

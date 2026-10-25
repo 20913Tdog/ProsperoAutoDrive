@@ -27,3 +27,16 @@ int LoadTest(const std::string &ip, const std::string &unc_host, unsigned short 
 // Returns the number of phases that missed 0.1 % of a core.
 int IdleTest(const std::string &ip, const std::string &unc_host, unsigned short port,
              const prospero::Hello &hello, const prospero::Credential &cred, int seconds);
+
+// Many files in one folder (25.10.2026: deleting 100,000 files left the
+// service channel without answers for minutes). In a new test folder below
+// <folder>: creates `count` empty files, looks up a sample of them by name
+// as the Explorer does before it deletes, lists the folder, and deletes
+// what it created, one by one, then the folder. Meanwhile a second
+// connection sends a PING every 200 ms. Per phase prints the time per file
+// at the start and at the end, the slowest PING and the server's longest
+// loop gap. Only files this run created are deleted, by name; the first
+// failure stops it. Returns the number of phases with a PING over 1 s.
+int ManyFilesTest(const std::string &ip, const std::string &unc_host, unsigned short port,
+                  const prospero::Hello &hello, const prospero::Credential &cred,
+                  const std::string &folder, const std::string &test_dir, int count);

@@ -22,6 +22,7 @@
 //                      [--share-host <name>] [--variants <sndbuf:credits,...>]
 //                      [--test-name <_ProsperoAutoDrive_Test_...>]
 //                      [--round-cmd <file.cmd>] [--idle-test <seconds>]
+//                      [--many-files-test <folder> <count>]
 //
 // --share-host names the server in \\<name>\<share> when that is not the
 // address itself (CI: a hosts alias with an alternate SMB port).
@@ -32,6 +33,11 @@
 //
 // --idle-test measures the CPU time of server and PC while the share is
 // connected and idle, with and without a PING every second (load.cpp).
+//
+// --many-files-test <folder> <count> creates, looks up, lists and deletes
+// that many files in a new test folder below <folder> and checks that the
+// service channel answers within 1 s meanwhile (load.cpp). It deletes only
+// the files it created, by name.
 //
 // --write-test creates <folder>\_ProsperoAutoDrive_Test_<UTC time>-<random>
 // in the share, writes a file into it and reads it back. Nothing that
@@ -180,9 +186,14 @@ int main(int argc, char **argv) {
   std::string test_name;       // --test-name: folder name for the load test
   std::string round_cmd;       // --round-cmd: script after each load round
   int idle_seconds = 0;        // --idle-test
+  std::string many_folder;     // --many-files-test
+  int many_count = 0;
   for (int i = 1; i < argc; i++) {
     if (!std::strcmp(argv[i], "--connect")) {
       connect = true;
+    } else if (!std::strcmp(argv[i], "--many-files-test") && i + 2 < argc) {
+      many_folder = argv[++i];
+      many_count = std::atoi(argv[++i]);
     } else if (!std::strcmp(argv[i], "--load-test") && i + 2 < argc) {
       load_folder = argv[++i];
       load_mib = static_cast<unsigned>(std::atoi(argv[++i]));
@@ -390,6 +401,23 @@ int main(int argc, char **argv) {
         Fail("Leerlauf: " + std::to_string(f) + " Phase(n) ueber 0,1 % oder ohne Antwort");
       } else {
         Ok("Leerlauf unter 0,1 % auf Server und PC");
+      }
+    }
+  }
+
+  if (!many_folder.empty()) {
+    std::printf("\n===== 10. Viele Dateien in einem Ordner =====\n");
+    if (!have) {
+      Fail("ohne Zugangsdaten kein Test mit vielen Dateien");
+    } else if (many_count < 1) {
+      Fail("--many-files-test braucht eine Anzahl ab 1");
+    } else {
+      std::string name = test_name.empty() ? TestFolderName() : test_name;
+      int f = ManyFilesTest(ip, unc, port, hello, cred, many_folder, name, many_count);
+      if (f) {
+        Fail("viele Dateien: " + std::to_string(f) + " Fehler oder Lebenszeichen ueber 1 s");
+      } else {
+        Ok("viele Dateien: Lebenszeichen immer unter 1 s");
       }
     }
   }
