@@ -438,6 +438,16 @@ bool Channel::Tune(const std::string &key, int sndbuf, int credits, std::string 
   return true;
 }
 
+bool Channel::Quit(const std::string &key, std::string *err) {
+  std::string rep;
+  if (!Request(Signed("QUIT", "", key), &rep, err)) return false;
+  if (rep != "BYE 1") {
+    *err = "abgelehnt: " + rep;
+    return false;
+  }
+  return true;
+}
+
 bool Channel::SendPing(const std::string &key, HANDLE event, std::string *err) {
   if (s_ == INVALID_SOCKET) {
     *err = "nicht verbunden";
@@ -459,7 +469,7 @@ bool Channel::SendPing(const std::string &key, HANDLE event, std::string *err) {
   return true;
 }
 
-int Channel::Poll(bool *closed) {
+int Channel::Poll(bool *closed, std::string *goodbye) {
   *closed = false;
   if (s_ == INVALID_SOCKET) {
     *closed = true;
@@ -482,7 +492,11 @@ int Channel::Poll(bool *closed) {
   int pongs = 0;
   size_t nl;
   while ((nl = buf_.find('\n')) != std::string::npos) {
-    if (buf_.rfind("PONG 1 ", 0) == 0) pongs++;
+    if (buf_.rfind("PONG 1 ", 0) == 0) {
+      pongs++;
+    } else if (goodbye && buf_.rfind("GOODBYE 1", 0) == 0) {
+      *goodbye = buf_.substr(0, nl > 0 && buf_[nl - 1] == '\r' ? nl - 1 : nl);
+    }
     buf_.erase(0, nl + 1);
   }
   return pongs;

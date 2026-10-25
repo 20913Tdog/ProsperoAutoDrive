@@ -31,8 +31,11 @@
  *       server ends (measurements, P2.4)
  *       -> TUNED 1 sndbuf=<bytes> credits=<n>, or ERROR 1 reason=bad-mac
  *          or reason=bad-value (sndbuf up to 16 MiB, credits up to 8192)
- *   QUIT 1          only from 127.0.0.1, i.e. a new instance on the console
- *       -> BYE 1, then the server ends
+ *   QUIT 1          from 127.0.0.1 (a new instance on the console), or
+ *   QUIT 1 seq=<n> mac=<hex>   from a paired PC ("Server beenden")
+ *       -> BYE 1, then the server ends; as its last action it sends
+ *          GOODBYE 1 reason=<replaced|remote> to every other connection
+ *          that said HELLO. Otherwise ERROR 1 reason=not-local or bad-mac
  *   anything else   -> ERROR 1 reason=<word>
  *
  * mac= is the last field: lowercase hex of HMAC-SHA256, keyed with the
@@ -89,6 +92,8 @@ static struct {
   int fd;
   const service_info_t *info;
   client_t c[MAX_CLIENTS];
+  const char *quit_reason;      /* set by an accepted QUIT */
+  uint32_t quit_peer;
 } g = {.fd = -1};
 
 
@@ -250,6 +255,8 @@ answer_http(client_t *c) {
   if(c->http == 'Q') {
     if(c->peer == INADDR_LOOPBACK) {
       quit = 1;
+      g.quit_reason = "replaced";
+      g.quit_peer = c->peer;
       n = snprintf(body, sizeof body, "PROSPERO-SMBD QUIT\n");
     } else {
       n = snprintf(body, sizeof body, "PROSPERO-SMBD QUIT REFUSED not-local\n");
@@ -348,9 +355,16 @@ handle_line(client_t *c, const char *line) {
     }
     n += snprintf(out + n, sizeof out - n, "END 1\n");
   } else if(is_cmd(line, "QUIT")) {
-    if(c->peer != INADDR_LOOPBACK) {
+    int has_mac = strstr(line, " mac=") != NULL;
+    int remote = has_mac && mac_ok(c, line);
+
+    if(has_mac && !remote) {
+      n = snprintf(out, sizeof out, "ERROR 1 reason=bad-mac\n");
+    } else if(!remote && c->peer != INADDR_LOOPBACK) {
       n = snprintf(out, sizeof out, "ERROR 1 reason=not-local\n");
     } else {
+      g.quit_reason = remote ? "remote" : "replaced";
+      g.quit_peer = c->peer;
       send_all(c->fd, "BYE 1\n", 6);
       shutdown(c->fd, SHUT_WR);
       drop(c);
@@ -509,10 +523,28 @@ service_run(const fd_set *rfds) {
 }
 
 
+const char *
+service_quit_reason(uint32_t *peer) {
+  if(peer) {
+    *peer = g.quit_peer;
+  }
+  return g.quit_reason;
+}
+
+
 void
 service_close(void) {
+  char bye[64];
+  int n = snprintf(bye, sizeof bye, "GOODBYE 1 reason=%s\n", g.quit_reason ? g.quit_reason : "");
+
   for(int i=0; i<MAX_CLIENTS; i++) {
     if(g.c[i].fd >= 0) {
+      /* The last word to every PC that said HELLO, so its log tells an
+       * orderly end from a crash. The send timeout is 1 s. */
+      if(g.quit_reason && g.c[i].nonce[0] && !g.c[i].http) {
+        send_all(g.c[i].fd, bye, (size_t)n);
+        shutdown(g.c[i].fd, SHUT_WR);
+      }
       drop(&g.c[i]);
     }
   }

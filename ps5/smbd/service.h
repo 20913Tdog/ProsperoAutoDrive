@@ -57,8 +57,13 @@ int service_open(uint16_t port, const service_info_t *info);
 void service_fdset(fd_set *rfds, int *maxfd);
 int service_run(const fd_set *rfds);
 
-/* Closes the listener and every connection. */
+/* Closes the listener and every connection; after an accepted QUIT each
+ * one gets GOODBYE first. */
 void service_close(void);
+
+/* Why the last accepted QUIT came ("replaced", "remote"), NULL if none;
+ * peer gets its IPv4 address in host byte order. */
+const char *service_quit_reason(uint32_t *peer);
 
 /* Asks a running instance on this console to quit, so that it frees the
  * ports. Works for this server and for the spike payloads. Returns 1 if

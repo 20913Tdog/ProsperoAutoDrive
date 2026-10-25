@@ -122,14 +122,19 @@ class Channel {
   // default (measurements). Needs the key of a paired PC.
   bool Tune(const std::string &key, int sndbuf, int credits, std::string *err);
 
+  // QUIT: asks the server to end in order (needs the key of a paired PC).
+  // It answers BYE, then sends GOODBYE to every channel and ends.
+  bool Quit(const std::string &key, std::string *err);
+
   // Heartbeat without waiting (ProsperoAutoDrive.exe): SendPing() only sends,
   // `event` is signalled when data or the close arrives, Poll() then reads
   // what is there. After the first SendPing() the blocking requests above
   // no longer work on this connection.
   bool SendPing(const std::string &key, HANDLE event, std::string *err);
   // Returns the number of PONG lines read; closed is set when the server
-  // closed the connection or it failed.
-  int Poll(bool *closed);
+  // closed the connection or it failed. goodbye gets the server's last
+  // line ("GOODBYE 1 reason=..."), if it sent one.
+  int Poll(bool *closed, std::string *goodbye = nullptr);
 
  private:
   // "<command> 1 seq=<n> <rest> mac=<hmac>"

@@ -374,12 +374,37 @@ smb -c "get $TEST/up.txt $WORK/down2.txt" >/dev/null
 cmp "$WORK/up.txt" "$WORK/down2.txt"
 echo "case 5 passed"
 
-echo "== case 6: QUIT from this machine ends the server"
+echo "== case 6: QUIT from another machine needs a valid mac; GOODBYE last"
+rep=$(svc 127.0.0.2 "HELLO 1" "QUIT 1 seq=1 mac=00")
+expect "$rep" '^ERROR 1 reason=bad-mac$'
+need kill -0 "$server"
+# A channel that said HELLO stays open and must get the GOODBYE.
+python3 - "$WORK/goodbye.txt" <<'PY' &
+import socket, sys
+s = socket.create_connection(("127.0.0.1", 4445), timeout=10)
+f = s.makefile("rb")
+s.sendall(b"HELLO 1\n")
+f.readline()
+open(sys.argv[1], "w").write("".join(l.decode() for l in f))
+PY
+watcher=$!
+sleep 0.5
+rep=$(svc 127.0.0.2 "HELLO 1" "QUIT 1 seq=1 mac=@MAC")
+expect "$rep" '^BYE 1$'
+need wait "$server"
+server=
+need wait "$watcher"
+expect "$(cat "$WORK/goodbye.txt")" '^GOODBYE 1 reason=remote$'
+need grep -q "quit requested on the service channel (remote, from 127.0.0.2)" "$STATE/log.txt"
+echo "case 6 passed"
+
+echo "== case 6a: QUIT from this machine (a new instance) ends it as well"
+start
 rep=$(svc 127.0.0.1 "QUIT 1")
 expect "$rep" '^BYE 1$'
 need wait "$server"
 server=
-echo "case 6 passed"
+echo "case 6a passed"
 
 echo "== case 7: an invalid config.ini is kept aside and replaced"
 printf 'server_id=nothex\n' > "$STATE/config.ini"

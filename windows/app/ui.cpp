@@ -317,7 +317,7 @@ LRESULT CALLBACK AskProc(HWND w, UINT msg, WPARAM wp, LPARAM lp) {
 
 // ---------------------------------------------------------------- tray
 
-enum { kOpen = 300, kFind, kPairOther, kAdopt, kAuto, kLog, kQuit, kInfo };
+enum { kOpen = 300, kFind, kPairOther, kAdopt, kStopServer, kAuto, kLog, kQuit, kInfo };
 
 // A round icon with a "P" in it, drawn at run time.
 HICON MakeIcon(COLORREF fill, int size) {
@@ -436,6 +436,8 @@ void ShowMenu(HWND w, TrayState *t) {
   AppendMenuW(m, MF_STRING, kFind, (Wide(t->st.name) + L" im Netz suchen (30 s)").c_str());
   AppendMenuW(m, MF_STRING | (t->st.connected ? 0 : MF_GRAYED), kPairOther, L"Weiteren PC koppeln");
   if (!t->st.other_server.empty()) AppendMenuW(m, MF_STRING, kAdopt, L"Mit neuem Server koppeln...");
+  AppendMenuW(m, MF_STRING | (t->st.connected ? 0 : MF_GRAYED), kStopServer,
+              (Wide(t->st.name) + L" beenden...").c_str());
   AppendMenuW(m, MF_STRING | (setup::AutostartOn() ? MF_CHECKED : 0), kAuto, L"Mit Windows starten");
   AppendMenuW(m, MF_STRING, kLog, L"Protokoll anzeigen");
   AppendMenuW(m, MF_SEPARATOR, 0, nullptr);
@@ -475,6 +477,22 @@ void ShowMenu(HWND w, TrayState *t) {
       if (MessageBoxW(w, text.c_str(), kTitle, MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2) == IDYES) {
         t->agent->Adopt();
       }
+      break;
+    }
+    case kStopServer: {
+      std::wstring text = Wide(t->st.name) +
+                          L" beenden?\n\nDas Laufwerk wird getrennt, offene Dateien darauf werden "
+                          L"geschlossen. Wieder starten laesst sich der Server nur am Geraet selbst.";
+      if (MessageBoxW(w, text.c_str(), kTitle, MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2) != IDYES) break;
+      Agent *a = t->agent;
+      std::thread([w, a] {
+        std::string msg = a->QuitServer();
+        if (msg.empty()) return;
+        auto *st = new Status;
+        st->message = msg;
+        st->name = "-";
+        if (!PostMessageW(w, kStatusMsg, 1, reinterpret_cast<LPARAM>(st))) delete st;
+      }).detach();
       break;
     }
     case kAuto:

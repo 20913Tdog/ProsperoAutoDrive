@@ -134,8 +134,10 @@ int Agent::Run(HANDLE stop, HANDLE search) {
       WSAResetEvent(sock_event_);
       if (!ch_.open()) continue;
       bool closed = false;
-      int pongs = ch_.Poll(&closed);
+      std::string goodbye;
+      int pongs = ch_.Poll(&closed, &goodbye);
       if (pongs) last_pong_ = Now();
+      if (!goodbye.empty()) Log("Server verabschiedet sich: %s", goodbye.c_str());
       for (int i = 0; i < pongs; i++) Do(m.Handle(Event(Event::kPong), Now()));
       if (closed) {
         Log("Dienstkanal vom Server geschlossen");
@@ -455,6 +457,20 @@ std::string Agent::OpenPairing() {
   Log("Weiteren PC koppeln: %d s offen", seconds);
   return "Ein weiterer PC kann sich jetzt " + std::to_string(seconds / 60) +
          " Minuten lang koppeln: dort ProsperoAutoDrive installieren.";
+}
+
+std::string Agent::QuitServer() {
+  Channel c;
+  Hello h;
+  std::string err;
+  if (cred_.password.empty()) return "Noch nicht gekoppelt";
+  if (!c.Connect(s_.ip, s_.port, 2000, &err) || !c.SayHello(&h, &err) || !c.Quit(cred_.password, &err)) {
+    Log("Server beenden: %s", err.c_str());
+    return "Server nicht beendet: " + err;
+  }
+  // The drive goes once the server's GOODBYE and close arrive.
+  Log("Server beenden: angefordert, der Server hat zugestimmt");
+  return "";
 }
 
 }  // namespace prospero

@@ -60,6 +60,10 @@ class Agent {
   // its own; blocks for at most a few seconds. Returns the message to show.
   std::string OpenPairing();
 
+  // Asks the server to end in order, over a channel of its own; blocks for
+  // at most a few seconds. Returns a message to show, empty on success.
+  std::string QuitServer();
+
   // The user confirmed Status::other_server: forget the paired server and
   // pair with that one. Any thread; the agent's thread does the work.
   void Adopt() { SetEvent(adopt_event_); }

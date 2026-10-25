@@ -394,6 +394,10 @@ jobs:
             if ($gone -lt 0) { throw "P3.2: drive did not go" }
             if (-not $stopped) { throw "P3.2: drive still there after --stop" }
             if (-not $p_kept) { throw "P3.2: the foreign P: was touched" }
+            # The server's last word on an orderly end lands in the log.
+            if (-not (Select-String -Quiet -Path (Join-Path $pad 'log.txt') -Pattern 'Server verabschiedet sich: GOODBYE 1 reason=replaced')) {
+              throw "P3.2: no GOODBYE in the log"
+            }
             'P3.2: OK'
             # P3.3: setup without the dialog into a scratch folder, then the
             # removal Windows would call. The runner may run elevated, then

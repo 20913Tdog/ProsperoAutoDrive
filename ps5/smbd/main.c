@@ -286,7 +286,13 @@ extra_service(struct smb2_server *srv, fd_set *rfds, fd_set *wfds) {
   }
   switch(service_run(rfds)) {
   case SERVICE_QUIT:
-    log_msg("quit requested on the service channel");
+    {
+      uint32_t peer = 0;
+      const char *why = service_quit_reason(&peer);
+
+      log_msg("quit requested on the service channel (%s, from %u.%u.%u.%u)", why ? why : "?",
+              peer >> 24, (peer >> 16) & 255, (peer >> 8) & 255, peer & 255);
+    }
     g_quit = 1;
     srv->stop_requested = 1;
     break;
