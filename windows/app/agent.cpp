@@ -71,6 +71,7 @@ Agent::Agent(Settings s, bool console) : s_(std::move(s)), console_(console) {
   sock_event_ = WSACreateEvent();
   net_event_ = CreateEventW(nullptr, TRUE, FALSE, nullptr);
   adopt_event_ = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+  retry_event_ = CreateEventW(nullptr, TRUE, FALSE, nullptr);
   NotifyIpInterfaceChange(AF_UNSPEC, OnNetChange, net_event_, FALSE, &net_notify_);
 }
 
@@ -80,6 +81,7 @@ Agent::~Agent() {
   if (sock_event_) WSACloseEvent(sock_event_);
   if (net_event_) CloseHandle(net_event_);
   if (adopt_event_) CloseHandle(adopt_event_);
+  if (retry_event_) CloseHandle(retry_event_);
   if (log_) fclose(log_);
 }
 
@@ -117,14 +119,14 @@ int Agent::Run(HANDLE stop, HANDLE search) {
   Do(m.Start(Now()));
   HANDLE never = CreateEventW(nullptr, TRUE, FALSE, nullptr);
   for (;;) {
-    HANDLE hs[5] = {stop, sock_event_, net_event_, search ? search : never, adopt_event_};
+    HANDLE hs[6] = {stop, sock_event_, net_event_, search ? search : never, adopt_event_, retry_event_};
     int64_t wake = m.NextWakeMs();
     DWORD to = INFINITE;
     if (wake >= 0) {
       int64_t d = wake - Now();
       to = d > 0 ? static_cast<DWORD>(d) : 0;
     }
-    DWORD r = WaitForMultipleObjects(5, hs, FALSE, to);
+    DWORD r = WaitForMultipleObjects(6, hs, FALSE, to);
     if (r == WAIT_OBJECT_0) {
       Log("Ende angefordert");
       Do(m.Handle(Event(Event::kShutdown), Now()));
@@ -164,6 +166,11 @@ int Agent::Run(HANDLE stop, HANDLE search) {
         Do(m.Handle(Event(Event::kAdopt), Now()));
         Report("", false);
       }
+    } else if (r == WAIT_OBJECT_0 + 5) {
+      ResetEvent(retry_event_);
+      Log("Neu koppeln angefordert");
+      Do(m.Handle(Event(Event::kRetry), Now()));
+      Report("", false);
     } else if (r == WAIT_TIMEOUT) {
       Do(m.Handle(Event(Event::kTick), Now()));
     } else {
@@ -215,7 +222,11 @@ Agent::Event Agent::Exec(const Action &a, bool *answered) {
           Log("Zugangsdaten nicht gespeichert: %s", err.c_str());
         }
       } else {
-        Log("Koppeln: %s", refused.empty() ? err.c_str() : refused.c_str());
+        // Tried every 10 s while refused: only a change goes into the log.
+        static std::string last;
+        std::string why = refused.empty() ? err : refused;
+        if (why != last) Log("Koppeln: %s", why.c_str());
+        last = why;
       }
       return e;
     }
@@ -404,8 +415,8 @@ void Agent::Notify(core::Note n, const std::string &text) {
             "). Wurde er neu eingerichtet: im Tray-Menue \"Mit neuem Server koppeln\".";
       break;
     case core::Note::kPairRefused:
-      msg = who + " hat das Koppeln abgelehnt. Auf einem schon gekoppelten PC "
-            "\"Weiteren PC koppeln\" waehlen.";
+      msg = who + " gefunden, aber Koppeln nicht moeglich (vermutlich eine alte Kopplung). "
+            "Den Server neu starten, dann im Tray \"Neu koppeln\".";
       break;
     case core::Note::kLoginRefused:
       msg = who + ": Anmeldung an der Freigabe abgelehnt";
@@ -434,13 +445,17 @@ void Agent::Report(const std::string &message, bool problem) {
   st.last_seen = last_seen_;
   st.message = message;
   st.problem = problem;
-  if (m_) st.other_server = m_->other_server();
+  if (m_) {
+    st.other_server = m_->other_server();
+    st.pair_refused = m_->pair_refused();
+  }
   if (on_status && (!message.empty() || st.connected != reported_connected_ || !m_ ||
-                    st.other_server != reported_other_)) {
+                    st.other_server != reported_other_ || st.pair_refused != reported_refused_)) {
     on_status(st);
   }
   reported_connected_ = st.connected;
   reported_other_ = st.other_server;
+  reported_refused_ = st.pair_refused;
 }
 
 std::string Agent::OpenPairing() {

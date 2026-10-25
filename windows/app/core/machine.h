@@ -22,7 +22,9 @@ struct Timing {
   int64_t ping_ms = 1000;           // heartbeat while online
   int misses_wired = 3;             // unanswered PINGs before the 445 check
   int misses_other = 12;            //   on wifi or unknown links
-  int64_t backoff_ms = 60000;       // after refused credentials or pairing
+  int64_t backoff_ms = 60000;       // after refused credentials
+  int64_t pair_retry_ms = 10000;    // after a refused pairing: the server
+                                    // opens it for a while after each start
 };
 
 enum class State {
@@ -82,6 +84,7 @@ struct Event {
     kSearch,            // the user asked for a network search
     kFound,             // the search found our server
     kAdopt,             // the user confirmed: take the other server instead
+    kRetry,             // the user asked to try now ("Neu koppeln")
     kShutdown,
   };
   enum Reason { kAuth, kLetterBusy, kNoLetter, kOther };
@@ -112,6 +115,8 @@ class Machine {
   // The ID of another server that answered at the saved address; empty
   // when there is none or ours answered since. Adopt takes it.
   const std::string &other_server() const { return other_; }
+  // The server refused to pair, until a pairing or a connect succeeds.
+  bool pair_refused() const { return pair_refused_; }
 
  private:
   void Search(int64_t at);
@@ -133,6 +138,7 @@ class Machine {
   bool retried_ = false;            // kReconnecting failed once since Online
   std::string link_ = "unknown";
   std::string other_;
+  bool pair_refused_ = false;
   std::vector<Note> shown_;         // problems shown since the last connect
 };
 

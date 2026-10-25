@@ -287,6 +287,15 @@ Der Projektverantwortliche möchte das Heimnetz nicht mit Rundrufen belasten, we
   - Ohne Signatur zeigt der UAC-Dialog „Unbekannter Herausgeber“, bis die Signierung (Phase 4) steht.
 - **Deinstallation:** über Windows (Installierte Apps / „Programm deinstallieren“), per Eintrag für den Benutzer unter `HKCU`.
 
+## Wieder koppeln nach Neuinstallation (25.10.2026)
+
+Eine Deinstallation löscht die Zugangsdaten auf dem PC, der Server führt den PC aber weiter als gekoppelt und lässt dann niemanden mehr koppeln. Entschieden (Projektverantwortlicher): Der Neustart des Servers im Payload Manager ist der Weg zurück.
+
+- Nach jedem Start ist Koppeln 120 s offen, bis ein PC koppelt. Ein schon gekoppelter PC ändert daran nichts.
+- Das Programm versucht nach einer Ablehnung alle 10 s erneut und koppelt damit kurz nach dem Neustart von selbst.
+- Klappt es nicht, meldet es einmal „gefunden, aber Koppeln nicht möglich (vermutlich eine alte Kopplung). Den Server neu starten, dann im Tray ‚Neu koppeln‘“. „Neu koppeln“ versucht es sofort.
+- Risiko: In den 120 s nach jedem Start, auch beim Autoload, kann ein anderes Gerät im Heimnetz koppeln. Die PS5 meldet das mit „gekoppelt mit …“.
+
 ## Payload als eigener Prozess (25.10.2026)
 
 Live fiel auf: Per Netz an den Payload Manager (pldmgr) gesendet, läuft `prospero-smbd.elf` im Prozess `pldmgr.elf`. Man kann es nicht einzeln beenden, und es stirbt mit pldmgr. Payload Manager startet Payloads, die unter „Manage Payloads“ als Datei eingetragen sind, dagegen als eigene Prozesse und kann sie per „Autoload“ beim Start laden.

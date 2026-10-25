@@ -18,7 +18,10 @@
  * (service.c) and then sends PING there as liveness and clock reference.
  *
  * Pairing (variant C, docs/entwurf-phase2.md): open while no PC is paired;
- * afterwards only for PAIRING_SECONDS after a paired PC asked for it.
+ * afterwards only for PAIRING_SECONDS after a paired PC asked for it, and
+ * for PAIRING_ON_START_S after each start, until one PC pairs: a PC that
+ * lost its pairing (reinstalled) gets back in when the user restarts the
+ * server (decision of 25.10.2026).
  *
  * One instance: a new start first asks a running one, or a spike payload,
  * to quit and waits until the ports are free. If the server loop fails, for
@@ -64,6 +67,7 @@
 #define PROFILE     'b'           /* 1 MiB socket buffers, TCP_NODELAY (S2b) */
 #define MAX_CONNS   8
 #define CLOCK_HYSTERESIS_S 2
+#define PAIRING_ON_START_S 120
 
 #ifndef PROSPERO_VERSION
 #define PROSPERO_VERSION "0.0.0"
@@ -407,6 +411,10 @@ main(int argc, char **argv) {
   g_info.password = g_cfg.password;
   g_info.smb_port = port;
   g_info.status = status;
+  if(g_cfg.npaired) {
+    g_pairing_until = time(NULL) + PAIRING_ON_START_S;
+    log_msg("pairing open for %d s after the start", PAIRING_ON_START_S);
+  }
   g_info.pairing_is_open = pairing_is_open;
   g_info.paired = on_paired;
   g_info.open_pairing = on_open_pairing;

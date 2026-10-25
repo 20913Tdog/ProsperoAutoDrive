@@ -311,6 +311,33 @@ void TestAdopt() {
   CHECK(t >= 20000 && t - 20000 <= 3000);
 }
 
+void TestPairAfterRestart() {
+  std::printf("pairing refused: shown once, offered again; pairs once the server allows it\n");
+  Sim s("", false);
+  s.w.pair_ok = false;
+  s.RunTo(60000);
+  CHECK(!s.m().mapped());
+  CHECK(s.m().pair_refused());
+  CHECK(s.Notes(Note::kPairRefused) == 1);
+  int pairs = s.Count(Action::kPair);
+  std::printf("  %d pairing tries in 60 s\n", pairs);
+  CHECK(pairs >= 5 && pairs <= 7);
+  // The user restarts the server, which opens pairing for a while.
+  s.w.pair_ok = true;
+  s.RunTo(71000);
+  CHECK(s.m().mapped());
+  CHECK(!s.m().pair_refused());
+  // "Neu koppeln" tries at once, and a refusal is shown again.
+  Sim r("", false);
+  r.w.pair_ok = false;
+  r.RunTo(1000);
+  Event retry{Event::kRetry};
+  r.Send(retry);
+  r.RunTo(1100);
+  CHECK(r.Count(Action::kPair) == 2);
+  CHECK(r.Notes(Note::kPairRefused) == 2);
+}
+
 void TestChannelOnly() {
   std::printf("channel lost, share still there: drive stays, no busy loop\n");
   Sim s("abc123", true);
@@ -402,6 +429,7 @@ int main() {
   TestWrongPassword();
   TestOtherServer();
   TestAdopt();
+  TestPairAfterRestart();
   TestChannelOnly();
   TestQuiet();
   TestNetworkChange();

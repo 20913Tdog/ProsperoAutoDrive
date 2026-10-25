@@ -367,9 +367,16 @@ for _ in $(seq 50); do status >/dev/null 2>&1 && break; sleep 0.1; done
 out=$(status)
 expect "$out" "^server_id=$ID$"
 expect "$out" '^paired_pcs=2$'
-expect "$out" '^pairing=closed$'
 expect "$out" '^clock_skew_s=3603$'
 need grep -q "offset by 3603 s (from config.ini)" "$STATE/log.txt"
+# After a start pairing is open for a while (a PC that lost its pairing
+# gets back in), for one PC only.
+expect "$out" '^pairing=open$'
+need grep -q "pairing open for 120 s after the start" "$STATE/log.txt"
+rep=$(svc 127.0.0.1 "PAIR 1 pc=reinstalled" "PAIR 1 pc=third")
+expect "$rep" "^PAIRED 1 user=prospero password=$PASS$"
+expect "$rep" '^PAIR-REFUSED 1 reason=closed$'
+expect "$(status)" '^pairing=closed$'
 smb -c "get $TEST/up.txt $WORK/down2.txt" >/dev/null
 cmp "$WORK/up.txt" "$WORK/down2.txt"
 echo "case 5 passed"

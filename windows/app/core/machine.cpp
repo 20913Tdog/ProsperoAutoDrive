@@ -78,6 +78,10 @@ std::vector<Action> Machine::Handle(const Event &e, int64_t now) {
     out.push_back(Do(Action::kBroadcast));
     return out;
   }
+  if (e.kind == Event::kRetry) {
+    // A refusal after the user's own try is shown again.
+    shown_.erase(std::remove(shown_.begin(), shown_.end(), Note::kPairRefused), shown_.end());
+  }
   if (e.kind == Event::kAdopt) {
     // Only reached while searching: the other server ends every attempt.
     // Its credentials come from pairing, unless the PC knows it already.
@@ -98,7 +102,7 @@ std::vector<Action> Machine::Handle(const Event &e, int64_t now) {
   switch (state_) {
     case State::kSearching:
       if ((e.kind == Event::kTick && now >= wake_) || e.kind == Event::kNetworkChanged ||
-          e.kind == Event::kFound) {
+          e.kind == Event::kFound || e.kind == Event::kRetry) {
         state_ = State::kConnecting;
         wake_ = -1;
         attempt_ = now;
@@ -167,12 +171,16 @@ std::vector<Action> Machine::Handle(const Event &e, int64_t now) {
     case State::kPairing:
       if (e.kind == Event::kPaired && e.ok) {
         have_credentials_ = true;
+        pair_refused_ = false;
         state_ = State::kMapping;
         out.push_back(Do(Action::kMap));
       } else if (e.kind == Event::kPaired || e.kind == Event::kChannelClosed) {
-        if (e.kind == Event::kPaired) Problem(&out, Note::kPairRefused);
+        if (e.kind == Event::kPaired) {
+          pair_refused_ = true;
+          Problem(&out, Note::kPairRefused);
+        }
         out.push_back(Do(Action::kCloseChannel));
-        Search(now + (e.kind == Event::kPaired ? t_.backoff_ms : t_.retry_ms));
+        Search(now + (e.kind == Event::kPaired ? t_.pair_retry_ms : t_.retry_ms));
       }
       break;
 

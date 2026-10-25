@@ -317,7 +317,7 @@ LRESULT CALLBACK AskProc(HWND w, UINT msg, WPARAM wp, LPARAM lp) {
 
 // ---------------------------------------------------------------- tray
 
-enum { kOpen = 300, kFind, kPairOther, kAdopt, kStopServer, kAuto, kLog, kQuit, kInfo };
+enum { kOpen = 300, kFind, kPairOther, kAdopt, kRepair, kStopServer, kAuto, kLog, kQuit, kInfo };
 
 // A round icon with a "P" in it, drawn at run time.
 HICON MakeIcon(COLORREF fill, int size) {
@@ -436,6 +436,7 @@ void ShowMenu(HWND w, TrayState *t) {
   AppendMenuW(m, MF_STRING, kFind, (Wide(t->st.name) + L" im Netz suchen (30 s)").c_str());
   AppendMenuW(m, MF_STRING | (t->st.connected ? 0 : MF_GRAYED), kPairOther, L"Weiteren PC koppeln");
   if (!t->st.other_server.empty()) AppendMenuW(m, MF_STRING, kAdopt, L"Mit neuem Server koppeln...");
+  if (t->st.pair_refused) AppendMenuW(m, MF_STRING, kRepair, L"Neu koppeln");
   AppendMenuW(m, MF_STRING | (t->st.connected ? 0 : MF_GRAYED), kStopServer,
               (Wide(t->st.name) + L" beenden...").c_str());
   AppendMenuW(m, MF_STRING | (setup::AutostartOn() ? MF_CHECKED : 0), kAuto, L"Mit Windows starten");
@@ -479,6 +480,9 @@ void ShowMenu(HWND w, TrayState *t) {
       }
       break;
     }
+    case kRepair:
+      t->agent->Retry();
+      break;
     case kStopServer: {
       std::wstring text = Wide(t->st.name) +
                           L" beenden?\n\nDas Laufwerk wird getrennt, offene Dateien darauf werden "
