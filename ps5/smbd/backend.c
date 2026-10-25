@@ -685,8 +685,11 @@ valid_component(const char *c) {
  * (live, 25.10.2026). The cache holds the folder last searched. It is valid
  * while the folder's identity and mtime are unchanged and for at most
  * NC_MAX_AGE_S, so a change by another program within one mtime tick is
- * seen soon. Our own creates, deletes and renames update it (nc_note). */
-#define NC_MAX_AGE_S 2
+ * seen eventually. Our own creates, deletes and renames update it
+ * (nc_note). 30 s, not 2: reading 20,000 names takes about 0.45 s on the
+ * console, and every 2 s that still made each new file 2 ms slower at the
+ * end (live, 25.10.2026). */
+#define NC_MAX_AGE_S 30
 
 static struct {
   char dir[PATH_SIZE];
