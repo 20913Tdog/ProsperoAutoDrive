@@ -5,6 +5,8 @@
 
 #include "agent.h"
 
+#include "setup.h"
+
 #include <iphlpapi.h>
 #include <lm.h>
 #include <winnetwk.h>
@@ -113,8 +115,9 @@ int Agent::Run(HANDLE stop, HANDLE search) {
   bool creds = !s_.server_id.empty() && LoadCredential(s_.server_id, &cred_);
   core::Machine m(t, s_.server_id, creds);
   m_ = &m;
-  Log("Start: Server %s unter %s:%u", s_.server_id.empty() ? "(noch keiner)" : s_.server_id.c_str(),
-      s_.ip.c_str(), s_.port);
+  // With admin rights the drive would be invisible to the Explorer.
+  Log("Start: Server %s unter %s:%u, %s", s_.server_id.empty() ? "(noch keiner)" : s_.server_id.c_str(),
+      s_.ip.c_str(), s_.port, setup::Elevated() ? "MIT Adminrechten" : "ohne Adminrechte");
   Report("", false);
   Do(m.Start(Now()));
   HANDLE never = CreateEventW(nullptr, TRUE, FALSE, nullptr);
