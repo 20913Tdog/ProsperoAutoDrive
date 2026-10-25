@@ -188,6 +188,8 @@ Entwurf: [`entwurf-phase3.md`](entwurf-phase3.md).
   - Kabel eingesteckt: `P:` im selben Moment wie der Dienstkanal da. Wie lange die PS5 nach dem Einstecken selbst braucht, ist nicht gemessen.
   - Alle Ziele erreicht: Erscheinen ≤ 3 s, Verschwinden ≤ 5 s am Kabel, ordentliches Ende < 1 s.
 
+- **Server beenden** aus dem Tray (signiertes `QUIT`, der Server sagt zuletzt `GOODBYE`) und **Mit neuem Server koppeln** (nach einem Zurücksetzen des Servers): E1 und E2 grün, live bestanden (E3, Build `7f97ddc`, 25.10.2026).
+
 **Umfang:**
 
 - eine einzelne exe, ohne Installer-Paket und ohne ZIP
