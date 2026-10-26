@@ -9,7 +9,9 @@
 #     documentation ranges 192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24 are
 #     fine; specification section numbers such as "MS-SMB2 3.3.1.2" and
 #     version="6.0.0.0" are not addresses)
-#   - e-mail addresses other than the GitHub noreply ones
+#   - e-mail addresses other than the GitHub noreply ones, and in
+#     THIRD-PARTY-NOTICES.txt the authors' addresses that the quoted license
+#     texts must keep
 #   - user profile paths with a real name (C:\Users\<name>, /home/<name>)
 # Usage: check-sanitized.py  (in the repository root)
 
@@ -22,6 +24,8 @@ IPV4 = re.compile(r"(?<![\w.])(\d{1,3}(?:\.\d{1,3}){3})(?![\w.])")
 NOT_AN_ADDRESS = re.compile(r"(MS-[A-Z0-9]+\s+|version=\"|[Vv]ersion\s+|section\s+)$")
 EMAIL = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 EMAIL_OK = re.compile(r"(users\.noreply\.github\.com|noreply@anthropic\.com)$")
+# Copyright lines of third-party licenses, quoted word for word.
+EMAIL_NOTICES = {"THIRD-PARTY-NOTICES.txt": {"Todd.Miller@courtesan.com", "dm@uun.org", "djm@openbsd.org"}}
 PROFILE = re.compile(r"(?i)(?:[A-Z]:[\\/]+Users[\\/]+|/home/)([A-Za-z0-9._-]+)")
 PROFILE_OK = {"runner", "public", "default", "name", "user", "username", "du", "you"}
 DOC_NETS = [ipaddress.ip_network(n) for n in ("192.0.2.0/24", "198.51.100.0/24", "203.0.113.0/24")]
@@ -55,7 +59,7 @@ def main():
                 if public(m.group(1)) and not NOT_AN_ADDRESS.search(line[: m.start()]):
                     problems.append(f"{name}:{no}: public IPv4 address {m.group(1)}")
             for m in EMAIL.finditer(line):
-                if not EMAIL_OK.search(m.group(0)):
+                if not EMAIL_OK.search(m.group(0)) and m.group(0) not in EMAIL_NOTICES.get(name, ()):
                     problems.append(f"{name}:{no}: e-mail address")
             for m in PROFILE.finditer(line):
                 if m.group(1).lower() not in PROFILE_OK and not m.group(1).startswith(("%", "<", "$")):
