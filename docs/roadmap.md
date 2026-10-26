@@ -224,7 +224,7 @@ Design: [`design-phase3.md`](design-phase3.md).
 
 ### P33 – Payload as its own process
 
-[Decision](decisions.md#payload-as-its-own-process-2026-10-25): the Payload Manager starts `prospero-smbd.elf` from a file as a process of its own, instead of loading it into `pldmgr.elf` via websend. The file lives in `/data/prospero-smbd/`, next to `config.ini` ([decision of 2026-10-26](decisions.md#release-010-answers-to-the-open-questions-2026-10-26)), never in `/data/homebrew`. The project owner does all steps by hand (E3), guided by `tools\Run-Test.cmd P33` (`tests/smbd/P33-Check.cmd`); the status shows `pid=` and `ppid=` of the server for P33.1 and P33.4.
+[Decision](decisions.md#payload-as-its-own-process-2026-10-25): the Payload Manager starts `prospero-smbd.elf` from a file as a process of its own, instead of loading it into `pldmgr.elf` via websend. The file lives in `/data/prospero-smbd/`, next to `config.ini` ([decision of 2026-10-26](decisions.md#release-010-answers-to-the-open-questions-2026-10-26)), never in `/data/homebrew`. The project owner does all steps by hand (E3), guided by `tools\Run-Test.cmd P33` (`tests/smbd/P33-Check.cmd`); the status shows `pid=` and `ppid=` of the server for P33.1 and P33.4. The test first starts the program of the build against whichever server runs, so that the new file reaches the PS5 via the drive in P33.1; a new instance is recognised by its `instance=`, and the drive may go and come back or stay while one server replaces the other.
 
 | No. | Step | Expected |
 |---|---|---|

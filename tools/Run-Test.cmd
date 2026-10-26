@@ -189,6 +189,23 @@ git -C "%ROOT%" log -1 --oneline
 
 echo.
 call :say 1/6 Fetch and verify the build
+rem A running ProsperoAutoDrive.exe from dist\dev keeps the folder from being
+rem replaced, and the tests run their own instance anyway. --stop ends the one
+rem of this logon, wherever it was started from; an installed one is started
+rem again at the end.
+set "WAS_RUNNING="
+tasklist /fi "imagename eq ProsperoAutoDrive.exe" /nh 2>nul | findstr /i /b "ProsperoAutoDrive.exe" >nul && set "WAS_RUNNING=1"
+if defined WAS_RUNNING (
+  echo ProsperoAutoDrive.exe is running; it is ended for the test.
+  >con echo   Ending the running ProsperoAutoDrive.exe for the test ...
+  call :installed
+  if exist "%ROOT%\dist\dev\ProsperoAutoDrive.exe" (
+    "%ROOT%\dist\dev\ProsperoAutoDrive.exe" --stop
+  ) else if defined INSTALLED_EXE (
+    "!INSTALLED_EXE!" --stop
+  )
+  ping -n 2 127.0.0.1 >nul
+)
 call "%ROOT%\tools\Get-DevBuild.cmd"
 if errorlevel 1 (
   call :fail "The build cannot be fetched or is damaged."
@@ -207,11 +224,12 @@ if /i not "%BUILD_COMMIT%"=="%HEAD_COMMIT%" (
 
 echo.
 call :say 2/6 Drop old connections and end the old payload
-rem Without sending, the drive P: stays: the new file may be copied onto it.
-if not defined NOSEND call :disconnect
+call :disconnect
 set "OLD_FOLDER="
 del /q "%STATUS%" 2>nul
 curl.exe -s --connect-timeout 3 --max-time 5 -o "%STATUS%" "%CTL%/"
+rem Without sending, the server that runs now is the one to start with.
+if defined NOSEND del /q "%STATUS%" 2>nul
 if exist "%STATUS%" (
   for /f "usebackq tokens=1,* delims==" %%A in ("%STATUS%") do (
     if "%%A"=="%KEY%" set "OLD_FOLDER=%%B"
@@ -239,6 +257,8 @@ echo Port 4445 is free.
 echo.
 call :say 3/6 Send the payload
 set "MAXN=36"
+rem Without sending, any server that answers will do; the test then asks for
+rem the new file.
 if defined NOSEND (
   call :from_file
 ) else (
@@ -322,6 +342,7 @@ if defined PRODUCT (
 ) else (
   curl.exe -s --connect-timeout 3 --max-time 5 "%CTL%/quit"
 )
+call :restore
 echo.
 echo End: %date% %time%
 echo RUN-TEST: %TEST% finished, exit code %TEST_RC%
@@ -346,26 +367,50 @@ rem A closed port fails at once, so a round takes about 2 s.
 set "MAXN=300"
 goto :eof
 
-rem The server is started from its file in the Payload Manager (P33). The
-rem owner puts the new file there; the script writes nothing on the console.
+rem The server is started from its file in the Payload Manager (P33). Any
+rem server that runs now will do: the test starts its own program with the
+rem drive and asks for the new file then. The script writes nothing on the
+rem console.
 :from_file
 echo Not sent: the server is started from its file on the PS5.
+curl.exe -s --connect-timeout 3 --max-time 5 -o nul "%CTL%/"
+if not errorlevel 1 (
+  echo A server runs; the test asks for the new file later.
+  goto :eof
+)
 >con echo.
->con echo This test starts the server from its file in the Payload Manager.
->con echo Please do this now:
->con echo   1. Copy %ROOT%\dist\dev\%ELF%
->con echo      to the folder /data/prospero-smbd/ on the PS5 and replace the old
->con echo      file there, for example in the Explorer onto P:\data\prospero-smbd\
->con echo      while the old server is still running.
->con echo   2. If not done yet: register that file in the Payload Manager under
->con echo      "Manage Payloads".
->con echo   3. Start it from the dashboard of the Payload Manager.
->con echo The folder with the file is opened for you. The script waits for up to
->con echo 10 minutes until the new server answers.
+>con echo No server answers. Please start it from the dashboard of the Payload
+>con echo Manager now, whichever version is registered. If none is registered
+>con echo yet: copy %ROOT%\dist\dev\%ELF%
+>con echo by FTP to /data/prospero-smbd/ on the PS5, register it under "Manage
+>con echo Payloads" and start it. The script waits for up to 10 minutes.
 >con echo.
-start "" explorer.exe /select,"%ROOT%\dist\dev\%ELF%"
 rem A closed port fails at once, so a round takes about 2 s.
 set "MAXN=300"
+goto :eof
+
+rem :restore: starts the installed program again if step 1 ended it, also
+rem after an abort.
+:restore
+if not defined WAS_RUNNING goto :eof
+set "WAS_RUNNING="
+call :installed
+if defined INSTALLED_EXE (
+  echo Starting the installed program again: !INSTALLED_EXE!
+  start "" "!INSTALLED_EXE!" >nul 2>&1 <nul
+) else (
+  echo ProsperoAutoDrive.exe was running before the test and is not installed; start it again yourself.
+  >con echo   ProsperoAutoDrive.exe was ended for the test; start it again yourself.
+)
+goto :eof
+
+rem :installed: INSTALLED_EXE, the installed ProsperoAutoDrive.exe, if any.
+:installed
+set "INSTALLED_EXE="
+for %%K in (HKCU HKLM) do if not defined INSTALLED_EXE (
+  for /f "tokens=2,*" %%A in ('reg query "%%K\Software\Microsoft\Windows\CurrentVersion\Uninstall\ProsperoAutoDrive" /v InstallLocation 2^>nul ^| findstr /i "InstallLocation"') do set "INSTALLED_EXE=%%B\ProsperoAutoDrive.exe"
+)
+if defined INSTALLED_EXE if not exist "!INSTALLED_EXE!" set "INSTALLED_EXE="
 goto :eof
 
 rem Progress for the console window; the log gets the same line.
@@ -379,6 +424,7 @@ echo.
 echo ERROR: %~1
 >con echo ERROR: %~1
 echo RUN-TEST: %TEST% ABORTED
+call :restore
 goto :eof
 
 rem Windows refuses a second user name for the same server (system error
