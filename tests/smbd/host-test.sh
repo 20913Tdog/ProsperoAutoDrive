@@ -480,9 +480,10 @@ echo "+7200" > "$WORK/faketime"         # wall clock 2 hours forward
 sleep 1
 out=$(status)
 need wait "$idle"
-# All three first, so that a failure shows every timer that moved.
-grep -E '^(uptime_s|now_utc|pairing)=' <<<"$out"
-echo "idle connection after the jump: $(cat "$WORK/idle.txt")"
+# All three first and in one line, so that a failure shows every timer
+# that moved (the annotation of the CI keeps lines with "expected").
+echo "case 6b, expected uptime_s < 60, pairing=open, PONG:" \
+  $(grep -E '^(uptime_s|now_utc|pairing)=' <<<"$out") "idle connection: $(cat "$WORK/idle.txt")"
 # The jump took effect: the server's wall clock is 2 hours ahead.
 ahead=$(( $(date -d "$(sed -n 's/^now_utc=//p' <<<"$out")" +%s) - $(date +%s) ))
 need [ "$ahead" -ge 7100 ]

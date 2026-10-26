@@ -11,7 +11,7 @@ setlocal EnableExtensions EnableDelayedExpansion
 chcp 65001 >nul
 
 rem The test the owner is asked to run right now.
-set "DEFAULT_TEST=P32"
+set "DEFAULT_TEST=P33"
 
 rem git pull may rewrite this very file, and cmd reads a running batch file
 rem from disk as it goes. So the pull runs from a copy in %TEMP%, which then
@@ -140,8 +140,21 @@ if /i "%TEST%"=="P34" (
   set "KEY=instance"
   set "DURATION=about 10 minutes"
 )
+rem P33: the Payload Manager starts the server from its file on the console,
+rem so nothing is sent over the network here (NOSEND); the owner copies the
+rem new file there and starts it from the dashboard.
+set "NOSEND="
+if /i "%TEST%"=="P33" (
+  set "ELF=prospero-smbd.elf"
+  set "SCRIPT=..\smbd\P33-Check.cmd"
+  set "TAG=PROSPERO-SMBD"
+  set "PRODUCT=1"
+  set "KEY=instance"
+  set "NOSEND=1"
+  set "DURATION=about 15 minutes, with steps by hand on the PS5"
+)
 if not defined ELF (
-  echo ERROR: Unknown test "%TEST%". Known tests: S2, S2b, S3, S4, S7, P22, P24, P30, P32 and P34.
+  echo ERROR: Unknown test "%TEST%". Known tests: S2, S2b, S3, S4, S7, P22, P24, P30, P32, P33 and P34.
   exit /b 2
 )
 
@@ -194,7 +207,8 @@ if /i not "%BUILD_COMMIT%"=="%HEAD_COMMIT%" (
 
 echo.
 call :say 2/6 Drop old connections and end the old payload
-call :disconnect
+rem Without sending, the drive P: stays: the new file may be copied onto it.
+if not defined NOSEND call :disconnect
 set "OLD_FOLDER="
 del /q "%STATUS%" 2>nul
 curl.exe -s --connect-timeout 3 --max-time 5 -o "%STATUS%" "%CTL%/"
@@ -225,8 +239,12 @@ echo Port 4445 is free.
 echo.
 call :say 3/6 Send the payload
 set "MAXN=36"
-call "%ROOT%\tools\Send-Payload.cmd" %PS5% "%ROOT%\dist\dev\%ELF%"
-if errorlevel 1 call :manual_load
+if defined NOSEND (
+  call :from_file
+) else (
+  call "%ROOT%\tools\Send-Payload.cmd" %PS5% "%ROOT%\dist\dev\%ELF%"
+  if errorlevel 1 call :manual_load
+)
 
 echo.
 call :say 4/6 Wait until the payload is ready
@@ -324,6 +342,28 @@ echo No ELF loader on port 9021, the payload must be started by hand.
 >con echo.
 start "" explorer.exe /select,"%ROOT%\dist\dev\%ELF%"
 start "" "http://%PS5%:8084"
+rem A closed port fails at once, so a round takes about 2 s.
+set "MAXN=300"
+goto :eof
+
+rem The server is started from its file in the Payload Manager (P33). The
+rem owner puts the new file there; the script writes nothing on the console.
+:from_file
+echo Not sent: the server is started from its file on the PS5.
+>con echo.
+>con echo This test starts the server from its file in the Payload Manager.
+>con echo Please do this now:
+>con echo   1. Copy %ROOT%\dist\dev\%ELF%
+>con echo      to the folder /data/prospero-smbd/ on the PS5 and replace the old
+>con echo      file there, for example in the Explorer onto P:\data\prospero-smbd\
+>con echo      while the old server is still running.
+>con echo   2. If not done yet: register that file in the Payload Manager under
+>con echo      "Manage Payloads".
+>con echo   3. Start it from the dashboard of the Payload Manager.
+>con echo The folder with the file is opened for you. The script waits for up to
+>con echo 10 minutes until the new server answers.
+>con echo.
+start "" explorer.exe /select,"%ROOT%\dist\dev\%ELF%"
 rem A closed port fails at once, so a round takes about 2 s.
 set "MAXN=300"
 goto :eof
