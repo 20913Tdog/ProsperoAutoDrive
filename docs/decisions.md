@@ -344,3 +344,11 @@ The project owner answered the questions Q1–Q6 of the [release plan](release-0
 - **Q5, place of the ELF file on the PS5:** `/data/prospero-smbd/`, the same folder as `config.ini` and the log. The server writes only its own files there (`config.ini`, `config.ini.tmp`, `config.ini.bad`, `log.txt`, `log.1.txt`), so the ELF file next to them is never touched. Removing everything from the PS5 is one folder. Resetting the server means deleting `config.ini` only, not the folder, or the Payload Manager no longer finds the file. This replaces the example `/data/prospero/` in [P33](roadmap.md#p33--payload-as-its-own-process); it is still a folder of its own and never `/data/homebrew`.
 - **Q2 and Q6, release files:** `ProsperoAutoDrive.exe`, `prospero-smbd.elf`, `SHA256SUMS`, `BUILD-INFO.txt`, the license texts, `THIRD-PARTY-NOTICES.txt` and a complete source archive including the libsmb2 submodule (GPL-3.0 of the payload). No test programs, no spike payloads.
 - **Q3 and Q4, kind of release and who starts it:** a normal release, not a pre-release, so that `/releases/latest` works; the 0.x version already says that it is early. The project owner starts it with "Run workflow" in the Actions tab; that click is the go.
+
+## Timers on the monotonic clock (2026-10-26)
+
+Setting the PS5's clock while the server runs, as the project owner did on 2026-10-25, moved every timer that used the wall clock. Moved back by 1 h, the pairing window after a start stayed open for about 1 h instead of 120 s, and idle service connections were closed only after about 1 h instead of 60 s. Moved forward, the pairing window closed at once and every idle connection was dropped at once.
+
+- **Decided (T1, Q1):** timers and durations use `CLOCK_MONOTONIC` (`ps5/smbd/monotime.h`): the pairing windows, the idle timeout of the service channel, `uptime_s`, the outer restart loop and the loop gap of the queue diagnosis. `CLOCK_MONOTONIC` was already proven on the PS5 (name cache, signing check).
+- **Stays on the wall clock:** the time stamps of the log, `now_utc` in the status, the clock skew from `PING` (it compares the PC's UTC with the console's), and file times.
+- **Test:** host test case 6b moves the wall clock of the server process 2 h forward with libfaketime and leaves the monotonic clock alone.

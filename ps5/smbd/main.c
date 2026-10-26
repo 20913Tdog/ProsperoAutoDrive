@@ -33,7 +33,9 @@
  * every time stamp (backend_set_clock_skew) and kept in config.ini, so it
  * holds from the start until the next measurement. A new value is only
  * taken when it differs by CLOCK_HYSTERESIS_S or more, so times do not
- * jump by a second back and forth.
+ * jump by a second back and forth. Timers and durations (pairing windows,
+ * idle timeout, uptime) run on the monotonic clock instead (monotime.h),
+ * so setting the console's clock does not move them.
  *
  * Host build for the CI tests:
  *   prospero-smbd <share root> <state dir> <smb port>
@@ -59,6 +61,7 @@
 #include "diag.h"
 #include "discovery.h"
 #include "log.h"
+#include "monotime.h"
 #include "service.h"
 #include "signing.h"
 
@@ -88,7 +91,7 @@ static struct smb2_server g_server;
 static config_t g_cfg;
 static service_info_t g_info;
 static const char *g_root;
-static time_t g_start;
+static time_t g_start;                  /* mono_s() */
 static unsigned g_connections;
 static unsigned g_restarts;
 static int g_quit;
@@ -96,7 +99,7 @@ static int g_announced;
 static const char *g_state_dir;
 static int g_udp_fd = -1;
 static discovery_info_t g_disc;
-static time_t g_pairing_until;
+static time_t g_pairing_until;          /* mono_s(), 0 = closed */
 static int64_t g_skew_ms;
 static unsigned g_skew_samples;
 static char g_instance[17];          /* random per start, for test scripts */
@@ -132,7 +135,7 @@ ip_text(uint32_t ip, char out[48]) {
 
 static int
 pairing_is_open(void) {
-  return g_cfg.npaired == 0 || time(NULL) < g_pairing_until;
+  return g_cfg.npaired == 0 || mono_s() < g_pairing_until;
 }
 
 
@@ -161,7 +164,7 @@ static void
 on_open_pairing(uint32_t peer) {
   char ip[48];
 
-  g_pairing_until = time(NULL) + PAIRING_SECONDS;
+  g_pairing_until = mono_s() + PAIRING_SECONDS;
   ip_text(peer, ip);
   notify(NAME ": pairing open for %d minutes (requested by %s)",
          PAIRING_SECONDS / 60, ip);
@@ -235,7 +238,7 @@ status(char *buf, size_t size) {
                "pairing=%s\nskew_ms=%lld\nskew_samples=%u\nclock_skew_s=%lld%s\n",
                PROSPERO_VERSION, g_instance, g_cfg.server_id, g_cfg.name, SHARE_NAME,
                g_root, g_cfg.user, (unsigned)g_server.port,
-               (long)(now - g_start), g_connections, g_restarts, now_utc,
+               (long)(mono_s() - g_start), g_connections, g_restarts, now_utc,
                g_cfg.npaired, pairing_is_open() ? "open" : "closed",
                (long long)g_skew_ms, g_skew_samples, g_cfg.skew_s,
                g_cfg.has_skew ? "" : " (unmeasured)");
@@ -359,7 +362,7 @@ main(int argc, char **argv) {
   g_state_dir = state_dir;
 
   signal(SIGPIPE, SIG_IGN);
-  g_start = time(NULL);
+  g_start = mono_s();
   {
     static const char hex[] = "0123456789abcdef";
     uint8_t raw[8];
@@ -412,7 +415,7 @@ main(int argc, char **argv) {
   g_info.smb_port = port;
   g_info.status = status;
   if(g_cfg.npaired) {
-    g_pairing_until = time(NULL) + PAIRING_ON_START_S;
+    g_pairing_until = mono_s() + PAIRING_ON_START_S;
     log_msg("pairing open for %d s after the start", PAIRING_ON_START_S);
   }
   g_info.pairing_is_open = pairing_is_open;
@@ -438,7 +441,7 @@ main(int argc, char **argv) {
    * to 30 s; a round that ran for a minute counts as healthy again. Only
    * the first failure of a streak is a notification. */
   while(!g_quit) {
-    time_t round = time(NULL);
+    time_t round = mono_s();
 
     if((rc=open_service(g_restarts ? 1 : 10)) != 0) {
       log_msg("service port %d not available: %s", SERVICE_PORT, strerror(-rc));
@@ -459,7 +462,7 @@ main(int argc, char **argv) {
       }
       log_msg("server loop ended (%d), reopening", rc);
     }
-    if(time(NULL) - round >= 60) {
+    if(mono_s() - round >= 60) {
       failing = 0;
       pause_s = 1;
     }

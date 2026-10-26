@@ -43,6 +43,7 @@
 #include "libsmb2-private.h"
 
 #include "diag.h"
+#include "monotime.h"
 
 typedef struct {
   long long cur;
@@ -64,15 +65,6 @@ static struct {
 } d = {.sock_known = 1};
 
 
-static int64_t
-now_ms(void) {
-  struct timeval tv;
-
-  gettimeofday(&tv, NULL);
-  return (int64_t)tv.tv_sec * 1000 + tv.tv_usec / 1000;
-}
-
-
 static void
 put(gauge_t *g, long long v) {
   g->cur = v;
@@ -86,7 +78,7 @@ put(gauge_t *g, long long v) {
 void
 diag_sample(void) {
   long long opdus = 0, obytes = 0, wpdus = 0, sock = 0, credits = 0;
-  int64_t now = now_ms();
+  int64_t now = mono_ms();
 
   for(struct smb2_context *c = smb2_active_contexts(); c; c = c->next) {
     int fd = smb2_get_fd(c);

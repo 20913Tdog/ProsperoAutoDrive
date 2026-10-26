@@ -70,6 +70,7 @@
 
 #include "config.h"
 #include "hmac.h"
+#include "monotime.h"
 #include "netinfo.h"
 #include "service.h"
 
@@ -80,7 +81,7 @@
 typedef struct client {
   int fd;
   uint32_t peer;                /* IPv4, host byte order */
-  time_t last;
+  time_t last;                  /* mono_s() of the accept or the last data */
   int http;                     /* 0, or the HTTP request seen: 'S', 'N' or 'Q' */
   char nonce[17];               /* sent with HELLO, keys every mac= */
   int64_t last_seq;             /* of the last line with a valid mac */
@@ -391,7 +392,7 @@ serve_client(client_t *c) {
     return SERVICE_OK;
   }
   c->len += (size_t)n;
-  c->last = time(NULL);
+  c->last = mono_s();
 
   while(c->fd >= 0 && result == SERVICE_OK &&
         (eol=memchr(c->buf, '\n', c->len))) {
@@ -430,7 +431,7 @@ accept_client(void) {
       memset(c, 0, sizeof *c);
       c->fd = fd;
       c->peer = peer.sin_family == AF_INET ? ntohl(peer.sin_addr.s_addr) : 0;
-      c->last = time(NULL);
+      c->last = mono_s();
       return;
     }
   }
@@ -491,7 +492,7 @@ service_fdset(fd_set *rfds, int *maxfd) {
 
 int
 service_run(const fd_set *rfds) {
-  time_t now = time(NULL);
+  time_t now = mono_s();
   int result = SERVICE_OK;
 
   if(g.fd < 0) {

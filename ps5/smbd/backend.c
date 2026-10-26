@@ -62,6 +62,7 @@
 #include <smb2/smb2-errors.h>
 
 #include "backend.h"
+#include "monotime.h"
 
 /* Access mask bits (MS-DTYP 2.4.3, MS-SMB2 2.2.13.1). */
 #define FILE_READ_DATA         0x00000001
@@ -702,15 +703,6 @@ static struct {
   uint32_t *slots;            /* index + 1 into names, 0 = free */
   size_t nslots;              /* power of two */
 } nc;
-
-
-static time_t
-mono_s(void) {
-  struct timespec ts;
-
-  clock_gettime(CLOCK_MONOTONIC, &ts);
-  return ts.tv_sec + 1;       /* never 0 */
-}
 
 
 static uint32_t
