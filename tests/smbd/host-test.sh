@@ -128,6 +128,9 @@ out=$(status)
 expect "$out" "^server_id=$ID$"
 expect "$out" '^share=prospero$'
 expect "$out" "^smb_port=$PORT$"
+# Process and parent, for P33 (its own process or inside the loader).
+expect "$out" "^pid=$server$"
+expect "$out" "^ppid=$$$"
 need grep -q "config.ini created (first start)" "$STATE/log.txt"
 # Signing: AES-NI CMAC passed RFC 4493 and matches the reference code (the
 # CI runners have AES-NI, as the console's Zen 2 has).

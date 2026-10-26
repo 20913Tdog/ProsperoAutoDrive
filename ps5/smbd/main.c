@@ -232,11 +232,12 @@ status(char *buf, size_t size) {
   gmtime_r(&now, &tm);
   strftime(now_utc, sizeof now_utc, "%Y-%m-%dT%H:%M:%SZ", &tm);
   n = snprintf(buf, size,
-               "PROSPERO-SMBD OK\nversion=%s\ninstance=%s\nserver_id=%s\nname=%s\n"
-               "share=%s\nroot=%s\nuser=%s\nsmb_port=%u\nuptime_s=%ld\n"
+               "PROSPERO-SMBD OK\nversion=%s\ninstance=%s\npid=%d\nppid=%d\nserver_id=%s\n"
+               "name=%s\nshare=%s\nroot=%s\nuser=%s\nsmb_port=%u\nuptime_s=%ld\n"
                "connections=%u\nrestarts=%u\nnow_utc=%s\npaired_pcs=%d\n"
                "pairing=%s\nskew_ms=%lld\nskew_samples=%u\nclock_skew_s=%lld%s\n",
-               PROSPERO_VERSION, g_instance, g_cfg.server_id, g_cfg.name, SHARE_NAME,
+               PROSPERO_VERSION, g_instance, (int)getpid(), (int)getppid(), g_cfg.server_id,
+               g_cfg.name, SHARE_NAME,
                g_root, g_cfg.user, (unsigned)g_server.port,
                (long)(mono_s() - g_start), g_connections, g_restarts, now_utc,
                g_cfg.npaired, pairing_is_open() ? "open" : "closed",
