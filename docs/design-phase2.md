@@ -27,7 +27,7 @@ The Windows program itself is phase 3. In phase 2, test scripts take over its ro
 
 ## Folder on the PS5
 
-`/data/prospero-smbd/` belongs to the payload. It is created on the first start:
+`/data/pldmgr/payloads/prospero-smbd/`, the Payload Manager's folder for the payload, holds its state next to the ELF file (until 2026-10-26 `/data/prospero-smbd/`, see [decisions](decisions.md#install-location-in-the-payload-managers-folder-2026-10-26)). The files are created on the first start:
 
 - `config.ini`: server ID, user, password, paired PCs, last measured clock offset
 - `log.txt` and `log.1.txt`: ring log, at most 1 MiB each

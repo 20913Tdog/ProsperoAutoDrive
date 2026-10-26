@@ -26,7 +26,7 @@ The last green build at the time of writing is `548eadb` (docs only on top of `4
 
 | Task | State |
 |---|---|
-| Q1–Q6 | answered, see [decisions](decisions.md#release-010-answers-to-the-open-questions-2026-10-26): T1 yes; the ELF file lives in `/data/prospero-smbd/`; files as recommended, with the source archive; a normal release, started by the owner's click |
+| Q1–Q6 | answered, see [decisions](decisions.md#release-010-answers-to-the-open-questions-2026-10-26): T1 yes; the ELF file lives in `/data/prospero-smbd/` (corrected the same day: in `/data/pldmgr/payloads/prospero-smbd/`, together with the state, see [decisions](decisions.md#install-location-in-the-payload-managers-folder-2026-10-26)); files as recommended, with the source archive; a normal release, started by the owner's click |
 | Q7 (new) | Should the source of the ps5-payload-sdk (its `crt1.o` and parts of its `libc.a` are linked into the payload, GPL-3.0 and others) go into the source archive too, or is a reference enough? The owner asked for help and to discuss it later. Until then: reference only (THIRD-PARTY-NOTICES.txt names tag, commit and the SHA-256 of the SDK zip). Decide before T6 |
 | T1 | done, E1: case 6b failed on the old code (`ce90fca`, "expected '^pairing=open$'" after the jump) and passes since `531be58`; decision recorded. E3 pending (P32 + P33) |
 | T2a | done, E1 (`531be58`): case 1 checks `pid=` against the server's PID and `ppid=` against the test shell. E3 pending (P33) |

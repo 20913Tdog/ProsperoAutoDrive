@@ -18,12 +18,11 @@ There are two parts:
 ## 2. Set up the PS5
 
 1. **Time zone and time.** In the PS5's settings under System, Date and Time, choose your time zone and then set the time by hand. The drive shows correct file times in any case: the PC sends its own time, and the server converts every file time it reports or sets by the measured difference. With a wrong time zone, though, the PS5's own clock is off by hours, and so are the times that programs on the PS5 itself show, for example an FTP server.
-2. **Copy the file.** Put `prospero-smbd.elf` into the folder `/data/prospero-smbd/` on the PS5, for example with an FTP program. Create the folder if it does not exist. Do not use `/data/homebrew`.
-3. **Register it.** In the Payload Manager, add `/data/prospero-smbd/prospero-smbd.elf` under "Manage Payloads".
-4. **Start it automatically.** Add it to "Autoload", so that it starts every time the Payload Manager starts.
-5. **Start it now** from the dashboard. The PS5 shows "Prospero AutoDrive running: share prospero on SMB port 445".
+2. **Add it to the Payload Manager.** Upload `prospero-smbd.elf` under "Manage Payloads". The Payload Manager keeps it as `/data/pldmgr/payloads/prospero-smbd/prospero-smbd.elf`.
+3. **Start it automatically.** Add it to "Autoload", so that it starts every time the Payload Manager starts.
+4. **Start it now** from the dashboard. The PS5 shows "Prospero AutoDrive running: share prospero on SMB port 445".
 
-The server keeps its state in the same folder:
+The server keeps its state next to the program, in `/data/pldmgr/payloads/prospero-smbd/`:
 
 | File | Content |
 |---|---|
@@ -32,7 +31,9 @@ The server keeps its state in the same folder:
 
 The password is created on the first start and is never shown. Deleting `config.ini` resets the server: it gets a new identity and a new password, and every PC has to pair again. Delete only `config.ini`, not the whole folder, or the Payload Manager no longer finds the program.
 
-To update the server, copy the new `prospero-smbd.elf` over the old one (this also works through the drive while the server runs) and start it again from the dashboard. A new start always ends a running server first.
+To update the server, copy the new `prospero-smbd.elf` over the old one in `/data/pldmgr/payloads/prospero-smbd/` (this also works through the drive while the server runs) and start it again from the dashboard. A new start always ends a running server first. If you update by uploading it in the Payload Manager instead and the PC then reports "A different server answers", the Payload Manager has replaced the folder together with `config.ini`; choose "Pair with the new server..." in the tray menu.
+
+Builds before release 0.1.0 kept their state in `/data/prospero-smbd/`. The server takes over `config.ini` from there once, so no PC has to pair again, and leaves it there renamed to `config.ini.moved`. You can then delete the folder `/data/prospero-smbd/`.
 
 ## 3. Set up the PC
 
@@ -85,11 +86,11 @@ If `P:` is already used by something else, it stays untouched; the program takes
 
 The server still lists the PC as paired. That does no harm; if the PC is set up again later, see "Pairing after each start" in [section 3](#3-set-up-the-pc).
 
-**On the PS5:** remove the entry from "Autoload" and "Manage Payloads" in the Payload Manager, stop the server, and delete the folder `/data/prospero-smbd/` with the program, `config.ini` and the logs.
+**On the PS5:** remove the entry from "Autoload" and "Manage Payloads" in the Payload Manager, stop the server, and delete the folder `/data/pldmgr/payloads/prospero-smbd/` with the program, `config.ini` and the logs, if the Payload Manager has not done so.
 
 ## 6. Troubleshooting
 
-**Where is the log?** On the PC: tray menu, "Show log" (`%LOCALAPPDATA%\ProsperoAutoDrive\log.txt`). On the PS5: `/data/prospero-smbd/log.txt`.
+**Where is the log?** On the PC: tray menu, "Show log" (`%LOCALAPPDATA%\ProsperoAutoDrive\log.txt`). On the PS5: `/data/pldmgr/payloads/prospero-smbd/log.txt`.
 
 **The drive does not appear.**
 
@@ -100,7 +101,7 @@ The server still lists the PC as paired. That does no harm; if the PC is set up 
 
 **"PS5 found, but pairing is not possible (probably an old pairing)".** The server no longer lets this PC pair, usually because the program was removed and installed again. Restart the server from the dashboard; for 2 minutes after the start pairing is open, and the program tries again every 10 seconds by itself. "Pair again" in the tray menu tries at once.
 
-**"A different server answers at …".** A server with another identity answers at the saved address. That is normal after `config.ini` was deleted on the PS5. Then choose "Pair with the new server..." in the tray menu. If you did not reset your server, check which device has that address.
+**"A different server answers at …".** A server with another identity answers at the saved address. That is normal after `config.ini` was deleted on the PS5, or after the Payload Manager replaced the server's folder. Then choose "Pair with the new server..." in the tray menu. If you did not reset your server, check which device has that address.
 
 **"PS5: the share refused the sign-in".** The stored password does not fit. The program tries again once a minute. If it stays, the log shows more.
 

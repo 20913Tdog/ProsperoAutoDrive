@@ -11,9 +11,11 @@
  * 445, with NTLMv2 and signing, through the libsmb2 server engine and our
  * own POSIX backend (backend.c). Runs until it is told to quit.
  *
- * State lives in /data/prospero-smbd/: config.ini (server ID, user,
- * password, paired PCs; created on the first start) and the ring log
- * log.txt. The agent on the PC finds the server over UDP 4445
+ * State lives next to the ELF file in the Payload Manager's folder
+ * /data/pldmgr/payloads/prospero-smbd/ (decision of 26.10.2026): config.ini
+ * (server ID, user, password, paired PCs; created on the first start, or
+ * taken over once from /data/prospero-smbd/ of earlier builds) and the ring
+ * log log.txt. The agent on the PC finds the server over UDP 4445
  * (discovery.c), pairs once over the service channel on TCP 4445
  * (service.c) and then sends PING there as liveness and clock reference.
  *
@@ -38,7 +40,7 @@
  * so setting the console's clock does not move them.
  *
  * Host build for the CI tests:
- *   prospero-smbd <share root> <state dir> <smb port>
+ *   prospero-smbd <share root> <state dir> <smb port> [<old state dir>]
  */
 
 #include <errno.h>
@@ -340,7 +342,8 @@ open_service(int tries) {
 
 int
 main(int argc, char **argv) {
-  const char *state_dir = "/data/prospero-smbd";
+  const char *state_dir = "/data/pldmgr/payloads/prospero-smbd";
+  const char *old_dir = "/data/prospero-smbd";
   uint16_t port = 445;
   unsigned pause_s = 1;
   int failing = 0;
@@ -348,13 +351,14 @@ main(int argc, char **argv) {
   int rc;
 
 #ifndef __SCE__
-  if(argc != 4) {
-    fprintf(stderr, "usage: %s <share root> <state dir> <smb port>\n", argv[0]);
+  if(argc != 4 && argc != 5) {
+    fprintf(stderr, "usage: %s <share root> <state dir> <smb port> [<old state dir>]\n", argv[0]);
     return 2;
   }
   g_root = argv[1];
   state_dir = argv[2];
   port = (uint16_t)atoi(argv[3]);
+  old_dir = argc == 5 ? argv[4] : NULL;
 #else
   (void)argc;
   (void)argv;
@@ -376,7 +380,7 @@ main(int argc, char **argv) {
   }
 
   /* Creates state_dir, so the log can follow. */
-  cfg_rc = config_load(state_dir, &g_cfg);
+  cfg_rc = config_load(state_dir, old_dir, &g_cfg);
   if((rc=log_open(state_dir)) != 0) {
     printf("no log file in %s: %s\n", state_dir, strerror(-rc));
   }
@@ -388,6 +392,8 @@ main(int argc, char **argv) {
           PROSPERO_VERSION, g_root, (unsigned)port, g_cfg.server_id);
   if(cfg_rc == CONFIG_CREATED) {
     log_msg("config.ini created (first start)");
+  } else if(cfg_rc == CONFIG_MOVED) {
+    log_msg("config.ini taken over from %s, kept there as config.ini.moved", old_dir);
   } else if(cfg_rc == CONFIG_REPLACED) {
     notify(NAME ": config.ini was damaged and has been created anew "
            "(the old one is kept as config.ini.bad); PCs must pair again");

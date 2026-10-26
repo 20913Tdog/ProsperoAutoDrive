@@ -381,9 +381,9 @@ if not errorlevel 1 (
 >con echo.
 >con echo No server answers. Please start it from the dashboard of the Payload
 >con echo Manager now, whichever version is registered. If none is registered
->con echo yet: copy %ROOT%\dist\dev\%ELF%
->con echo by FTP to /data/prospero-smbd/ on the PS5, register it under "Manage
->con echo Payloads" and start it. The script waits for up to 10 minutes.
+>con echo yet: upload %ROOT%\dist\dev\%ELF%
+>con echo under "Manage Payloads" and start it. The script waits for up to
+>con echo 10 minutes.
 >con echo.
 rem A closed port fails at once, so a round takes about 2 s.
 set "MAXN=300"

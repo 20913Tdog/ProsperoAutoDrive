@@ -13,7 +13,7 @@ Windows needs nothing but its built-in SMB client and one small program. No driv
 
 ## How it works
 
-1. Put `prospero-smbd.elf` into `/data/prospero-smbd/` on the PS5 and start it from a payload manager, ideally with autoload.
+1. Upload `prospero-smbd.elf` in the Payload Manager under "Manage Payloads" (it keeps it in `/data/pldmgr/payloads/prospero-smbd/`, where the server also keeps its state) and start it from there, ideally with autoload.
 2. Start `ProsperoAutoDrive.exe` on the PC and choose an installation folder. It finds the server on the local network, pairs with it and maps the drive.
 3. From then on the drive appears and disappears with the console. The tray menu shows the state and offers actions such as searching the network, pairing another PC, re-pairing and ending the server.
 

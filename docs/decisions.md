@@ -226,7 +226,7 @@ The project owner confirmed the proposals from the [design for phase 2](design-p
 - **Pairing:** the first pairing stays open until a PC is paired. Another PC joins via "Pair another PC" on a paired PC; pairing is then open for 10 minutes. Resetting is done by deleting `config.ini`.
 - **Heartbeat:** every 5 s. The PS5 counts as gone after 15 s without an answer and a failed test on TCP 445.
 - **Clock:** the offset is only taken from heartbeats with a valid checksum (HMAC-SHA256 with the password).
-- **Folder** `/data/prospero-smbd/` for configuration and log.
+- **Folder** `/data/prospero-smbd/` for configuration and log (since 2026-10-26 `/data/pldmgr/payloads/prospero-smbd/`, see [below](#install-location-in-the-payload-managers-folder-2026-10-26)).
 
 ### Rule: only libkernel functions on the PS5
 
@@ -352,3 +352,13 @@ Setting the PS5's clock while the server runs, as the project owner did on 2026-
 - **Decided (T1, Q1):** timers and durations use `CLOCK_MONOTONIC` (`ps5/smbd/monotime.h`): the pairing windows, the idle timeout of the service channel, `uptime_s`, the outer restart loop and the loop gap of the queue diagnosis. `CLOCK_MONOTONIC` was already proven on the PS5 (name cache, signing check).
 - **Stays on the wall clock:** the time stamps of the log, `now_utc` in the status, the clock skew from `PING` (it compares the PC's UTC with the console's), and file times.
 - **Test:** host test case 6b moves the wall clock of the server process 2 h forward with libfaketime and leaves the monotonic clock alone.
+
+## Install location in the Payload Manager's folder (2026-10-26)
+
+The project owner corrected Q5: the Payload Manager keeps the payloads it manages in `/data/pldmgr/payloads/<name>/`; an upload of `prospero-smbd.elf` under "Manage Payloads" ends up as `/data/pldmgr/payloads/prospero-smbd/prospero-smbd.elf`. That is where it is installed, independent of whether it then runs as a process of its own or inside `pldmgr.elf`.
+
+- **Decided (project owner):** the state goes there as well: `config.ini`, its `.tmp`/`.bad` files and the logs live in `/data/pldmgr/payloads/prospero-smbd/`, next to the ELF file. This replaces `/data/prospero-smbd/` from the phase 2 design and from Q5.
+- **Advised against, accepted risk:** the folder belongs to the Payload Manager. Whether it deletes or replaces the folder when the payload is removed or uploaded again is unknown. If it does, the server gets a new identity and password; the PC reports "A different server answers" and the user chooses "Pair with the new server...". Copying a new ELF file over the old one keeps the state. A server sent over the network also writes there.
+- **Folders:** the server creates the folder and any missing one above it, because a server sent over the network may start before anything was uploaded.
+- **Takeover:** without a `config.ini` in the new folder, the server takes over a valid `/data/prospero-smbd/config.ini` of earlier builds once and renames it there to `config.ini.moved`, so the paired PCs keep working and deleting `config.ini` still resets the server. Nothing in the old folder is deleted.
+- **Test:** host test case 8 (E1); E3 with P33, where the first start of the new build takes over the owner's existing pairing.

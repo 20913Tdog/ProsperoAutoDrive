@@ -1,6 +1,7 @@
 @echo off
 rem P33 live test (E3): prospero-smbd.elf as a process of its own, started
-rem by the Payload Manager from its file in /data/prospero-smbd/ instead of
+rem by the Payload Manager from its file in its folder
+rem /data/pldmgr/payloads/prospero-smbd/ instead of
 rem being sent over the network. The project owner does the steps on the
 rem console by hand; the script asks for each one on this console, writes a
 rem time stamp into the log, waits for the program's log line and records
@@ -78,28 +79,39 @@ echo %time% The drive is !DRIVE!
 echo.
 echo ===== P33.1 Copy the new file onto the drive and start it from the dashboard =====
 set "BEFORE=!S_INSTANCE!"
+set "BEFORE_ID=!S_ID!"
 call :mark
 >con echo.
->con echo   P33.1: copy %DIST%\prospero-smbd.elf
->con echo   onto the drive into !DRIVE!\data\prospero-smbd\ and replace the file
->con echo   there. The folder with the new file opens for you. If copying fails,
->con echo   copy it another way, for example by FTP.
+>con echo   P33.1: the new file is %DIST%\prospero-smbd.elf,
+>con echo   its folder opens for you.
+>con echo   - Is prospero-smbd listed under "Manage Payloads" in the Payload
+>con echo     Manager already: copy the file onto the drive into
+>con echo     !DRIVE!\data\pldmgr\payloads\prospero-smbd\ and replace the file there.
+>con echo   - Is it not listed yet: upload the file there instead.
 start "" explorer.exe /select,"%DIST%\prospero-smbd.elf"
 set "OK="
->con set /p "OK=  Did copying via the drive work? y or n, then Enter: " <con
-echo %time% Owner: copying the new file over the old one via the drive worked: "!OK!"
->>"%SUMMARY%" echo P33.1 copying the new file over the old one via the drive worked: !OK!
+>con set /p "OK=  y = copied via the drive, n = copying failed, u = uploaded, then Enter: " <con
+echo %time% Owner: the new file onto the PS5: "!OK!" (y = copied over the old one via the drive, n = copying failed, u = uploaded)
+>>"%SUMMARY%" echo P33.1 the new file via the drive (y), copying failed (n) or uploaded (u): !OK!
 >con echo.
->con echo   If "Manage Payloads" in the Payload Manager does not list it yet,
->con echo   register /data/prospero-smbd/prospero-smbd.elf there. Then start it
->con echo   from the dashboard; it replaces the server that runs now.
+>con echo   Now start it from the dashboard; it replaces the server that runs now.
 >con set /p "X=  Press Enter right after starting it: " <con
 echo %time% Owner: started from the dashboard
 call :switched "P33.1 from the dashboard" 120 || goto :end
 if not defined S_PID (
   echo ERROR: the server that started has no pid= in its status, so it is an older file
-  >con echo ERROR: an older prospero-smbd.elf was started. Check the copy and the
-  >con echo        path under "Manage Payloads", then start the test again.
+  >con echo ERROR: an older prospero-smbd.elf was started. Check the file in
+  >con echo        /data/pldmgr/payloads/prospero-smbd/, then start the test again.
+  goto :end
+)
+rem The first start in the new folder takes over config.ini from
+rem /data/prospero-smbd/, so the identity stays and no PC pairs again.
+if "!S_ID!"=="!BEFORE_ID!" (
+  echo %time% Same server ID as before: the pairing was kept
+) else (
+  echo ERROR: the server ID changed from !BEFORE_ID! to !S_ID!, config.ini was not taken over
+  >con echo ERROR: the new server has another identity, so the program does not
+  >con echo        connect to it. The log at the end shows why.
   goto :end
 )
 call :ask_processes "P33.1/P33.4"
@@ -140,9 +152,9 @@ echo ===== P33.6 Copy the file over the one that runs =====
 call :letter
 >con echo.
 >con echo   P33.6: copy %DIST%\prospero-smbd.elf
->con echo   once more onto the drive, into !DRIVE!\data\prospero-smbd\, and replace
->con echo   the file there while the server runs from it. The folder with the file
->con echo   opens for you.
+>con echo   once more onto the drive, into !DRIVE!\data\pldmgr\payloads\prospero-smbd\,
+>con echo   and replace the file there while the server runs from it. The folder
+>con echo   with the file opens for you.
 start "" explorer.exe /select,"%DIST%\prospero-smbd.elf"
 set "OK="
 >con set /p "OK=  Did copying work? y or n, then Enter: " <con
@@ -216,16 +228,18 @@ echo.
 echo P33-CHECK: COMPLETED, the times are in the log
 exit /b 0
 
-rem :fetch: the server's status in %ST%, its instance and pid in S_INSTANCE
-rem and S_PID, both empty without an answer.
+rem :fetch: the server's status in %ST%, its instance, pid and server ID in
+rem S_INSTANCE, S_PID and S_ID, all empty without an answer.
 :fetch
 set "S_PID="
 set "S_INSTANCE="
+set "S_ID="
 del /q "%ST%" 2>nul
 curl.exe -s --connect-timeout 3 --max-time 5 -o "%ST%" "%CTL%/"
 if exist "%ST%" for /f "usebackq tokens=1,* delims==" %%A in ("%ST%") do (
   if "%%A"=="pid" set "S_PID=%%B"
   if "%%A"=="instance" set "S_INSTANCE=%%B"
+  if "%%A"=="server_id" set "S_ID=%%B"
 )
 goto :eof
 
@@ -235,7 +249,7 @@ rem into the log and into the summary at the end.
 call :fetch
 set "LINE="
 if exist "%ST%" for /f "usebackq tokens=1,* delims==" %%A in ("%ST%") do (
-  for %%K in (version instance pid ppid uptime_s pairing) do if "%%A"=="%%K" set "LINE=!LINE! %%A=%%B"
+  for %%K in (version instance pid ppid server_id uptime_s pairing) do if "%%A"=="%%K" set "LINE=!LINE! %%A=%%B"
 )
 if not defined LINE set "LINE= no answer on port 4445"
 echo %time% Status %~1:!LINE!

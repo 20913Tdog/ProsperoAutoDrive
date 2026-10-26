@@ -36,11 +36,14 @@ enum config_result {
   CONFIG_LOADED,       /* existing config.ini, valid */
   CONFIG_CREATED,      /* there was none: first start */
   CONFIG_REPLACED,     /* it was invalid; kept as config.ini.bad */
+  CONFIG_MOVED,        /* taken over from old_dir, kept there as config.ini.moved */
 };
 
-/* Loads <dir>/config.ini, or creates it with a new server ID and password.
- * Creates dir if needed. Returns a config_result or -errno. */
-int config_load(const char *dir, config_t *cfg);
+/* Loads <dir>/config.ini. Without one it takes over a valid
+ * <old_dir>/config.ini (old_dir may be NULL), else it creates one with a new
+ * server ID and password. Creates dir and the folders above it if needed.
+ * Returns a config_result or -errno. */
+int config_load(const char *dir, const char *old_dir, config_t *cfg);
 
 /* Writes cfg back to <dir>/config.ini (atomically). Returns 0 or -errno. */
 int config_save(const char *dir, const config_t *cfg);

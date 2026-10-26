@@ -217,37 +217,92 @@ config_save(const char *dir, const config_t *cfg) {
 }
 
 
+/* Creates dir and every missing folder above it: the Payload Manager's
+ * folder is not there yet when the server was sent over the network. */
+static int
+make_dirs(const char *dir) {
+  char p[1024];
+  size_t len = strlen(dir);
+
+  if(len >= sizeof p) {
+    return -ENAMETOOLONG;
+  }
+  memcpy(p, dir, len + 1);
+  for(size_t i=1; i<=len; i++) {
+    if(p[i] == '/' || p[i] == '\0') {
+      char c = p[i];
+
+      p[i] = '\0';
+      if(mkdir(p, 0755) != 0 && errno != EEXIST) {
+        return -errno;
+      }
+      p[i] = c;
+    }
+  }
+  return 0;
+}
+
+
+/* Reads path into cfg: 0, -EINVAL if it is broken, else -errno of open. */
+static int
+read_file(const char *path, config_t *cfg) {
+  char text[MAX_SIZE];
+  ssize_t len;
+  int fd;
+
+  if((fd=open(path, O_RDONLY)) < 0) {
+    return -errno;
+  }
+  len = read(fd, text, sizeof text);
+  close(fd);
+  if(len < 0 || len >= (ssize_t)sizeof text || parse(text, (size_t)len, cfg) != 0) {
+    return -EINVAL;
+  }
+  return 0;
+}
+
+
 int
-config_load(const char *dir, config_t *cfg) {
+config_load(const char *dir, const char *old_dir, config_t *cfg) {
   char path[1024];
   char tmp[1040];
   char bad[1040];
-  char text[MAX_SIZE];
-  ssize_t len;
   int result = CONFIG_CREATED;
   int rc;
-  int fd;
 
   if((rc=paths(dir, path, tmp, bad))) {
     return rc;
   }
-  if(mkdir(dir, 0700) != 0 && errno != EEXIST) {
-    return -errno;
+  if((rc=make_dirs(dir))) {
+    return rc;
   }
 
-  if((fd=open(path, O_RDONLY)) >= 0) {
-    len = read(fd, text, sizeof text);
-    close(fd);
-    if(len >= 0 && len < (ssize_t)sizeof text && parse(text, (size_t)len, cfg) == 0) {
-      return CONFIG_LOADED;
-    }
+  if((rc=read_file(path, cfg)) == 0) {
+    return CONFIG_LOADED;
+  }
+  if(rc == -EINVAL) {
     /* Keep the broken one for a look, start over. */
     if(rename(path, bad) != 0) {
       return -errno;
     }
     result = CONFIG_REPLACED;
-  } else if(errno != ENOENT) {
-    return -errno;
+  } else if(rc != -ENOENT) {
+    return rc;
+  } else if(old_dir) {
+    /* Same ID and password as before, so no PC has to pair again. The old
+     * file stays, renamed, so it is taken over only once. */
+    char old[1024];
+    char moved[1040];
+
+    if(snprintf(old, sizeof old, "%s/config.ini", old_dir) < (int)sizeof old &&
+       read_file(old, cfg) == 0) {
+      if((rc=save(path, tmp, cfg))) {
+        return rc;
+      }
+      snprintf(moved, sizeof moved, "%s.moved", old);
+      rename(old, moved);
+      return CONFIG_MOVED;
+    }
   }
 
   generate(cfg);

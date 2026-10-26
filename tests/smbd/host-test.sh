@@ -22,7 +22,8 @@ start() { start_with; }
 start_with() {
   # The trailing slash makes the share root end in "/" like "/" on the
   # console, so the path joins in the backend take that branch.
-  "$@" "$BIN" "$ROOT/" "$STATE" "$PORT" >>"$WORK/server.log" 2>&1 & server=$!
+  # OLD, if set, is the folder of an earlier build (case 8).
+  "$@" "$BIN" "$ROOT/" "$STATE" "$PORT" ${OLD:+"$OLD"} >>"$WORK/server.log" 2>&1 & server=$!
   for _ in $(seq 300); do
     status 2>/dev/null | grep -q '^PROSPERO-SMBD OK$' && return 0
     sleep 0.1
@@ -509,6 +510,34 @@ svc 127.0.0.1 "QUIT 1" >/dev/null
 need wait "$server"
 server=
 echo "case 7 passed"
+
+echo "== case 8: config.ini of an earlier folder is taken over once"
+# Like /data/prospero-smbd/ to /data/pldmgr/payloads/prospero-smbd/: the new
+# folder and the ones above it do not exist yet.
+OLD="$WORK/old"
+mkdir "$OLD"
+cp "$STATE/config.ini" "$OLD/config.ini"
+ID=$(sed -n 's/^server_id=//p' "$OLD/config.ini")
+STATE="$WORK/pldmgr/payloads/prospero-smbd"
+start
+need test -f "$STATE/config.ini"
+need test "$(stat -c %a "$STATE/config.ini")" = 600
+need test ! -e "$OLD/config.ini"
+need test -f "$OLD/config.ini.moved"
+expect "$(status)" "^server_id=$ID$"
+need grep -q "config.ini taken over from $OLD, kept there as config.ini.moved" "$STATE/log.txt"
+svc 127.0.0.1 "QUIT 1" >/dev/null
+need wait "$server"
+server=
+# Only once: deleting config.ini still resets the server.
+rm "$STATE/config.ini"
+start
+need grep -q "config.ini created (first start)" "$STATE/log.txt"
+need [ "$(sed -n 's/^server_id=//p' "$STATE/config.ini")" != "$ID" ]
+svc 127.0.0.1 "QUIT 1" >/dev/null
+need wait "$server"
+server=
+echo "case 8 passed"
 
 trap - EXIT
 rm -rf "$WORK"
