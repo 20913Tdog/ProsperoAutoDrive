@@ -219,7 +219,7 @@ Design: [`design-phase3.md`](design-phase3.md).
 
 **Done when:** the CI is green, the manifest sets `asInvoker`, the program runs without admin in operation, installing into a protected folder shows exactly one UAC prompt and into a free one none (checked live), and nothing is left after removal.
 
-**Afterwards:** first release 0.1.0 via a PR from `dev` to `main`, after the project owner's live test. P33 belongs to 0.1.0. The release is built only when the project owner gives the go (decision of 2026-10-25).
+**Afterwards:** first release 0.1.0 via a PR from `dev` to `main`, after the project owner's live test. P33 belongs to 0.1.0. The release is built only when the project owner gives the go (decision of 2026-10-25). The remaining work is planned in [release-0.1.0-plan.md](release-0.1.0-plan.md).
 
 ### P33 – Payload as its own process
 
