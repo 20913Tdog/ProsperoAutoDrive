@@ -13,9 +13,11 @@ Windows needs nothing but its built-in SMB client and one small program. No driv
 
 ## How it works
 
-1. Load `prospero-smbd.elf` on the PS5, for example with an ELF loader or a payload manager.
+1. Put `prospero-smbd.elf` into `/data/prospero-smbd/` on the PS5 and start it from a payload manager, ideally with autoload.
 2. Start `ProsperoAutoDrive.exe` on the PC and choose an installation folder. It finds the server on the local network, pairs with it and maps the drive.
 3. From then on the drive appears and disappears with the console. The tray menu shows the state and offers actions such as searching the network, pairing another PC, re-pairing and ending the server.
+
+**Getting started:** the [user guide](docs/user-guide.md) describes setup, the tray menu, removal, troubleshooting and the known limitations. Downloads are on the [release page](https://github.com/20913Tdog/ProsperoAutoDrive/releases/latest).
 
 ## Building
 
@@ -23,6 +25,7 @@ One toolchain for all targets: llvm-mingw (Clang) for the PS5 and Windows, the p
 
 ## Documentation
 
+- [`docs/user-guide.md`](docs/user-guide.md): setup, use, removal and troubleshooting
 - [`docs/roadmap.md`](docs/roadmap.md): phases, status and test results
 - [`docs/decisions.md`](docs/decisions.md): design decisions and their reasons
 - [`docs/design-phase2.md`](docs/design-phase2.md), [`docs/design-phase3.md`](docs/design-phase3.md): designs of the server and the Windows program
@@ -32,3 +35,4 @@ One toolchain for all targets: llvm-mingw (Clang) for the PS5 and Windows, the p
 
 - Repository root, Windows components, tests and documentation: [MIT](LICENSE)
 - PS5 payload (`ps5/`): GPL-3.0, see [`ps5/LICENSE`](ps5/LICENSE)
+- Third-party code in the release binaries: [`THIRD-PARTY-NOTICES.txt`](THIRD-PARTY-NOTICES.txt)
