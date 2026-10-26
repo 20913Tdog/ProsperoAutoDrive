@@ -3,7 +3,7 @@
 # service channel on TCP 4445 with pairing and PING, discovery on UDP
 # 4445, one instance, and the share through smbclient. Writes only into a
 # new _ProsperoAutoDrive_Test_* folder below a temporary share root. Needs
-# python3, smbclient and curl. Runs without
+# python3, smbclient, curl and libfaketime (package faketime). Runs without
 # root (SMB port 4454).
 # Usage: host-test.sh <path to the host build of prospero-smbd>
 set -euo pipefail
@@ -16,10 +16,13 @@ STATE="$WORK/state"
 mkdir "$ROOT"
 server=
 
-start() {
+start() { start_with; }
+# start_with <command prefix>...: as start, with the prefix in front of the
+# server only, so that e.g. an LD_PRELOAD does not reach curl in status.
+start_with() {
   # The trailing slash makes the share root end in "/" like "/" on the
   # console, so the path joins in the backend take that branch.
-  "$BIN" "$ROOT/" "$STATE" "$PORT" >>"$WORK/server.log" 2>&1 & server=$!
+  "$@" "$BIN" "$ROOT/" "$STATE" "$PORT" >>"$WORK/server.log" 2>&1 & server=$!
   for _ in $(seq 300); do
     status 2>/dev/null | grep -q '^PROSPERO-SMBD OK$' && return 0
     sleep 0.1
@@ -436,6 +439,57 @@ expect "$rep" '^BYE 1$'
 need wait "$server"
 server=
 echo "case 6a passed"
+
+echo "== case 6b: timers ignore changes of the wall clock"
+# Someone sets the console's clock while the server runs: the pairing window
+# after the start, the idle timeout of the service channel and uptime_s must
+# not move. libfaketime shifts the wall clock of the server process alone and
+# leaves CLOCK_MONOTONIC as it is. The state has paired PCs, so pairing is
+# open for 120 s after this start. libfaketime needs a dynamically linked
+# server; the host preset is.
+ldd "$BIN" >/dev/null || { echo "case 6b needs a dynamically linked $BIN" >&2; exit 1; }
+FT=$(find /usr/lib /usr/lib64 -name 'libfaketimeMT.so.1' 2>/dev/null | head -1)
+need test -n "$FT"                      # CI: apt-get install faketime
+echo "+0" > "$WORK/faketime"
+# The MT variant: the server has a write thread. Both spellings of the
+# monotonic switch, the old one and the one of newer versions.
+start_with env LD_PRELOAD="$FT" FAKETIME_TIMESTAMP_FILE="$WORK/faketime" FAKETIME_NO_CACHE=1 \
+  DONT_FAKE_MONOTONIC=1 FAKETIME_DONT_FAKE_MONOTONIC=1
+expect "$(status)" '^pairing=open$'
+# A service connection that stays open across the jump, as the agent's does.
+python3 - "$WORK/idle.txt" <<'PY' &
+import socket, sys, time
+s = socket.create_connection(("127.0.0.1", 4445), timeout=10)
+f = s.makefile("rb")
+s.sendall(b"HELLO 1\n")
+f.readline()
+time.sleep(3)                           # the jump happens meanwhile
+try:
+    s.sendall(b"PING 1 utc_ms=1\n")
+    rep = f.readline().decode()
+except OSError as e:
+    rep = "error: %s\n" % e
+open(sys.argv[1], "w").write(rep or "closed by the server\n")
+PY
+idle=$!
+sleep 1
+echo "+7200" > "$WORK/faketime"         # wall clock 2 hours forward
+sleep 1
+out=$(status)
+need wait "$idle"
+# All three first, so that a failure shows every timer that moved.
+grep -E '^(uptime_s|now_utc|pairing)=' <<<"$out"
+echo "idle connection after the jump: $(cat "$WORK/idle.txt")"
+# The jump took effect: the server's wall clock is 2 hours ahead.
+ahead=$(( $(date -d "$(sed -n 's/^now_utc=//p' <<<"$out")" +%s) - $(date +%s) ))
+need [ "$ahead" -ge 7100 ]
+expect "$out" '^pairing=open$'          # on the wall clock it would have closed
+need [ "$(sed -n 's/^uptime_s=//p' <<<"$out")" -lt 60 ]
+expect "$(cat "$WORK/idle.txt")" '^PONG 1 '   # not dropped as idle
+svc 127.0.0.1 "QUIT 1" >/dev/null
+need wait "$server"
+server=
+echo "case 6b passed"
 
 echo "== case 7: an invalid config.ini is kept aside and replaced"
 printf 'server_id=nothex\n' > "$STATE/config.ini"

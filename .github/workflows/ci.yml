@@ -145,7 +145,7 @@ jobs:
         run: |
           {
             sudo apt-get update -q &&
-            sudo apt-get install -y -q ninja-build smbclient &&
+            sudo apt-get install -y -q ninja-build smbclient faketime &&
             cmake --preset host &&
             cmake --build --preset host
           } 2>&1 | tee -a ci.log
