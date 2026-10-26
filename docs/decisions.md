@@ -335,3 +335,12 @@ The PS5's internal UTC clock is 1 hour ahead (S2b, S3). Variant 1 was decided:
   - Only trust genuine messages, for example only from a PC with a signed-in SMB session or with a checksum over the password. Otherwise any device on the Wi-Fi could shift all times.
   - Define what applies before the first message, for example the last measured value.
 - ~~**To be checked from 2026-10-26:** whether the daylight saving time is in the kernel clock.~~ **Resolved 2026-10-25 (E3):** the hour came from the PS5's settings, not from the kernel. The time zone was set to London while the shown time had been set by hand to the time in Berlin, so the internal UTC was 1 hour ahead (`tz_minuteswest=0`, `tz_dsttime=60` fit this). After setting the time zone to "UTC+01:00 Berlin" and the time by hand to the wall time, the offset was -40 s, after a second, more careful setting -2 s. The PS5 has no time sync without the internet, so a few seconds of drift remain; the measured offset corrects them as before. No change to the code.
+
+## Release 0.1.0: answers to the open questions (2026-10-26)
+
+The project owner answered the questions Q1–Q6 of the [release plan](release-0.1.0-plan.md):
+
+- **Q1, timer fix:** goes into 0.1.0 (T1). It is tested together with P33 on one build.
+- **Q5, place of the ELF file on the PS5:** `/data/prospero-smbd/`, the same folder as `config.ini` and the log. The server writes only its own files there (`config.ini`, `config.ini.tmp`, `config.ini.bad`, `log.txt`, `log.1.txt`), so the ELF file next to them is never touched. Removing everything from the PS5 is one folder. Resetting the server means deleting `config.ini` only, not the folder, or the Payload Manager no longer finds the file. This replaces the example `/data/prospero/` in [P33](roadmap.md#p33--payload-as-its-own-process); it is still a folder of its own and never `/data/homebrew`.
+- **Q2 and Q6, release files:** `ProsperoAutoDrive.exe`, `prospero-smbd.elf`, `SHA256SUMS`, `BUILD-INFO.txt`, the license texts, `THIRD-PARTY-NOTICES.txt` and a complete source archive including the libsmb2 submodule (GPL-3.0 of the payload). No test programs, no spike payloads.
+- **Q3 and Q4, kind of release and who starts it:** a normal release, not a pre-release, so that `/releases/latest` works; the 0.x version already says that it is early. The project owner starts it with "Run workflow" in the Actions tab; that click is the go.
