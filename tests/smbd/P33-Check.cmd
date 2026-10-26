@@ -10,13 +10,15 @@ rem   P33.4 what "Active Processes" shows (asked), pid and ppid of the server
 rem   P33.2 stopped in "Active Processes": drive gone within 5 s on cable,
 rem         the Payload Manager keeps answering
 rem   P33.3 started again: drive back within 3 s, without a new pairing
+rem   P33.6 the owner copies the file over the one that runs, via the drive;
+rem         the later starts run the copy (tools\Run-Test.cmd P33 already
+rem         had the new build copied the same way before)
 rem   P33.5 last in "Autoload", PS5 restarted: the drive comes by itself
 rem   P33.7 started a second time while it runs, via websend and then from
 rem         the dashboard: each new instance replaces the old one
-rem P33.6, copying the new file over the old one via P: while the server
-rem runs, happens before: tools\Run-Test.cmd P33 asks for it. The script
-rem neither reads nor writes files on the console; its state is in
-rem %TEMP%\prospero-p33, the credentials are those of the pairing.
+rem The script itself neither reads nor writes files on the console; the
+rem copying is the owner's. Its state is in %TEMP%\prospero-p33, the
+rem credentials are those of the pairing.
 rem   P33-Check.cmd <PS5-IP>
 rem Windows built-ins only (curl.exe).
 setlocal EnableExtensions EnableDelayedExpansion
@@ -42,7 +44,7 @@ if not exist "%APP%" (
 if exist "%STATE%" rmdir /s /q "%STATE%"
 del /q "%SUMMARY%" 2>nul
 
-echo ===== P33.6 The new file runs, started from the dashboard =====
+echo ===== Before the test: the new file runs, started from the dashboard =====
 call :status "before the test"
 if not defined S_INSTANCE (
   echo ERROR: no server answers on port 4445.
@@ -56,7 +58,7 @@ if not defined S_PID (
   exit /b 1
 )
 >con echo.
->con echo   P33.6: how did the new file get onto the PS5?
+>con echo   How did the new file get onto the PS5?
 >con echo     p = in the Explorer onto P: while the old server was running
 >con echo     o = another way (FTP, USB stick, ...)
 set "HOW="
@@ -113,6 +115,19 @@ findstr /c:"Paired with server" "%LOG%" >nul 2>&1 && (
 ) || (
   echo %time% No new pairing: the program used the stored credentials
 )
+
+echo.
+echo ===== P33.6 Copy the file over the one that runs =====
+>con echo.
+>con echo   P33.6: copy %DIST%\prospero-smbd.elf
+>con echo   once more onto the drive, into P:\data\prospero-smbd\, and replace the
+>con echo   file there while the server runs. The folder with the file opens for you.
+start "" explorer.exe /select,"%DIST%\prospero-smbd.elf"
+set "OK="
+>con set /p "OK=  Did copying work? y or n, then Enter: " <con
+echo %time% Owner: copying over the running file worked: "!OK!"
+>>"%SUMMARY%" echo P33.6 copying over the running file worked: !OK!
+call :status "P33.6 after copying, still running"
 
 echo.
 echo ===== P33.5 Autoload after a restart of the PS5 =====
