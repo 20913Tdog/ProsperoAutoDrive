@@ -589,3 +589,116 @@ jobs:
           done
           echo "::error title=dev-build::BUILD-INFO.txt is not publicly downloadable for ${GITHUB_SHA}"
           exit 1
+
+  # Release mechanism: the release script on every green dev build, without
+  # publishing anything. release.yml runs the same script on main, and
+  # workflow_dispatch works only for workflows on main, so this is where the
+  # script is tested before a release. A newer push may have replaced
+  # dev-build meanwhile; then there is nothing to compare with.
+  release-dry-run:
+    name: release-dry-run
+    if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
+    needs: [publish-dev]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: true
+
+      - name: Assemble the release; refusals; the source archive builds
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="https://github.com/${GITHUB_REPOSITORY}/releases/download/dev-build"
+          built=$(curl -fsSL "$base/BUILD-INFO.txt" | sed -n 's/^commit=//p')
+          if [ "$built" != "$GITHUB_SHA" ]; then
+            echo "::notice title=release dry run::skipped: dev-build is ${built:0:7} now, from a newer push"
+            exit 0
+          fi
+          version=$(sed -n 's/^project(ProsperoAutoDrive VERSION \([0-9.]*\) .*/\1/p' CMakeLists.txt)
+          {
+            bash .github/scripts/release-assemble.sh "$version" out
+
+            # Exactly the release files, the programs byte for byte as tested.
+            diff <(ls out | LC_ALL=C sort) <(printf '%s\n' BUILD-INFO.txt LICENSE-libsmb2-LGPL-2.1.txt \
+              LICENSE-ps5.txt LICENSE.txt ProsperoAutoDrive.exe SHA256SUMS THIRD-PARTY-NOTICES.txt \
+              "prospero-autodrive-$version-source.tar.gz" prospero-smbd.elf | LC_ALL=C sort)
+            echo "release files: $(ls out | tr '\n' ' ')"
+            curl -fsSL "$base/SHA256SUMS" -o dev-sums
+            for f in ProsperoAutoDrive.exe prospero-smbd.elf; do
+              want=$(awk -v f="$f" '$2 == f {print $1}' dev-sums)
+              got=$(sha256sum "out/$f" | cut -d' ' -f1)
+              [ -n "$want" ] && [ "$want" = "$got" ] || { echo "::error::$f is not the file of dev-build"; exit 1; }
+              echo "same as dev-build: $f $got"
+            done
+            (cd out && sha256sum --strict -c SHA256SUMS)
+
+            # The source archive is complete: it builds the server (host).
+            mkdir src
+            tar -xzf "out/prospero-autodrive-$version-source.tar.gz" -C src
+            sudo apt-get install -y -q ninja-build >/dev/null
+            cmake -S "src/prospero-autodrive-$version-source" -B src-build -G Ninja \
+              -DCMAKE_BUILD_TYPE=Release >/dev/null
+            cmake --build src-build --target prospero-smbd >/dev/null
+            echo "the source archive builds prospero-smbd (host)"
+
+            # release.yml refuses notes that are missing or have TODO lines.
+            notes="docs/release-notes/$version.md"
+            if [ ! -f "$notes" ]; then
+              echo "release notes: $notes is missing, release.yml would refuse"
+            elif grep -q 'TODO' "$notes"; then
+              echo "release notes: $notes is not final yet (TODO lines), release.yml would refuse"
+            else
+              echo "release notes: $notes is final"
+            fi
+
+            # Refusals; nothing is published either way.
+            must_fail() {
+              local what=$1 want=$2 got
+              shift 2
+              if got=$("$@" 2>&1); then
+                echo "::error::the release script accepted $what"
+                return 1
+              fi
+              if ! grep -qF -- "$want" <<<"$got"; then
+                echo "::error::the release script refused $what for another reason: $got"
+                return 1
+              fi
+              echo "refused as expected: $what"
+            }
+            S=.github/scripts/release-assemble.sh
+            must_fail "a version that is not in the source" "is not version 9.9.9" bash $S 9.9.9 neg
+            must_fail "a malformed version" "bad version" bash $S '0.1.0;true' neg
+            must_fail "an out dir that exists" "out exists already" bash $S "$version" out
+            git update-ref "refs/tags/v$version" HEAD
+            must_fail "a tag that exists" "tag v$version exists already" bash $S "$version" neg
+            git update-ref -d "refs/tags/v$version"
+            echo "release dry run" >> README.md
+            git -c user.name=dry-run -c user.email=dry-run@localhost commit -q -am "dry run: another tree"
+            must_fail "a tree that was not tested" "is not the tree of HEAD" bash $S "$version" neg
+            git reset -q --hard HEAD~1
+            echo "RELEASE-DRY-RUN: OK"
+          } 2>&1 | tee release.log
+
+      - name: Results as annotation (readable without login)
+        if: always()
+        shell: bash
+        run: |
+          if [ -f release.log ]; then
+            grep -E '^(release [0-9]|release files|release notes|same as dev-build|the source archive|refused as expected|RELEASE-DRY-RUN)' \
+              release.log > summary.log || true
+            bash .github/scripts/annotate-tail.sh summary.log notice "release dry run"
+            grep -q '^RELEASE-DRY-RUN: OK' release.log || bash .github/scripts/annotate-tail.sh release.log
+          fi
+          true
+
+      - uses: actions/upload-artifact@v4
+        if: hashFiles('out/SHA256SUMS') != ''
+        with:
+          name: release-dry-run
+          path: out/*
+          if-no-files-found: error

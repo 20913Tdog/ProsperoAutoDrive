@@ -1,0 +1,94 @@
+name: Release
+
+# Publishes a release from the tested dev build, without building anything
+# (CLAUDE.md): .github/scripts/release-assemble.sh takes the files of
+# dev-build, which must come from the same tree as this commit on main.
+# Started by the project owner: Actions, "Release", "Run workflow" on main,
+# with the version. That click is the go. The same script runs on every dev
+# push in the release-dry-run job of ci.yml.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release, e.g. 0.1.0 (must match CMakeLists.txt and app.rc)"
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: release
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    env:
+      # Only through the environment, never inline in a run line; the script
+      # checks that it is x.y.z before anything else uses it.
+      VERSION: ${{ inputs.version }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: true
+
+      - name: Assemble from dev-build (refuses on a different tree)
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash .github/scripts/release-assemble.sh "$VERSION" out
+          [ -f "docs/release-notes/$VERSION.md" ] || { echo "::error::docs/release-notes/$VERSION.md is missing"; exit 1; }
+          if grep -n 'TODO' "docs/release-notes/$VERSION.md"; then
+            echo "::error::docs/release-notes/$VERSION.md still has TODO lines"
+            exit 1
+          fi
+
+      - name: Create the release
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release create "v$VERSION" out/* \
+            --target "$GITHUB_SHA" \
+            --title "Prospero AutoDrive $VERSION" \
+            --notes-file "docs/release-notes/$VERSION.md" \
+            --latest
+
+      # As in publish-dev: once a release stayed an invisible draft, so the
+      # state is checked, and every file is fetched anonymously, as a user
+      # would, and checked against the assembled checksums.
+      - name: Check the release is public and complete
+        shell: bash
+        run: |
+          set -euo pipefail
+          state=$(gh release view "v$VERSION" --json isDraft,isPrerelease,assets \
+            --jq '"draft=\(.isDraft) prerelease=\(.isPrerelease) assets=\(.assets | length)"')
+          echo "::notice title=release v$VERSION::$state"
+          case "$state" in
+            draft=true*) gh release edit "v$VERSION" --draft=false --latest ;;
+          esac
+          base="https://github.com/${GITHUB_REPOSITORY}/releases/download/v$VERSION"
+          d=$(mktemp -d)
+          for i in $(seq 18); do
+            curl -fsSL "$base/SHA256SUMS" -o "$d/SHA256SUMS" 2>/dev/null && break
+            sleep 10
+          done
+          [ -s "$d/SHA256SUMS" ] || { echo "::error::SHA256SUMS of v$VERSION cannot be downloaded anonymously"; exit 1; }
+          cmp "$d/SHA256SUMS" out/SHA256SUMS
+          for f in $(awk '{print $2}' "$d/SHA256SUMS"); do
+            curl -fsSL -o "$d/$f" "$base/$f"
+          done
+          (cd "$d" && sha256sum --strict -c SHA256SUMS)
+          latest=$(curl -fsSI "https://github.com/${GITHUB_REPOSITORY}/releases/latest" | sed -n 's/^location: *//Ip' | tr -d '\r')
+          case "$latest" in
+            */tag/v"$VERSION") echo "/releases/latest points to v$VERSION" ;;
+            *) echo "::error::/releases/latest points to '$latest', not v$VERSION"; exit 1 ;;
+          esac
+          echo "::notice title=release v$VERSION::public, every file checked; $(grep -E ' (ProsperoAutoDrive.exe|prospero-smbd.elf)$' out/SHA256SUMS | tr '\n' ' ')"
