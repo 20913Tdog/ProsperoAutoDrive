@@ -195,6 +195,7 @@ Design: [`design-phase3.md`](design-phase3.md).
   - Part B, own folder: installed and removed without admin rights, without leftovers.
   - Open: the visible UAC prompt with default UAC, and a Windows with Smart App Control (phase 4).
 - **Stop server** from the tray (signed `QUIT`, the server says `GOODBYE` last) and **Pair with the new server** (after the server was reset): E1 and E2 green, passed live (E3, build `7f97ddc`, 2026-10-25).
+- **Timers on the monotonic clock** ([decision](decisions.md#timers-on-the-monotonic-clock-2026-10-26)): setting the PS5's clock no longer moves the pairing windows, the idle timeout or `uptime_s`. E1: host test case 6b failed on the old code (`ce90fca`) and passes since `531be58`. E3 comes with P33 and P32 on the same build.
 
 **Scope:**
 
@@ -223,7 +224,7 @@ Design: [`design-phase3.md`](design-phase3.md).
 
 ### P33 – Payload as its own process
 
-[Decision](decisions.md#payload-as-its-own-process-2026-10-25): the Payload Manager starts `prospero-smbd.elf` from a file as a process of its own, instead of loading it into `pldmgr.elf` via websend. The file lives in a folder of its own, for example `/data/prospero/` or on the USB stick, never in `/data/homebrew`. The project owner does all steps by hand (E3).
+[Decision](decisions.md#payload-as-its-own-process-2026-10-25): the Payload Manager starts `prospero-smbd.elf` from a file as a process of its own, instead of loading it into `pldmgr.elf` via websend. The file lives in `/data/prospero-smbd/`, next to `config.ini` ([decision of 2026-10-26](decisions.md#release-010-answers-to-the-open-questions-2026-10-26)), never in `/data/homebrew`. The project owner does all steps by hand (E3), guided by `tools\Run-Test.cmd P33` (`tests/smbd/P33-Check.cmd`); the status shows `pid=` and `ppid=` of the server for P33.1 and P33.4.
 
 | No. | Step | Expected |
 |---|---|---|

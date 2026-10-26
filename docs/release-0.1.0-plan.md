@@ -22,6 +22,19 @@ The last green build at the time of writing is `548eadb` (docs only on top of `4
 - **The release is built only when the project owner gives the go.** Prepare everything, never trigger it on your own.
 - Versioning: 0.1.0 now, then SemVer patch/minor (0.1.1, 0.2.0 …) until G2 and 1.0.0.
 
+### Progress (2026-10-26, second session)
+
+| Task | State |
+|---|---|
+| Q1–Q6 | answered, see [decisions](decisions.md#release-010-answers-to-the-open-questions-2026-10-26): T1 yes; the ELF file lives in `/data/prospero-smbd/`; files as recommended, with the source archive; a normal release, started by the owner's click |
+| Q7 (new) | Should the source of the ps5-payload-sdk (its `crt1.o` and parts of its `libc.a` are linked into the payload, GPL-3.0 and others) go into the source archive too, or is a reference enough? The owner asked for help and to discuss it later. Until then: reference only (THIRD-PARTY-NOTICES.txt names tag, commit and the SHA-256 of the SDK zip). Decide before T6 |
+| T1 | done, E1: case 6b failed on the old code (`ce90fca`, "expected '^pairing=open$'" after the jump) and passes since `531be58`; decision recorded. E3 pending (P32 + P33) |
+| T2a | done, E1 (`531be58`): case 1 checks `pid=` against the server's PID and `ppid=` against the test shell. E3 pending (P33) |
+| T2 | `tests/smbd/P33-Check.cmd` and `Run-Test.cmd P33` (NOSEND) ready; waiting for the owner's run |
+| T3 | `docs/user-guide.md`, checked against the code; waiting for the owner to read it |
+| T4 | `THIRD-PARTY-NOTICES.txt`; components found by linking locally with the pinned toolchain (`lld --verbose`, `--trace`) |
+| T5 | `.github/scripts/release-assemble.sh`, job `release-dry-run`, `.github/workflows/release.yml`, `docs/release-notes/0.1.0.md` (two TODO lines for the E3 results; `release.yml` refuses notes with TODO) |
+
 ### Open questions to the project owner (ask them before the affected task)
 
 | # | Question | Recommendation | Needed for |
@@ -232,7 +245,7 @@ echo "case 6b passed"
 
 - P33.2 says "stop via Active Processes". The short probe did not show the server there. If it stays like that, use the tray item "Stop <name>..." instead and record the deviation; do not make up a pass.
 - P33.5 (autoload after a restart of the PS5): the drive comes only after the jailbreak and the Payload Manager have started, not seconds after power-on. Measure from the "running" notification.
-- The PS5's IP address may change after a restart (DHCP). The program then searches by broadcast; that is expected behavior, not an error.
+- The PS5's IP address may change after a restart (DHCP). The program does **not** search by itself ([decision of 2026-10-24](decisions.md#no-automatic-broadcast-2026-10-24)); then "Search the network for PS5 (30 s)" in the tray menu. That is expected behavior, not an error. (Corrected on 2026-10-26: this plan first said it searches by broadcast.)
 - The script writes nothing on the PS5. The project owner copies the ELF by hand; that is their action, not a test write.
 - Progress shows on the console (`>con`), never in the pasted log.
 
